@@ -26,6 +26,7 @@ import {
   QuotationBlockId,
   StudioSelectedSection,
   QuotationHeaderConfig,
+  QuotationPageHeaderOverride,
   QuotationRecipientConfig,
   QuotationFooterConfig,
   QuotationItemAttribute,
@@ -98,7 +99,10 @@ import {
   resolveStampSignatureOverlayConfig,
   amountToWords,
   ensureSpecializedDocumentBlocks,
-  resolveDocumentPaginationWithAnnexes
+  resolveDocumentPaginationWithAnnexes,
+  getBodyPageHeaderKey,
+  getAnnexPageHeaderKey,
+  isPageHeaderOverrideActive
 } from './QuotationDocument';
 import {
   AtMentionInput,
@@ -4724,6 +4728,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         ...prev,
         ...(hydrated.headerConfig || {}),
         ...(preset.header_config || {}),
+        pageHeaderOverrides: hydrated.headerConfig?.pageHeaderOverrides,
         ...(preset.documentFontFamily
           ? { documentFontFamily: preset.documentFontFamily }
           : {}),
@@ -8393,6 +8398,52 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     });
   }, []);
 
+  // Per-Page Header Overrides Inspector state & handlers
+  const [isPerPageHeaderOpen, setIsPerPageHeaderOpen] = useState<boolean>(false);
+  const [selectedHeaderOverrideSheetKey, setSelectedHeaderOverrideSheetKey] = useState<string>('body_1');
+
+  const handleEditPageHeader = useCallback((sheetKey: string) => {
+    setSelectedHeaderOverrideSheetKey(sheetKey);
+    setIsPerPageHeaderOpen(true);
+    setInspectorSubTarget(null);
+    setSelectedSection('header');
+  }, [setSelectedSection]);
+
+  const handleUpdatePageHeaderOverride = useCallback(
+    (sheetKey: string, patch: Partial<QuotationPageHeaderOverride>) => {
+      setHeaderConfig((prev) => {
+        const existingMap = { ...(prev.pageHeaderOverrides || {}) };
+        const mergedEntry: QuotationPageHeaderOverride = {
+          ...(existingMap[sheetKey] || {}),
+          ...patch
+        };
+        if (mergedEntry.mode === 'inherit') {
+          delete mergedEntry.mode;
+        }
+        existingMap[sheetKey] = mergedEntry;
+        const sanitized = QuotationRepository.sanitizePageHeaderOverrides(existingMap);
+        return {
+          ...prev,
+          pageHeaderOverrides: sanitized
+        };
+      });
+    },
+    []
+  );
+
+  const handleResetPageHeaderOverride = useCallback((sheetKey: string) => {
+    setHeaderConfig((prev) => {
+      if (!prev.pageHeaderOverrides || !prev.pageHeaderOverrides[sheetKey]) return prev;
+      const nextMap = { ...prev.pageHeaderOverrides };
+      delete nextMap[sheetKey];
+      const sanitized = QuotationRepository.sanitizePageHeaderOverrides(nextMap);
+      return {
+        ...prev,
+        pageHeaderOverrides: sanitized
+      };
+    });
+  }, []);
+
   // Direct On-Canvas Click-to-Edit Handler for Focused Section / Block Text
   const handleInlineFieldEdit = useCallback(
     (fieldKey: string, nextValue: string) => {
@@ -9403,6 +9454,18 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       return true;
     }
     if (
+      JSON.stringify(
+        QuotationRepository.sanitizePageHeaderOverrides(
+          selectedPreset.header_config?.pageHeaderOverrides
+        ) || {}
+      ) !==
+      JSON.stringify(
+        QuotationRepository.sanitizePageHeaderOverrides(headerConfig.pageHeaderOverrides) || {}
+      )
+    ) {
+      return true;
+    }
+    if (
       (selectedPreset.footer_config?.customDisclaimer || '') !==
       (footerConfig.customDisclaimer || '')
     ) {
@@ -9443,6 +9506,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     headerConfig.documentFontFamily,
     headerConfig.companyNameOverride,
     headerConfig.headerFields,
+    headerConfig.pageHeaderOverrides,
     pdfFilenamePattern,
     signatoryName,
     signatoryTitle,
@@ -15301,6 +15365,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                       onSelectBlock={(id) => handleCanvasSelectSection(id)}
                       onInlineFieldEdit={handleInlineFieldEdit}
                       onToggleBodyPageNumbering={handleToggleBodyPageNumbering}
+                      onEditPageHeader={handleEditPageHeader}
                       showPageBreakGuides={showPageBreakGuides}
                     />
                   </div>
@@ -16330,6 +16395,297 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                 </div>
                               )}
                           </div>
+
+                          {/* 8. Per-Page Header Overrides (Collapsible) */}
+                          {(() => {
+                            const headerPreviewPagination = resolveDocumentPaginationWithAnnexes(
+                              liveQuotation.layout_blocks || [],
+                              liveQuotation.line_items || [],
+                              liveQuotation.flyer_attachments,
+                              liveQuotation.show_submittals_index !== false,
+                              {
+                                autoPaginate: Boolean(liveQuotation.auto_paginate_items),
+                                columnConfig: visibleColumns,
+                                quotation: liveQuotation,
+                                excludedBodyPageIndices: footerConfig.excluded_page_indices
+                              }
+                            );
+
+                            const sheetOptions: Array<{
+                              key: string;
+                              label: string;
+                              subLabel: string;
+                              kind: 'body_first' | 'body_continuation' | 'annex';
+                            }> = [
+                              ...headerPreviewPagination.mainSheets.map((s, idx) => {
+                                const bodyNum = s.bodyPageNumber || idx + 1;
+                                const key = getBodyPageHeaderKey(bodyNum);
+                                const isFirstBody = idx === 0;
+                                return {
+                                  key,
+                                  label: `Page ${bodyNum}`,
+                                  subLabel: s.excludedFromPageCount
+                                    ? 'Unnumbered'
+                                    : isFirstBody
+                                    ? 'Main Letterhead'
+                                    : 'Continuation',
+                                  kind: isFirstBody
+                                    ? ('body_first' as const)
+                                    : ('body_continuation' as const)
+                                };
+                              }),
+                              ...headerPreviewPagination.annexSheets
+                                .map((annex, annexIdx) => ({ annex, annexIdx }))
+                                .filter(({ annex }) => !annex.fullBleed)
+                                .map(({ annex, annexIdx }) => ({
+                                  key: getAnnexPageHeaderKey(annex.attachment.id, annexIdx),
+                                  label: `Annex ${annexIdx + 1}`,
+                                  subLabel: annex.headerTitle || annex.attachment.name || 'Technical Annex',
+                                  kind: 'annex' as const
+                                }))
+                            ];
+
+                            const overridesMap = headerConfig.pageHeaderOverrides || {};
+                            const activeOverrideCount = Object.values(overridesMap).filter((ov) =>
+                              isPageHeaderOverrideActive(ov)
+                            ).length;
+
+                            const activeSheetOption =
+                              sheetOptions.find((o) => o.key === selectedHeaderOverrideSheetKey) ||
+                              sheetOptions[0] || {
+                                key: 'body_1',
+                                label: 'Page 1',
+                                subLabel: 'Main Letterhead',
+                                kind: 'body_first' as const
+                              };
+                            const currentKey = activeSheetOption.key;
+                            const currentOverride: QuotationPageHeaderOverride =
+                              overridesMap[currentKey] || {};
+                            const currentHasOverride = isPageHeaderOverrideActive(currentOverride);
+                            const currentMode = currentOverride.mode || 'inherit';
+
+                            const defaultShowLogo =
+                              activeSheetOption.kind === 'body_first'
+                                ? headerConfig.showLogo !== false
+                                : headerConfig.showLogoOnContinuationPages !== false;
+                            const defaultShowDate = activeSheetOption.kind !== 'annex';
+                            const defaultShowQuoteRef =
+                              activeSheetOption.kind === 'annex'
+                                ? true
+                                : headerConfig.showQuoteRefOnContinuation !== false;
+                            const defaultShowPageNum =
+                              headerConfig.showPageNumberOnContinuation !== false;
+
+                            return (
+                              <div className="pt-2 border-t border-slate-100">
+                                <button
+                                  type="button"
+                                  onClick={() => setIsPerPageHeaderOpen((prev) => !prev)}
+                                  className="w-full flex items-center justify-between px-2.5 py-2 rounded-xl border border-slate-200 bg-slate-50/80 hover:bg-slate-100/80 transition cursor-pointer"
+                                >
+                                  <div className="flex items-center gap-1.5 min-w-0">
+                                    <Layers className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                                    <span className="text-xs font-bold text-slate-800 truncate">
+                                      Per-Page Header Overrides
+                                    </span>
+                                    {activeOverrideCount > 0 && (
+                                      <span className="px-1.5 py-0.5 rounded-full text-[9.5px] font-mono font-bold bg-indigo-100 text-indigo-700 shrink-0">
+                                        {activeOverrideCount} custom
+                                      </span>
+                                    )}
+                                  </div>
+                                  {isPerPageHeaderOpen ? (
+                                    <ChevronDown className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                                  ) : (
+                                    <ChevronRight className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                                  )}
+                                </button>
+
+                                {isPerPageHeaderOpen && (
+                                  <div className="mt-2 p-2.5 rounded-xl border border-slate-200 bg-slate-50/60 space-y-2.5">
+                                    <p className="text-[10px] text-slate-500 leading-normal">
+                                      Override header style, title, or metadata on any individual sheet without affecting other pages.
+                                    </p>
+
+                                    {/* Sheet Selector Pills */}
+                                    <div className="flex flex-wrap gap-1">
+                                      {sheetOptions.map((opt) => {
+                                        const isSelected = opt.key === currentKey;
+                                        const hasCustom = isPageHeaderOverrideActive(overridesMap[opt.key]);
+                                        return (
+                                          <button
+                                            key={opt.key}
+                                            type="button"
+                                            onClick={() => setSelectedHeaderOverrideSheetKey(opt.key)}
+                                            title={`${opt.label} (${opt.subLabel})`}
+                                            className={`px-2 py-1 rounded-lg text-[10px] font-semibold border transition cursor-pointer flex items-center gap-1 ${
+                                              isSelected
+                                                ? 'border-indigo-600 bg-indigo-50 text-indigo-900 ring-1 ring-indigo-600/20'
+                                                : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
+                                            }`}
+                                          >
+                                            <span>{opt.label}</span>
+                                            {hasCustom && (
+                                              <span
+                                                className="w-1.5 h-1.5 rounded-full bg-indigo-600 shrink-0"
+                                                title="Custom override active"
+                                              />
+                                            )}
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+
+                                    {/* Active Sheet Header Bar + Reset */}
+                                    <div className="flex items-center justify-between pt-1 border-t border-slate-200/70">
+                                      <div className="min-w-0">
+                                        <span className="text-[10.5px] font-bold text-slate-800">
+                                          {activeSheetOption.label}
+                                        </span>
+                                        <span className="text-[9.5px] text-slate-400 ml-1.5 truncate">
+                                          • {activeSheetOption.subLabel}
+                                        </span>
+                                      </div>
+                                      <button
+                                        type="button"
+                                        disabled={!currentHasOverride}
+                                        onClick={() => handleResetPageHeaderOverride(currentKey)}
+                                        className="px-2 py-0.5 rounded-md text-[10px] font-semibold border border-slate-200 bg-white text-slate-600 hover:text-rose-700 hover:border-rose-200 hover:bg-rose-50 disabled:opacity-40 disabled:cursor-default transition flex items-center gap-1 cursor-pointer shrink-0"
+                                        title={`Reset ${activeSheetOption.label} back to global header settings`}
+                                      >
+                                        <RotateCcw className="w-2.5 h-2.5" />
+                                        <span>Reset This Page</span>
+                                      </button>
+                                    </div>
+
+                                    {/* 5-Way Per-Page Header Mode */}
+                                    <div className="space-y-1">
+                                      <label className="text-[10px] font-bold uppercase text-slate-500 block">
+                                        Header Style on {activeSheetOption.label}
+                                      </label>
+                                      <div className="grid grid-cols-3 gap-1">
+                                        {[
+                                          { id: 'inherit' as const, label: 'Inherit Global' },
+                                          { id: 'full_repeat' as const, label: 'Full Header' },
+                                          { id: 'compact' as const, label: 'Compact' },
+                                          { id: 'logo_only' as const, label: 'Logo Only' },
+                                          { id: 'none' as const, label: 'Hidden' }
+                                        ].map((m) => {
+                                          const isActive = currentMode === m.id;
+                                          return (
+                                            <button
+                                              key={m.id}
+                                              type="button"
+                                              onClick={() =>
+                                                handleUpdatePageHeaderOverride(currentKey, { mode: m.id })
+                                              }
+                                              className={`px-2 py-1.5 rounded-lg text-[10px] font-semibold border transition cursor-pointer text-center ${
+                                                isActive
+                                                  ? 'border-indigo-600 bg-indigo-50 text-indigo-900 ring-1 ring-indigo-600/20'
+                                                  : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
+                                              }`}
+                                            >
+                                              {m.label}
+                                            </button>
+                                          );
+                                        })}
+                                      </div>
+                                    </div>
+
+                                    {currentMode !== 'none' && (
+                                      <>
+                                        {/* Custom Header Title (@tag enabled) */}
+                                        <div className="space-y-1">
+                                          <label className="text-[10px] font-bold uppercase text-slate-500 block">
+                                            Custom Header Title <span className="font-mono text-blue-600 normal-case">(@tags)</span>
+                                          </label>
+                                          <AtMentionInput
+                                            value={currentOverride.customTitle || ''}
+                                            onChange={(val) =>
+                                              handleUpdatePageHeaderOverride(currentKey, {
+                                                customTitle: val
+                                              })
+                                            }
+                                            tokenContext={studioTokenContext}
+                                            placeholder="Optional center title (e.g. Technical Schedule — @subject)"
+                                            className="w-full px-2 py-1.5 text-[11px] bg-white border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                                          />
+                                        </div>
+
+                                        {/* Custom Right Metadata (@tag enabled) */}
+                                        <div className="space-y-1">
+                                          <label className="text-[10px] font-bold uppercase text-slate-500 block">
+                                            Custom Right Metadata <span className="font-mono text-blue-600 normal-case">(@tags)</span>
+                                          </label>
+                                          <AtMentionInput
+                                            value={currentOverride.customRightText || ''}
+                                            onChange={(val) =>
+                                              handleUpdatePageHeaderOverride(currentKey, {
+                                                customRightText: val
+                                              })
+                                            }
+                                            tokenContext={studioTokenContext}
+                                            placeholder="Optional right text (e.g. @quote_ref_no • @client_name)"
+                                            className="w-full px-2 py-1.5 text-[11px] bg-white border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                                          />
+                                        </div>
+
+                                        {/* Per-Page Visibility Toggles */}
+                                        <div className="space-y-1">
+                                          <label className="text-[10px] font-bold uppercase text-slate-500 block">
+                                            Page Header Elements
+                                          </label>
+                                          <div className="grid grid-cols-2 gap-1.5">
+                                            {[
+                                              {
+                                                key: 'showLogo' as const,
+                                                label: 'Logo',
+                                                checked: currentOverride.showLogo ?? defaultShowLogo
+                                              },
+                                              {
+                                                key: 'showDate' as const,
+                                                label: 'Date',
+                                                checked: currentOverride.showDate ?? defaultShowDate
+                                              },
+                                              {
+                                                key: 'showQuoteRef' as const,
+                                                label: 'Quote Ref',
+                                                checked: currentOverride.showQuoteRef ?? defaultShowQuoteRef
+                                              },
+                                              {
+                                                key: 'showPageNumber' as const,
+                                                label: 'Page #',
+                                                checked: currentOverride.showPageNumber ?? defaultShowPageNum
+                                              }
+                                            ].map((toggle) => (
+                                              <label
+                                                key={toggle.key}
+                                                className="flex items-center justify-between px-2 py-1.5 rounded-lg bg-white border border-slate-200/80 cursor-pointer select-none"
+                                              >
+                                                <span className="text-[10.5px] font-medium text-slate-700">
+                                                  {toggle.label}
+                                                </span>
+                                                <input
+                                                  type="checkbox"
+                                                  checked={toggle.checked}
+                                                  onChange={(e) =>
+                                                    handleUpdatePageHeaderOverride(currentKey, {
+                                                      [toggle.key]: e.target.checked
+                                                    })
+                                                  }
+                                                  className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                                                />
+                                              </label>
+                                            ))}
+                                          </div>
+                                        </div>
+                                      </>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
 
                           {/* Informational Guardrail Card */}
                           <div className="rounded-xl border border-blue-100 bg-blue-50/40 p-3 text-slate-600 space-y-1">

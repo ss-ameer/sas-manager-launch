@@ -9,6 +9,7 @@ import {
   EnquiryQuotationSyncPayload,
   QuotationBlockConfig,
   QuotationRecipientConfig,
+  QuotationPageHeaderOverride,
   CommercialDocumentType
 } from '../../types';
 import { safeGetDocs, safeGetDoc, safeSetDoc, safeAddDoc, safeUpdateDoc, safeDeleteDoc, db } from '../../firebase';
@@ -1072,14 +1073,12 @@ export class QuotationRepository {
             ? { headerFields: source.header_config.headerFields.map((f) => ({ ...f })) }
             : {}),
           ...(source.header_config.pageHeaderOverrides
-            ? {
-                pageHeaderOverrides: Object.fromEntries(
-                  Object.entries(source.header_config.pageHeaderOverrides).map(([k, v]) => [
-                    k,
-                    v ? { ...v } : {}
-                  ])
-                )
-              }
+            ? (() => {
+                const cleaned = this.sanitizePageHeaderOverrides(
+                  source.header_config.pageHeaderOverrides
+                );
+                return { pageHeaderOverrides: cleaned };
+              })()
             : {})
         }
       : source.company_logo_url
@@ -1975,6 +1974,13 @@ export class QuotationRepository {
         showLogoOnContinuationPages: true,
         ...(profile?.header_config || {}),
         ...(quotation?.header_config || {}),
+        ...(() => {
+          const mergedOverrides =
+            quotation?.header_config?.pageHeaderOverrides ??
+            profile?.header_config?.pageHeaderOverrides;
+          const cleaned = this.sanitizePageHeaderOverrides(mergedOverrides);
+          return cleaned ? { pageHeaderOverrides: cleaned } : { pageHeaderOverrides: undefined };
+        })(),
         ...(quotation?.header_config?.logoUrl || quotation?.company_logo_url
           ? { logoUrl: quotation?.header_config?.logoUrl || quotation?.company_logo_url }
           : {})
@@ -3180,6 +3186,52 @@ export class QuotationRepository {
   }
 
   /**
+   * Deep-clones and normalizes `header_config.pageHeaderOverrides`, dropping empty or
+   * inherit-only entries so quotation saves, revision clones, and preset snapshots stay tidy.
+   */
+  public static sanitizePageHeaderOverrides(
+    raw?: Record<string | number, QuotationPageHeaderOverride> | null
+  ): Record<string, QuotationPageHeaderOverride> | undefined {
+    if (!raw || typeof raw !== 'object') return undefined;
+    const cleaned: Record<string, QuotationPageHeaderOverride> = {};
+    for (const [rawKey, entry] of Object.entries(raw)) {
+      if (!entry || typeof entry !== 'object') continue;
+      const key = String(rawKey).trim();
+      if (!key) continue;
+      const normalized: QuotationPageHeaderOverride = {};
+      if (
+        entry.mode &&
+        entry.mode !== 'inherit' &&
+        (entry.mode === 'full_repeat' ||
+          entry.mode === 'compact' ||
+          entry.mode === 'logo_only' ||
+          entry.mode === 'none')
+      ) {
+        normalized.mode = entry.mode;
+      }
+      if (typeof entry.customTitle === 'string' && entry.customTitle.trim() !== '') {
+        normalized.customTitle = entry.customTitle.trim();
+      }
+      if (typeof entry.customRightText === 'string' && entry.customRightText.trim() !== '') {
+        normalized.customRightText = entry.customRightText.trim();
+      }
+      if (typeof entry.showLogo === 'boolean') normalized.showLogo = entry.showLogo;
+      if (typeof entry.showCompanyName === 'boolean') {
+        normalized.showCompanyName = entry.showCompanyName;
+      }
+      if (typeof entry.showDate === 'boolean') normalized.showDate = entry.showDate;
+      if (typeof entry.showQuoteRef === 'boolean') normalized.showQuoteRef = entry.showQuoteRef;
+      if (typeof entry.showPageNumber === 'boolean') {
+        normalized.showPageNumber = entry.showPageNumber;
+      }
+      if (Object.keys(normalized).length > 0) {
+        cleaned[key] = normalized;
+      }
+    }
+    return Object.keys(cleaned).length > 0 ? cleaned : undefined;
+  }
+
+  /**
    * Serializes a complete studio preset snapshot preserving 100% of Phase 1 & Phase 2 settings.
    */
   public static serializePresetSnapshot(
@@ -3418,16 +3470,10 @@ export class QuotationRepository {
       ...(Array.isArray(rawHeaderCfg.headerFields)
         ? { headerFields: rawHeaderCfg.headerFields.map((f) => ({ ...f })) }
         : {}),
-      ...(rawHeaderCfg.pageHeaderOverrides
-        ? {
-            pageHeaderOverrides: Object.fromEntries(
-              Object.entries(rawHeaderCfg.pageHeaderOverrides).map(([k, v]) => [
-                k,
-                v ? { ...v } : {}
-              ])
-            )
-          }
-        : {}),
+      ...(() => {
+        const cleaned = this.sanitizePageHeaderOverrides(rawHeaderCfg.pageHeaderOverrides);
+        return cleaned ? { pageHeaderOverrides: cleaned } : { pageHeaderOverrides: undefined };
+      })(),
       ...(resolvedLogoUrl !== undefined ? { logoUrl: resolvedLogoUrl } : {})
     };
 

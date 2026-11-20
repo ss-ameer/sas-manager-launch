@@ -21,6 +21,7 @@ import {
   StudioSelectedSection,
   QuotationHeaderConfig,
   QuotationHeaderFieldItem,
+  QuotationPageHeaderOverride,
   QuotationRecipientConfig,
   QuotationFooterConfig,
   QuotationPageMode,
@@ -3063,6 +3064,235 @@ export function resolveHeaderBrandingConfig(
   };
 }
 
+export type EffectivePageHeaderMode = 'full_repeat' | 'compact' | 'logo_only' | 'none';
+
+export interface ResolvedEffectivePageHeader {
+  sheetKey: string;
+  hasActiveOverride: boolean;
+  mode: EffectivePageHeaderMode;
+  customTitle: string;
+  customRightText: string;
+  showLogo: boolean;
+  showCompanyName: boolean;
+  showDate: boolean;
+  showQuoteRef: boolean;
+  showPageNumber: boolean;
+  overrideShowLogo?: boolean;
+  overrideShowCompanyName?: boolean;
+  overrideShowDate?: boolean;
+  overrideShowQuoteRef?: boolean;
+  overrideShowPageNumber?: boolean;
+  /** True only when page numbering is enabled globally + on this page AND displayPageNumber is a positive number (never null). */
+  canRenderPageNumber: boolean;
+  /** Resolved right-side metadata text (customRightText if set, else built from active date/ref/page tokens without dangling separators). */
+  rightMetadataText: string;
+}
+
+/**
+ * Canonical per-page header override key for 1-based physical body sheets (`body_1`, `body_2`, ...).
+ */
+export function getBodyPageHeaderKey(bodyPageNumber: number): string {
+  const safeNum = Number.isFinite(bodyPageNumber) && bodyPageNumber >= 1 ? Math.floor(bodyPageNumber) : 1;
+  return `body_${safeNum}`;
+}
+
+/**
+ * Canonical per-page header override key for non-full-bleed annex sheets (`annex_<attachmentId>` or `annex_<1-based index>`).
+ */
+export function getAnnexPageHeaderKey(attachmentId?: string | null, annexIndex = 0): string {
+  const cleanId = typeof attachmentId === 'string' ? attachmentId.trim() : '';
+  if (cleanId) {
+    return cleanId.startsWith('annex_') ? cleanId : `annex_${cleanId}`;
+  }
+  const safeIdx = Number.isFinite(annexIndex) && annexIndex >= 0 ? Math.floor(annexIndex) + 1 : 1;
+  return `annex_${safeIdx}`;
+}
+
+/**
+ * Returns true when a QuotationPageHeaderOverride has at least one active non-inherit override property.
+ */
+export function isPageHeaderOverrideActive(
+  override?: QuotationPageHeaderOverride | null
+): boolean {
+  if (!override || typeof override !== 'object') return false;
+  if (override.mode && override.mode !== 'inherit') return true;
+  if (typeof override.customTitle === 'string' && override.customTitle.trim() !== '') return true;
+  if (typeof override.customRightText === 'string' && override.customRightText.trim() !== '') {
+    return true;
+  }
+  if (typeof override.showLogo === 'boolean') return true;
+  if (typeof override.showCompanyName === 'boolean') return true;
+  if (typeof override.showDate === 'boolean') return true;
+  if (typeof override.showQuoteRef === 'boolean') return true;
+  if (typeof override.showPageNumber === 'boolean') return true;
+  return false;
+}
+
+/**
+ * Pure deterministic resolver for per-page header presentation across Page 1, continuation body
+ * pages (Page 2+), and non-full-bleed Technical Annex sheets.
+ *
+ * - Preserves 100% of global header behavior when no override exists or `mode === 'inherit'`.
+ * - Resolves `@tag` dynamic tokens in `customTitle` and `customRightText`.
+ * - Strictly respects `displayPageNumber === null` (excluded pages never render `Page  of Y` or dangling `•`).
+ */
+export function resolveEffectivePageHeader(params: {
+  sheetKind: 'body_first' | 'body_continuation' | 'annex';
+  bodyPageNumber?: number;
+  annexAttachmentId?: string | null;
+  annexIndex?: number;
+  headerConfig?: QuotationHeaderConfig | null;
+  headerBranding: ResolvedHeaderBrandingConfig;
+  showPageNumbersGlobal: boolean;
+  displayPageNumber: number | null | undefined;
+  totalDocumentPages: number;
+  defaultDateText?: string;
+  defaultQuoteRef?: string;
+  defaultCenterTitle?: string;
+  tokenContext?: QuotationTokenContext | null;
+  sheetShowContinuationHeader?: boolean;
+}): ResolvedEffectivePageHeader {
+  const {
+    sheetKind,
+    bodyPageNumber = 1,
+    annexAttachmentId,
+    annexIndex = 0,
+    headerConfig,
+    headerBranding,
+    showPageNumbersGlobal,
+    displayPageNumber,
+    totalDocumentPages,
+    defaultDateText = '',
+    defaultQuoteRef = '',
+    defaultCenterTitle = '',
+    tokenContext,
+    sheetShowContinuationHeader = true
+  } = params;
+
+  const overrides = headerConfig?.pageHeaderOverrides;
+  const sheetKey =
+    sheetKind === 'annex'
+      ? getAnnexPageHeaderKey(annexAttachmentId, annexIndex)
+      : getBodyPageHeaderKey(bodyPageNumber);
+
+  const override: QuotationPageHeaderOverride | undefined =
+    sheetKind === 'annex'
+      ? overrides?.[sheetKey] ?? overrides?.[`annex_${annexIndex + 1}`]
+      : overrides?.[sheetKey] ?? overrides?.[String(bodyPageNumber)] ?? overrides?.[bodyPageNumber];
+
+  const hasActiveOverride = isPageHeaderOverrideActive(override);
+
+  const globalDefaultMode: EffectivePageHeaderMode =
+    sheetKind === 'body_first'
+      ? 'full_repeat'
+      : sheetKind === 'annex'
+      ? 'compact'
+      : !sheetShowContinuationHeader || !headerBranding.repeatHeaderOnSubsequentPages
+      ? 'none'
+      : headerBranding.continuationHeaderMode;
+
+  const mode: EffectivePageHeaderMode =
+    override?.mode && override.mode !== 'inherit' ? override.mode : globalDefaultMode;
+
+  const showLogo =
+    typeof override?.showLogo === 'boolean'
+      ? override.showLogo && Boolean(headerBranding.activeLogoUrl)
+      : mode === 'logo_only'
+      ? Boolean(headerBranding.activeLogoUrl)
+      : mode === 'full_repeat'
+      ? headerBranding.showLogo && Boolean(headerBranding.activeLogoUrl)
+      : headerBranding.includeMiniLogoOnContinuation;
+
+  const showCompanyName =
+    typeof override?.showCompanyName === 'boolean'
+      ? override.showCompanyName
+      : mode === 'full_repeat'
+      ? headerBranding.showCompanyName
+      : headerBranding.showCompanyNameOnContinuation;
+
+  const showDate =
+    typeof override?.showDate === 'boolean'
+      ? override.showDate
+      : mode === 'logo_only'
+      ? false
+      : sheetKind !== 'annex';
+
+  const showQuoteRef =
+    typeof override?.showQuoteRef === 'boolean'
+      ? override.showQuoteRef
+      : mode === 'logo_only'
+      ? false
+      : sheetKind === 'annex'
+      ? true
+      : headerBranding.showQuoteRefOnContinuation;
+
+  const showPageNumber =
+    typeof override?.showPageNumber === 'boolean'
+      ? override.showPageNumber
+      : headerBranding.showPageNumberOnContinuation !== false;
+
+  const canRenderPageNumber =
+    showPageNumber &&
+    showPageNumbersGlobal &&
+    typeof displayPageNumber === 'number' &&
+    displayPageNumber > 0 &&
+    totalDocumentPages > 0;
+
+  const rawCustomTitle = typeof override?.customTitle === 'string' ? override.customTitle.trim() : '';
+  const customTitle = rawCustomTitle
+    ? resolveQuotationTokens(rawCustomTitle, tokenContext)
+    : '';
+
+  const rawCustomRight =
+    typeof override?.customRightText === 'string' ? override.customRightText.trim() : '';
+  const customRightText = rawCustomRight
+    ? resolveQuotationTokens(rawCustomRight, tokenContext)
+    : '';
+
+  let rightMetadataText = '';
+  if (rawCustomRight) {
+    rightMetadataText = customRightText;
+  } else {
+    const tokens: string[] = [];
+    if (showDate && defaultDateText) {
+      tokens.push(defaultDateText);
+    }
+    if (showQuoteRef && defaultQuoteRef) {
+      tokens.push(defaultQuoteRef);
+    }
+    if (canRenderPageNumber) {
+      tokens.push(`Page ${displayPageNumber} of ${totalDocumentPages}`);
+    }
+    rightMetadataText = tokens.join(' • ');
+  }
+
+  // Keep defaultCenterTitle referenced in return path via customTitle fallback in renderer
+  void defaultCenterTitle;
+
+  return {
+    sheetKey,
+    hasActiveOverride,
+    mode,
+    customTitle,
+    customRightText,
+    showLogo,
+    showCompanyName,
+    showDate,
+    showQuoteRef,
+    showPageNumber,
+    overrideShowLogo: typeof override?.showLogo === 'boolean' ? override.showLogo : undefined,
+    overrideShowCompanyName:
+      typeof override?.showCompanyName === 'boolean' ? override.showCompanyName : undefined,
+    overrideShowDate: typeof override?.showDate === 'boolean' ? override.showDate : undefined,
+    overrideShowQuoteRef:
+      typeof override?.showQuoteRef === 'boolean' ? override.showQuoteRef : undefined,
+    overrideShowPageNumber:
+      typeof override?.showPageNumber === 'boolean' ? override.showPageNumber : undefined,
+    canRenderPageNumber,
+    rightMetadataText
+  };
+}
+
 export interface ResolvedDocumentThemePalette {
   primaryHex: string;
   tintBg: string;
@@ -3725,6 +3955,7 @@ export interface QuotationDocumentProps {
   onSelectSection?: (section: StudioSelectedSection, subTarget?: string) => void;
   onInlineFieldEdit?: (fieldKey: string, nextValue: string) => void;
   onToggleBodyPageNumbering?: (bodyPageNumber: number) => void;
+  onEditPageHeader?: (sheetKey: string) => void;
   showPageBreakGuides?: boolean;
 }
 
@@ -3852,6 +4083,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
   onSelectSection,
   onInlineFieldEdit,
   onToggleBodyPageNumbering,
+  onEditPageHeader,
   showPageBreakGuides = false
 }: QuotationDocumentProps) => {
   const quotation = (rawQuotation || {}) as Quotation;
@@ -4913,39 +5145,86 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
     tokenContext
   ]);
 
-  // Compact corporate running header rendered on Page 2+ (continuation sheets)
+  // Compact / Logo-Only running header rendered on Page 2+, overridden Page 1, or non-full-bleed Annex sheets
   const renderCompactRunningHeader = (
     pageNumber: number | null | undefined = 2,
     total = 2,
-    extraClass = ''
+    extraClass = '',
+    effectiveOverride?: ResolvedEffectivePageHeader,
+    options?: {
+      variant?: 'body' | 'annex';
+      annexTitle?: string;
+    }
   ) => {
-    if (!repeatHeaderOnSubsequentPages || headerBranding.continuationHeaderMode === 'none') {
+    const isAnnexVariant = options?.variant === 'annex';
+    const resolvedMode: EffectivePageHeaderMode =
+      effectiveOverride?.mode ??
+      (!repeatHeaderOnSubsequentPages
+        ? 'none'
+        : headerBranding.continuationHeaderMode);
+
+    if (resolvedMode === 'none') {
       return null;
     }
+
     const quoteRef = quotation.formatted_quote_ref || quotation.quote_number || 'QT-DRAFT';
     const subjectText = resolveQuotationTokens(
       (quotation.subject || enquiry?.subject || '').trim(),
       tokenContext
     );
     const contLogoHeight = headerBranding.continuationLogoHeightPx || 20;
-    const dividerClass = headerBranding.showContinuationDivider
-      ? 'border-b border-slate-200 pb-1.5'
-      : 'pb-1';
-    const hasValidPageNumber =
-      headerBranding.showPageNumberOnContinuation &&
-      footerPresentation.showPageNumbers &&
-      typeof pageNumber === 'number' &&
-      pageNumber > 0 &&
-      total > 0;
+    const dividerClass =
+      isAnnexVariant || headerBranding.showContinuationDivider
+        ? 'border-b border-slate-200 pb-1.5'
+        : 'pb-1';
 
-    if (headerBranding.continuationHeaderMode === 'logo_only') {
+    const showLogo =
+      effectiveOverride !== undefined
+        ? effectiveOverride.showLogo
+        : resolvedMode === 'logo_only'
+        ? Boolean(headerBranding.activeLogoUrl)
+        : headerBranding.includeMiniLogoOnContinuation;
+    const showCompanyName =
+      effectiveOverride !== undefined
+        ? effectiveOverride.showCompanyName
+        : headerBranding.showCompanyNameOnContinuation;
+    const hasValidPageNumber =
+      effectiveOverride !== undefined
+        ? effectiveOverride.canRenderPageNumber
+        : headerBranding.showPageNumberOnContinuation &&
+          footerPresentation.showPageNumbers &&
+          typeof pageNumber === 'number' &&
+          pageNumber > 0 &&
+          total > 0;
+
+    const rightText =
+      effectiveOverride !== undefined
+        ? effectiveOverride.rightMetadataText
+        : (() => {
+            if (resolvedMode === 'logo_only') {
+              return hasValidPageNumber ? `Page ${pageNumber} of ${total}` : '';
+            }
+            const tokens: string[] = [];
+            if (!isAnnexVariant) tokens.push(formatDate(quotation.created_at));
+            if (isAnnexVariant || headerBranding.showQuoteRefOnContinuation) {
+              tokens.push(quoteRef);
+            }
+            if (hasValidPageNumber) {
+              tokens.push(`Page ${pageNumber} of ${total}`);
+            }
+            return tokens.join(' • ');
+          })();
+
+    if (resolvedMode === 'logo_only') {
       return (
         <div
-          className={`compact-running-header flex justify-between items-center ${dividerClass} mb-3 w-full bg-white ${extraClass}`}
+          className={`compact-running-header flex justify-between items-center ${dividerClass} ${
+            isAnnexVariant ? 'mb-2' : 'mb-3'
+          } w-full bg-white ${extraClass}`}
           style={{ minHeight: `${Math.max(24, contLogoHeight + 6)}px` }}
         >
           <div className="flex items-center">
-            {headerBranding.activeLogoUrl && !logoLoadFailed && (
+            {showLogo && headerBranding.activeLogoUrl && !logoLoadFailed && (
               <img
                 src={headerBranding.activeLogoUrl}
                 alt={senderEntityName || ''}
@@ -4955,54 +5234,71 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
               />
             )}
           </div>
-          {hasValidPageNumber && (
+          {effectiveOverride?.customTitle ? (
+            <div className={`${typoScale.sub} text-slate-600 font-medium truncate max-w-[260px] text-center px-2`}>
+              {effectiveOverride.customTitle}
+            </div>
+          ) : null}
+          {rightText && (
             <div className={`${typoScale.micro} text-slate-500 font-mono text-right shrink-0`}>
-              Page {pageNumber} of {total}
+              {rightText}
             </div>
           )}
         </div>
       );
     }
 
-    const rightTokens: string[] = [formatDate(quotation.created_at)];
-    if (headerBranding.showQuoteRefOnContinuation) {
-      rightTokens.push(quoteRef);
-    }
-    if (hasValidPageNumber) {
-      rightTokens.push(`Page ${pageNumber} of ${total}`);
-    }
+    const centerText = effectiveOverride?.customTitle
+      ? effectiveOverride.customTitle
+      : isAnnexVariant
+      ? options?.annexTitle || ''
+      : headerBranding.showSubjectOnContinuation && subjectText
+      ? subjectText
+      : '';
 
     return (
       <div
-        className={`compact-running-header flex justify-between items-center ${dividerClass} mb-3 w-full bg-white ${extraClass}`}
+        className={`compact-running-header flex justify-between items-center ${dividerClass} ${
+          isAnnexVariant ? 'mb-2' : 'mb-3'
+        } w-full bg-white ${extraClass}`}
         style={{ minHeight: `${Math.max(26, contLogoHeight + 6)}px` }}
       >
         {/* Left: Mini Logo + Company Legal/Short Name */}
-        <div className="flex items-center min-w-0 max-w-[38%]">
-          {headerBranding.includeMiniLogoOnContinuation && !logoLoadFailed && (
+        <div className={`flex items-center min-w-0 ${isAnnexVariant ? 'max-w-[34%]' : 'max-w-[38%]'}`}>
+          {showLogo && headerBranding.activeLogoUrl && !logoLoadFailed && (
             <img
               src={headerBranding.activeLogoUrl}
               alt=""
-              style={{ height: `${contLogoHeight}px`, maxWidth: '130px' }}
+              style={{
+                height: `${contLogoHeight}px`,
+                maxWidth: isAnnexVariant ? '110px' : '130px'
+              }}
               className="w-auto object-contain mr-2 shrink-0"
               onError={() => setLogoLoadFailed(true)}
             />
           )}
-          {headerBranding.showCompanyNameOnContinuation && (
+          {showCompanyName && (
             <div className={`${typoScale.sub} font-bold text-slate-800 tracking-tight uppercase truncate`}>
               {senderEntityName || 'Company'}
             </div>
           )}
         </div>
 
-        {/* Middle: Project Subject (no duplicate quoteRef here) */}
-        <div className={`${typoScale.sub} text-slate-600 font-medium truncate max-w-[260px] text-center px-2`}>
-          {headerBranding.showSubjectOnContinuation && subjectText ? subjectText : ''}
+        {/* Middle: Custom Title / Annex Title / Project Subject */}
+        <div
+          className={
+            isAnnexVariant
+              ? `${typoScale.sub} font-bold uppercase tracking-wide truncate max-w-[42%] text-center px-2`
+              : `${typoScale.sub} text-slate-600 font-medium truncate max-w-[260px] text-center px-2`
+          }
+          style={isAnnexVariant ? { color: accentColor } : undefined}
+        >
+          {centerText}
         </div>
 
-        {/* Right: Date, Quote Ref & Page indicator */}
+        {/* Right: Date, Quote Ref, Page indicator or Custom Right Metadata */}
         <div className={`${typoScale.micro} text-slate-500 font-mono text-right shrink-0`}>
-          {rightTokens.join(' • ')}
+          {rightText}
         </div>
       </div>
     );
@@ -9886,13 +10182,16 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
     );
   };
 
-  const renderHeaderBrandingElement = (isContinuationRepeat = false) => {
+  const renderHeaderBrandingElement = (
+    isContinuationRepeat = false,
+    pageOverride?: ResolvedEffectivePageHeader
+  ) => {
     const {
       activeLogoUrl,
       logoDisplayMode,
       headerLayoutMode,
-      showLogo,
-      showCompanyName,
+      showLogo: baseShowLogo,
+      showCompanyName: baseShowCompanyName,
       logoHeightPx: logoHeight,
       logoMaxWidthPx,
       bannerMaxHeightPx,
@@ -9903,6 +10202,12 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
       contactVerticalAlign,
       showHeaderIcons
     } = headerBranding;
+    const showLogo =
+      pageOverride?.overrideShowLogo !== undefined ? pageOverride.overrideShowLogo : baseShowLogo;
+    const showCompanyName =
+      pageOverride?.overrideShowCompanyName !== undefined
+        ? pageOverride.overrideShowCompanyName
+        : baseShowCompanyName;
     const isBannerHeader =
       headerLayoutMode === 'banner' || logoDisplayMode === 'full_banner';
     const isCenteredHeader = headerLayoutMode === 'centered';
@@ -10340,11 +10645,39 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
             )}
           </>
         )}
+
+        {/* Per-Page Custom Header Title / Right Metadata Sub-Bar (when set on a full letterhead page) */}
+        {pageOverride &&
+          (pageOverride.customTitle ||
+            pageOverride.customRightText ||
+            (pageOverride.hasActiveOverride &&
+              (pageOverride.overrideShowDate !== undefined ||
+                pageOverride.overrideShowQuoteRef !== undefined ||
+                pageOverride.overrideShowPageNumber !== undefined) &&
+              pageOverride.rightMetadataText)) && (
+            <div className="w-full pt-1.5 mt-1.5 border-t border-slate-100 flex items-center justify-between gap-2">
+              <div className={`${typoScale.sub} font-semibold text-slate-700 truncate`}>
+                {pageOverride.customTitle || ''}
+              </div>
+              {(pageOverride.customRightText ||
+                pageOverride.overrideShowDate !== undefined ||
+                pageOverride.overrideShowQuoteRef !== undefined ||
+                pageOverride.overrideShowPageNumber !== undefined) &&
+                pageOverride.rightMetadataText && (
+                  <div className={`${typoScale.micro} text-slate-500 font-mono text-right shrink-0`}>
+                    {pageOverride.rightMetadataText}
+                  </div>
+                )}
+            </div>
+          )}
       </header>
     );
   };
 
-  const renderTopSection = () => {
+  const renderTopSection = (
+    page1Header?: ResolvedEffectivePageHeader,
+    page1DisplayNum?: number | null
+  ) => {
     const resolvedGlobalRadius =
       propGlobalCardRadius ||
       quotation.globalCardRadius ||
@@ -12156,7 +12489,17 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
 
     return (
       <>
-        {renderHeaderBrandingElement(false)}
+        {!page1Header || page1Header.mode === 'full_repeat'
+          ? renderHeaderBrandingElement(false, page1Header)
+          : page1Header.mode === 'none'
+          ? null
+          : renderCompactRunningHeader(
+              page1DisplayNum ?? 1,
+              totalDocumentPages,
+              '',
+              page1Header,
+              { variant: 'body' }
+            )}
 
         {resolvedSubjectPlacement === 'above_cards' && renderSubjectBanner()}
         {isDeliveryNote ? (
@@ -14568,6 +14911,27 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
             ? `Page ${displayPageNum} of ${totalDocumentPages}`
             : `Body Sheet ${bodyPageNum} (Unnumbered)`;
 
+        const bodySheetHeaderKey = getBodyPageHeaderKey(bodyPageNum);
+        const bodyQuoteRef = quotation.formatted_quote_ref || quotation.quote_number || 'QT-DRAFT';
+        const bodySubjectText = resolveQuotationTokens(
+          (quotation.subject || enquiry?.subject || '').trim(),
+          tokenContext
+        );
+        const effectiveBodyHeader = resolveEffectivePageHeader({
+          sheetKind: isFirst ? 'body_first' : 'body_continuation',
+          bodyPageNumber: bodyPageNum,
+          headerConfig: resolvedHeaderConfig,
+          headerBranding,
+          showPageNumbersGlobal: footerPresentation.showPageNumbers,
+          displayPageNumber: displayPageNum,
+          totalDocumentPages,
+          defaultDateText: formatDate(quotation.created_at),
+          defaultQuoteRef: bodyQuoteRef,
+          defaultCenterTitle: bodySubjectText,
+          tokenContext,
+          sheetShowContinuationHeader: sheet.showContinuationHeader
+        });
+
         return (
           <React.Fragment key={sheetKey}>
             {/* Interactive Page Break Studio Divider Rendered in Gray Workspace Gap OUTSIDE White A4 Sheet */}
@@ -14617,28 +14981,51 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
               } print:h-[296.5mm] print:min-h-[296.5mm] print:max-h-[296.5mm] print:overflow-hidden`}
               style={{ boxSizing: 'border-box' }}
             >
-              {/* Non-printing Interactive Per-Page Numbering Toggle Pill in Studio Preview */}
-              {isInteractive && onToggleBodyPageNumbering && (
+              {/* Non-printing Interactive Per-Page Header & Numbering Toggle Pills in Studio Preview */}
+              {isInteractive && (onToggleBodyPageNumbering || onEditPageHeader) && (
                 <div className="quotation-canvas-guide absolute top-1.5 right-3 z-20 print:hidden flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onToggleBodyPageNumbering(bodyPageNum);
-                    }}
-                    title={
-                      sheet.excludedFromPageCount
-                        ? `Click to include Body Sheet ${bodyPageNum} in Page X of Y numbering`
-                        : `Click to exclude Body Sheet ${bodyPageNum} from Page X of Y numbering`
-                    }
-                    className={`px-2 py-0.5 rounded-full text-[9px] font-mono font-semibold border transition shadow-2xs flex items-center gap-1 ${
-                      sheet.excludedFromPageCount
-                        ? 'bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100'
-                        : 'bg-slate-100/90 text-slate-600 border-slate-200/90 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-300'
-                    }`}
-                  >
-                    <span>{sheet.excludedFromPageCount ? '⊘ Page # Excluded' : `# ${pageBadgeLabel}`}</span>
-                  </button>
+                  {onEditPageHeader && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onEditPageHeader(bodySheetHeaderKey);
+                      }}
+                      title={
+                        effectiveBodyHeader.hasActiveOverride
+                          ? `Custom header override active on Page ${bodyPageNum} — click to edit`
+                          : `Customize header specifically for Page ${bodyPageNum}`
+                      }
+                      className={`px-2 py-0.5 rounded-full text-[9px] font-mono font-semibold border transition shadow-2xs flex items-center gap-1 cursor-pointer ${
+                        effectiveBodyHeader.hasActiveOverride
+                          ? 'bg-indigo-50 text-indigo-800 border-indigo-300 hover:bg-indigo-100'
+                          : 'bg-slate-100/90 text-slate-600 border-slate-200/90 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-300'
+                      }`}
+                    >
+                      <span>{effectiveBodyHeader.hasActiveOverride ? '✎ Header • Custom' : '✎ Header'}</span>
+                    </button>
+                  )}
+                  {onToggleBodyPageNumbering && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onToggleBodyPageNumbering(bodyPageNum);
+                      }}
+                      title={
+                        sheet.excludedFromPageCount
+                          ? `Click to include Body Sheet ${bodyPageNum} in Page X of Y numbering`
+                          : `Click to exclude Body Sheet ${bodyPageNum} from Page X of Y numbering`
+                      }
+                      className={`px-2 py-0.5 rounded-full text-[9px] font-mono font-semibold border transition shadow-2xs flex items-center gap-1 cursor-pointer ${
+                        sheet.excludedFromPageCount
+                          ? 'bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100'
+                          : 'bg-slate-100/90 text-slate-600 border-slate-200/90 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-300'
+                      }`}
+                    >
+                      <span>{sheet.excludedFromPageCount ? '⊘ Page # Excluded' : `# ${pageBadgeLabel}`}</span>
+                    </button>
+                  )}
                 </div>
               )}
 
@@ -14661,7 +15048,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
               <div className="flex-1 flex flex-col justify-start w-full">
                 {isFirst ? (
                   <>
-                    {renderTopSection()}
+                    {renderTopSection(effectiveBodyHeader, displayPageNum)}
                     {preTableBlocks.length > 0 && renderBlocksGrid(preTableBlocks)}
                     {sheet.tableChunk &&
                       (!isReceiptVoucher || Boolean(receiptMeta?.show_line_items_table)) &&
@@ -14676,11 +15063,17 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                   </>
                 ) : (
                   <>
-                    {sheet.showContinuationHeader && repeatHeaderOnSubsequentPages && (
+                    {effectiveBodyHeader.mode !== 'none' && (
                       <div className={`quotation-page${sheet.sheetNumber}-continuation-header w-full mb-3`}>
-                        {headerBranding.continuationHeaderMode === 'full_repeat'
-                          ? renderHeaderBrandingElement(true)
-                          : renderCompactRunningHeader(displayPageNum, totalDocumentPages)}
+                        {effectiveBodyHeader.mode === 'full_repeat'
+                          ? renderHeaderBrandingElement(true, effectiveBodyHeader)
+                          : renderCompactRunningHeader(
+                              displayPageNum,
+                              totalDocumentPages,
+                              '',
+                              effectiveBodyHeader,
+                              { variant: 'body' }
+                            )}
                       </div>
                     )}
                     {sheet.tableChunk &&
@@ -14754,12 +15147,23 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
         const quoteRef = quotation.formatted_quote_ref || quotation.quote_number || 'QT-DRAFT';
         const annexHeaderTitle = annexDescriptor.headerTitle;
         const isFullBleed = annexDescriptor.fullBleed;
-        const showAnnexHeaderPageNum =
-          headerBranding.showPageNumberOnContinuation !== false &&
-          footerPresentation.showPageNumbers &&
-          typeof annexPageNumber === 'number' &&
-          annexPageNumber > 0 &&
-          totalDocumentPages > 0;
+        const annexSheetHeaderKey = getAnnexPageHeaderKey(att.id, annexIdx);
+        const effectiveAnnexHeader = !isFullBleed
+          ? resolveEffectivePageHeader({
+              sheetKind: 'annex',
+              annexAttachmentId: att.id,
+              annexIndex: annexIdx,
+              headerConfig: resolvedHeaderConfig,
+              headerBranding,
+              showPageNumbersGlobal: footerPresentation.showPageNumbers,
+              displayPageNumber: annexPageNumber,
+              totalDocumentPages,
+              defaultDateText: formatDate(quotation.created_at),
+              defaultQuoteRef: quoteRef,
+              defaultCenterTitle: annexHeaderTitle,
+              tokenContext
+            })
+          : null;
 
         return (
           <article
@@ -14784,44 +15188,48 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
               />
             ) : (
               <>
+                {/* Non-printing Interactive Per-Page Header Quick-Jump Pill on Annex Sheets */}
+                {isInteractive && onEditPageHeader && effectiveAnnexHeader && (
+                  <div className="quotation-canvas-guide absolute top-1.5 right-3 z-20 print:hidden flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onEditPageHeader(annexSheetHeaderKey);
+                      }}
+                      title={
+                        effectiveAnnexHeader.hasActiveOverride
+                          ? `Custom header override active on Annex ${annexIdx + 1} — click to edit`
+                          : `Customize header specifically for Annex ${annexIdx + 1}`
+                      }
+                      className={`px-2 py-0.5 rounded-full text-[9px] font-mono font-semibold border transition shadow-2xs flex items-center gap-1 cursor-pointer ${
+                        effectiveAnnexHeader.hasActiveOverride
+                          ? 'bg-indigo-50 text-indigo-800 border-indigo-300 hover:bg-indigo-100'
+                          : 'bg-slate-100/90 text-slate-600 border-slate-200/90 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-300'
+                      }`}
+                    >
+                      <span>{effectiveAnnexHeader.hasActiveOverride ? '✎ Header • Custom' : '✎ Header'}</span>
+                    </button>
+                  </div>
+                )}
+
                 {/* Top Accent Stripe */}
                 {renderTopAccentBar()}
 
-                {/* Continuation Running Header for Technical Annex */}
-                <div className="w-full">
-                  <div
-                    className="compact-running-header flex justify-between items-center border-b border-slate-200 pb-1.5 mb-2 w-full bg-white"
-                    style={{ minHeight: `${Math.max(26, (headerBranding.continuationLogoHeightPx || 20) + 6)}px` }}
-                  >
-                    <div className="flex items-center min-w-0 max-w-[34%]">
-                      {headerBranding.includeMiniLogoOnContinuation && !logoLoadFailed && (
-                        <img
-                          src={headerBranding.activeLogoUrl}
-                          alt=""
-                          style={{ height: `${headerBranding.continuationLogoHeightPx || 20}px`, maxWidth: '110px' }}
-                          className="w-auto object-contain mr-2 shrink-0"
-                          onError={() => setLogoLoadFailed(true)}
-                        />
-                      )}
-                      {headerBranding.showCompanyNameOnContinuation && (
-                        <div className={`${typoScale.sub} font-bold text-slate-800 tracking-tight uppercase truncate`}>
-                          {senderEntityName || 'Company'}
-                        </div>
-                      )}
-                    </div>
-                    <div
-                      className={`${typoScale.sub} font-bold uppercase tracking-wide truncate max-w-[42%] text-center px-2`}
-                      style={{ color: accentColor }}
-                    >
-                      {annexHeaderTitle}
-                    </div>
-                    <div className={`${typoScale.micro} text-slate-500 font-mono text-right shrink-0`}>
-                      {showAnnexHeaderPageNum
-                        ? `${quoteRef} • Page ${annexPageNumber} of ${totalDocumentPages}`
-                        : quoteRef}
-                    </div>
+                {/* Per-Page Resolved Running Header for Technical Annex */}
+                {effectiveAnnexHeader && effectiveAnnexHeader.mode !== 'none' && (
+                  <div className="w-full">
+                    {effectiveAnnexHeader.mode === 'full_repeat'
+                      ? renderHeaderBrandingElement(true, effectiveAnnexHeader)
+                      : renderCompactRunningHeader(
+                          annexPageNumber,
+                          totalDocumentPages,
+                          '',
+                          effectiveAnnexHeader,
+                          { variant: 'annex', annexTitle: annexHeaderTitle }
+                        )}
                   </div>
-                </div>
+                )}
 
                 {/* Bounded Flex-1 Image Viewport */}
                 <div className="flex-1 flex flex-col items-center justify-center w-full my-2 overflow-hidden">

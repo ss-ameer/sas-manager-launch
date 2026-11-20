@@ -30,6 +30,10 @@ import {
   isSheetOverflowingA4,
   extractLineItemAttributesAndCleanDescription,
   resolveHeaderBrandingConfig,
+  resolveEffectivePageHeader,
+  getBodyPageHeaderKey,
+  getAnnexPageHeaderKey,
+  isPageHeaderOverrideActive,
   resolveDocumentThemePalette,
   resolveStampSignatureOverlayConfig,
   resolveHeaderFields,
@@ -3447,6 +3451,381 @@ describe('Suite 24: Document Layout Preset @tag Dynamic Template Persistence & C
       }
     );
     expect(resolvedNoDesignation).toBe('Mr. Tariq Al-Nuaimi');
+  });
+});
+
+// ==========================================
+// SUITE 25: PER-PAGE HEADER CUSTOMIZATION (pageHeaderOverrides)
+// ==========================================
+
+describe('Suite 25: Per-Page Header Customization (pageHeaderOverrides)', () => {
+  const sampleBranding = resolveHeaderBrandingConfig({
+    ...DEFAULT_HEADER_CONFIG,
+    logoUrl: 'https://cdn.example.com/logo.png',
+    showLogo: true,
+    showCompanyName: true,
+    repeatHeaderOnSubsequentPages: true,
+    continuationHeaderMode: 'compact',
+    showLogoOnContinuationPages: true,
+    showCompanyNameOnContinuation: true,
+    showQuoteRefOnContinuation: true,
+    showPageNumberOnContinuation: true
+  });
+
+  const sampleTokenContext = {
+    enquiry: {
+      company_name: 'Horizon Marine Engineering LLC',
+      subject: 'RO Desalination Skid Package',
+      contact_person_name: 'Tariq Al-Nuaimi',
+      contact_designation: 'Procurement Director'
+    },
+    quotation: {
+      quote_number: 'QT-2026-088',
+      formatted_quote_ref: 'SAS/2026/088-R2',
+      revision_number: 2
+    }
+  };
+
+  it('25a. Canonical sheet key helpers and active-override detector work cleanly for body and annex sheets', () => {
+    expect(getBodyPageHeaderKey(1)).toBe('body_1');
+    expect(getBodyPageHeaderKey(3)).toBe('body_3');
+    expect(getBodyPageHeaderKey(0)).toBe('body_1');
+
+    expect(getAnnexPageHeaderKey('att_pump_curve', 0)).toBe('annex_att_pump_curve');
+    expect(getAnnexPageHeaderKey('annex_custom_2', 1)).toBe('annex_custom_2');
+    expect(getAnnexPageHeaderKey('', 2)).toBe('annex_3');
+
+    expect(isPageHeaderOverrideActive(undefined)).toBe(false);
+    expect(isPageHeaderOverrideActive({})).toBe(false);
+    expect(isPageHeaderOverrideActive({ mode: 'inherit' })).toBe(false);
+    expect(isPageHeaderOverrideActive({ mode: 'inherit', customTitle: '   ' })).toBe(false);
+
+    expect(isPageHeaderOverrideActive({ mode: 'none' })).toBe(true);
+    expect(isPageHeaderOverrideActive({ mode: 'inherit', customTitle: 'Technical Schedule' })).toBe(true);
+    expect(isPageHeaderOverrideActive({ mode: 'inherit', showLogo: false })).toBe(true);
+  });
+
+  it('25b. Inherit fallback preserves Page 1 full_repeat, Page 2+ global continuationHeaderMode, and Annex compact defaults', () => {
+    const page1Default = resolveEffectivePageHeader({
+      sheetKind: 'body_first',
+      bodyPageNumber: 1,
+      headerConfig: { ...DEFAULT_HEADER_CONFIG },
+      headerBranding: sampleBranding,
+      showPageNumbersGlobal: true,
+      displayPageNumber: 1,
+      totalDocumentPages: 4,
+      defaultDateText: '12 May 2026',
+      defaultQuoteRef: 'SAS/2026/088-R2'
+    });
+    expect(page1Default.sheetKey).toBe('body_1');
+    expect(page1Default.hasActiveOverride).toBe(false);
+    expect(page1Default.mode).toBe('full_repeat');
+    expect(page1Default.canRenderPageNumber).toBe(true);
+    expect(page1Default.rightMetadataText).toBe('12 May 2026 • SAS/2026/088-R2 • Page 1 of 4');
+
+    const page2Inherit = resolveEffectivePageHeader({
+      sheetKind: 'body_continuation',
+      bodyPageNumber: 2,
+      headerConfig: {
+        ...DEFAULT_HEADER_CONFIG,
+        pageHeaderOverrides: { body_2: { mode: 'inherit' } }
+      },
+      headerBranding: sampleBranding,
+      showPageNumbersGlobal: true,
+      displayPageNumber: 2,
+      totalDocumentPages: 4,
+      defaultDateText: '12 May 2026',
+      defaultQuoteRef: 'SAS/2026/088-R2'
+    });
+    expect(page2Inherit.hasActiveOverride).toBe(false);
+    expect(page2Inherit.mode).toBe('compact');
+    expect(page2Inherit.showLogo).toBe(true);
+    expect(page2Inherit.showQuoteRef).toBe(true);
+    expect(page2Inherit.rightMetadataText).toBe('12 May 2026 • SAS/2026/088-R2 • Page 2 of 4');
+
+    const annexDefault = resolveEffectivePageHeader({
+      sheetKind: 'annex',
+      annexAttachmentId: 'att_datasheet_1',
+      annexIndex: 0,
+      headerConfig: { ...DEFAULT_HEADER_CONFIG },
+      headerBranding: sampleBranding,
+      showPageNumbersGlobal: true,
+      displayPageNumber: 4,
+      totalDocumentPages: 4,
+      defaultDateText: '12 May 2026',
+      defaultQuoteRef: 'SAS/2026/088-R2'
+    });
+    expect(annexDefault.sheetKey).toBe('annex_att_datasheet_1');
+    expect(annexDefault.mode).toBe('compact');
+    expect(annexDefault.showDate).toBe(false);
+    expect(annexDefault.showQuoteRef).toBe(true);
+    expect(annexDefault.rightMetadataText).toBe('SAS/2026/088-R2 • Page 4 of 4');
+  });
+
+  it('25c. Explicit per-page mode overrides (none, full_repeat, compact, logo_only) and @tag interpolation on customTitle & customRightText work independently per sheet', () => {
+    const headerCfg: QuotationHeaderConfig = {
+      ...DEFAULT_HEADER_CONFIG,
+      pageHeaderOverrides: {
+        body_1: {
+          mode: 'none'
+        },
+        body_2: {
+          mode: 'full_repeat',
+          customTitle: 'Commercial Schedule — @subject',
+          customRightText: '@quote_ref_no • @client_name',
+          showLogo: false
+        },
+        body_3: {
+          mode: 'logo_only',
+          customTitle: 'Drawing Index'
+        },
+        annex_att_pump_1: {
+          mode: 'compact',
+          customTitle: 'Annex A — @subject',
+          showDate: true,
+          showQuoteRef: false
+        }
+      }
+    };
+
+    const p1 = resolveEffectivePageHeader({
+      sheetKind: 'body_first',
+      bodyPageNumber: 1,
+      headerConfig: headerCfg,
+      headerBranding: sampleBranding,
+      showPageNumbersGlobal: true,
+      displayPageNumber: 1,
+      totalDocumentPages: 4,
+      defaultDateText: '12 May 2026',
+      defaultQuoteRef: 'SAS/2026/088-R2',
+      tokenContext: sampleTokenContext
+    });
+    expect(p1.hasActiveOverride).toBe(true);
+    expect(p1.mode).toBe('none');
+
+    // Even when repeatHeaderOnSubsequentPages is globally disabled, explicit per-page override activates header on Page 2
+    const brandingNoRepeat = resolveHeaderBrandingConfig({
+      ...DEFAULT_HEADER_CONFIG,
+      logoUrl: 'https://cdn.example.com/logo.png',
+      repeatHeaderOnSubsequentPages: false,
+      continuationHeaderMode: 'none'
+    });
+
+    const p2 = resolveEffectivePageHeader({
+      sheetKind: 'body_continuation',
+      bodyPageNumber: 2,
+      headerConfig: headerCfg,
+      headerBranding: brandingNoRepeat,
+      showPageNumbersGlobal: true,
+      displayPageNumber: 2,
+      totalDocumentPages: 4,
+      defaultDateText: '12 May 2026',
+      defaultQuoteRef: 'SAS/2026/088-R2',
+      tokenContext: sampleTokenContext,
+      sheetShowContinuationHeader: false
+    });
+    expect(p2.hasActiveOverride).toBe(true);
+    expect(p2.mode).toBe('full_repeat');
+    expect(p2.showLogo).toBe(false);
+    expect(p2.overrideShowLogo).toBe(false);
+    expect(p2.customTitle).toBe('Commercial Schedule — RO Desalination Skid Package');
+    expect(p2.customRightText).toBe('SAS/2026/088-R2 • Horizon Marine Engineering LLC');
+    expect(p2.rightMetadataText).toBe('SAS/2026/088-R2 • Horizon Marine Engineering LLC');
+
+    const p3 = resolveEffectivePageHeader({
+      sheetKind: 'body_continuation',
+      bodyPageNumber: 3,
+      headerConfig: headerCfg,
+      headerBranding: sampleBranding,
+      showPageNumbersGlobal: true,
+      displayPageNumber: 3,
+      totalDocumentPages: 4,
+      defaultDateText: '12 May 2026',
+      defaultQuoteRef: 'SAS/2026/088-R2',
+      tokenContext: sampleTokenContext
+    });
+    expect(p3.mode).toBe('logo_only');
+    expect(p3.showLogo).toBe(true);
+    expect(p3.showDate).toBe(false);
+    expect(p3.showQuoteRef).toBe(false);
+    expect(p3.customTitle).toBe('Drawing Index');
+    expect(p3.rightMetadataText).toBe('Page 3 of 4');
+
+    const annex1 = resolveEffectivePageHeader({
+      sheetKind: 'annex',
+      annexAttachmentId: 'att_pump_1',
+      annexIndex: 0,
+      headerConfig: headerCfg,
+      headerBranding: sampleBranding,
+      showPageNumbersGlobal: true,
+      displayPageNumber: 4,
+      totalDocumentPages: 4,
+      defaultDateText: '12 May 2026',
+      defaultQuoteRef: 'SAS/2026/088-R2',
+      tokenContext: sampleTokenContext
+    });
+    expect(annex1.mode).toBe('compact');
+    expect(annex1.customTitle).toBe('Annex A — RO Desalination Skid Package');
+    expect(annex1.showDate).toBe(true);
+    expect(annex1.showQuoteRef).toBe(false);
+    expect(annex1.rightMetadataText).toBe('12 May 2026 • Page 4 of 4');
+  });
+
+  it('25d. Excluded-page numbering safety: displayPageNumber === null never renders "Page  of Y" or dangling bullets even when showPageNumber override is true', () => {
+    const excludedBody = resolveEffectivePageHeader({
+      sheetKind: 'body_continuation',
+      bodyPageNumber: 2,
+      headerConfig: {
+        ...DEFAULT_HEADER_CONFIG,
+        pageHeaderOverrides: {
+          body_2: {
+            mode: 'compact',
+            showDate: true,
+            showQuoteRef: true,
+            showPageNumber: true
+          }
+        }
+      },
+      headerBranding: sampleBranding,
+      showPageNumbersGlobal: true,
+      displayPageNumber: null,
+      totalDocumentPages: 3,
+      defaultDateText: '12 May 2026',
+      defaultQuoteRef: 'SAS/2026/088-R2'
+    });
+    expect(excludedBody.canRenderPageNumber).toBe(false);
+    expect(excludedBody.rightMetadataText).toBe('12 May 2026 • SAS/2026/088-R2');
+    expect(excludedBody.rightMetadataText.includes('Page')).toBe(false);
+    expect(excludedBody.rightMetadataText.endsWith('•')).toBe(false);
+
+    const excludedAnnexOnlyPageNum = resolveEffectivePageHeader({
+      sheetKind: 'annex',
+      annexAttachmentId: 'att_excluded',
+      annexIndex: 0,
+      headerConfig: {
+        ...DEFAULT_HEADER_CONFIG,
+        pageHeaderOverrides: {
+          annex_att_excluded: {
+            mode: 'compact',
+            showDate: false,
+            showQuoteRef: false,
+            showPageNumber: true
+          }
+        }
+      },
+      headerBranding: sampleBranding,
+      showPageNumbersGlobal: true,
+      displayPageNumber: null,
+      totalDocumentPages: 3,
+      defaultDateText: '12 May 2026',
+      defaultQuoteRef: 'SAS/2026/088-R2'
+    });
+    expect(excludedAnnexOnlyPageNum.canRenderPageNumber).toBe(false);
+    expect(excludedAnnexOnlyPageNum.rightMetadataText).toBe('');
+  });
+
+  it('25e. Serialization, preset hydration, and revision cloning persist active pageHeaderOverrides verbatim while stripping empty/inherit-only entries', () => {
+    const rawOverrides = {
+      body_1: { mode: 'inherit' as const, customTitle: '   ' }, // empty -> MUST be stripped
+      body_2: {
+        mode: 'compact' as const,
+        customTitle: '  Technical BOQ — @subject  ',
+        customRightText: '  @quote_ref_no  ',
+        showDate: false,
+        showQuoteRef: true
+      },
+      annex_att_77: {
+        mode: 'none' as const
+      }
+    };
+
+    // 1. Preset snapshot serialization + hydration
+    const serializedPreset = QuotationRepository.serializePresetSnapshot({
+      workspace_id: 'ws_25e',
+      preset_name: 'Multi-Page Custom Header Preset',
+      document_type: 'quotation',
+      is_default: false,
+      default_tax_mode: 'taxes_extra',
+      default_validity_days: 30,
+      signatory_mode: 'single',
+      visible_columns: {
+        brand: true,
+        model: true,
+        origin: true,
+        availability: true,
+        unit_price: true
+      },
+      header_config: {
+        ...DEFAULT_HEADER_CONFIG,
+        pageHeaderOverrides: rawOverrides
+      }
+    });
+
+    expect(serializedPreset.header_config?.pageHeaderOverrides?.body_1).toBe(undefined);
+    expect(serializedPreset.header_config?.pageHeaderOverrides?.body_2?.mode).toBe('compact');
+    expect(serializedPreset.header_config?.pageHeaderOverrides?.body_2?.customTitle).toBe(
+      'Technical BOQ — @subject'
+    );
+    expect(serializedPreset.header_config?.pageHeaderOverrides?.body_2?.customRightText).toBe(
+      '@quote_ref_no'
+    );
+    expect(serializedPreset.header_config?.pageHeaderOverrides?.body_2?.showDate).toBe(false);
+    expect(serializedPreset.header_config?.pageHeaderOverrides?.annex_att_77?.mode).toBe('none');
+
+    const hydratedPreset = QuotationRepository.hydrateFromPresetSnapshot({
+      ...serializedPreset,
+      id: 'preset_25e'
+    });
+    expect(hydratedPreset.headerConfig?.pageHeaderOverrides?.body_2?.customTitle).toBe(
+      'Technical BOQ — @subject'
+    );
+    expect(hydratedPreset.headerConfig?.pageHeaderOverrides?.annex_att_77?.mode).toBe('none');
+
+    // 2. Revision cloning preserves active overrides via deep clone and strips empty/inherit-only maps
+    const sourceQuote: any = {
+      id: 'quote_25e_r1',
+      workspace_id: 'ws_25e',
+      enquiry_id: 'enq_25e',
+      quote_number: 'QT-25E',
+      formatted_quote_ref: 'QT-25E-R1',
+      revision_number: 1,
+      status: 'draft',
+      currency: 'AED',
+      subtotal: 1000,
+      vat_rate: 5,
+      vat_amount: 50,
+      total_amount: 1050,
+      items: [],
+      header_config: {
+        ...DEFAULT_HEADER_CONFIG,
+        pageHeaderOverrides: rawOverrides
+      }
+    };
+
+    const rev2 = QuotationRepository.cloneQuotationAsNextRevision(sourceQuote);
+    expect(rev2.header_config?.pageHeaderOverrides?.body_1).toBe(undefined);
+    expect(rev2.header_config?.pageHeaderOverrides?.body_2?.customTitle).toBe(
+      'Technical BOQ — @subject'
+    );
+    expect(rev2.header_config?.pageHeaderOverrides?.annex_att_77?.mode).toBe('none');
+
+    // Mutating the clone does not mutate source
+    if (rev2.header_config?.pageHeaderOverrides?.body_2) {
+      rev2.header_config.pageHeaderOverrides.body_2.customTitle = 'Mutated';
+    }
+    expect(sourceQuote.header_config.pageHeaderOverrides.body_2.customTitle).toBe(
+      '  Technical BOQ — @subject  '
+    );
+
+    // Cloning a quote with only inherit-only overrides cleans pageHeaderOverrides to undefined
+    const inheritOnlyClone = QuotationRepository.cloneQuotationAsNextRevision({
+      ...sourceQuote,
+      header_config: {
+        ...DEFAULT_HEADER_CONFIG,
+        pageHeaderOverrides: { body_2: { mode: 'inherit' } }
+      }
+    });
+    expect(inheritOnlyClone.header_config?.pageHeaderOverrides).toBe(undefined);
   });
 });
 
