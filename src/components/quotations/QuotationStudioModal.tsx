@@ -114,7 +114,9 @@ import {
   resolveQuotationTokens,
   resolvePdfFilename,
   combineCityCountry,
-  isQuotationSnapshotFrozen
+  isQuotationSnapshotFrozen,
+  hasDynamicAtTag,
+  sanitizePresetDynamicTemplate
 } from '../../utils/quotationTokenResolver';
 import { formatSlashSeparatedDescription } from '../../utils/compositeBomUtils';
 import {
@@ -220,8 +222,7 @@ export function stripSelfReferentialTagValue(val?: string | null): string {
   if (!val || typeof val !== 'string') return '';
   const trimmed = val.trim();
   if (!trimmed) return '';
-  if (/(?:^|[^a-zA-Z0-9_.])@[a-zA-Z_][a-zA-Z0-9_]*/.test(trimmed)) return '';
-  if (/\{\{\s*@?[a-zA-Z_][a-zA-Z0-9_]*\s*\}\}/.test(trimmed)) return '';
+  if (hasDynamicAtTag(trimmed)) return '';
   return trimmed;
 }
 
@@ -2567,8 +2568,17 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
   const [isEditingBankDetails, setIsEditingBankDetails] = useState<boolean>(false);
 
   // Attention Contact Person & Client Snapshot overrides
+  // For non-frozen drafts/new quotes, prefer saved dynamic @tag templates from recipient_config
+  // so templates persist verbatim and resolve live against the current enquiry.
+  const isInitialQuoteFrozen = isQuotationSnapshotFrozen(editingQuotation);
+  const initialRecipientTemplatesSource = !isInitialQuoteFrozen
+    ? editingQuotation?.recipient_config ||
+      (!editingQuotation ? profile?.recipient_config : undefined)
+    : undefined;
+
   const [clientContactPerson, setClientContactPerson] = useState<string>(() => {
     return (
+      sanitizePresetDynamicTemplate(initialRecipientTemplatesSource?.attentionTemplate) ||
       editingQuotation?.client_contact_person ||
       editingQuotation?.client_snapshot?.client_contact_person ||
       editingQuotation?.client_snapshot?.contact_person ||
@@ -2581,6 +2591,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
 
   const [clientNameOverride, setClientNameOverride] = useState<string>(() => {
     return (
+      sanitizePresetDynamicTemplate(initialRecipientTemplatesSource?.companyNameTemplate) ||
       editingQuotation?.client_snapshot?.entity_name ||
       enquiry?.company_name ||
       enquiry?.client_company ||
@@ -2590,6 +2601,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
 
   const [clientAddressOverride, setClientAddressOverride] = useState<string>(() => {
     return (
+      sanitizePresetDynamicTemplate(initialRecipientTemplatesSource?.addressTemplate) ||
       editingQuotation?.client_address ||
       editingQuotation?.client_snapshot?.client_address ||
       editingQuotation?.client_snapshot?.address ||
@@ -2602,6 +2614,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
 
   const [clientPhoneOverride, setClientPhoneOverride] = useState<string>(() => {
     return (
+      sanitizePresetDynamicTemplate(initialRecipientTemplatesSource?.phoneTemplate) ||
       editingQuotation?.client_phone ||
       editingQuotation?.client_snapshot?.client_phone ||
       editingQuotation?.client_snapshot?.phone ||
@@ -2613,6 +2626,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
 
   const [clientEmailOverride, setClientEmailOverride] = useState<string>(() => {
     return (
+      sanitizePresetDynamicTemplate(initialRecipientTemplatesSource?.emailTemplate) ||
       editingQuotation?.client_email ||
       editingQuotation?.client_snapshot?.client_email ||
       editingQuotation?.client_snapshot?.email ||
@@ -2624,6 +2638,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
 
   const [clientTrnOverride, setClientTrnOverride] = useState<string>(() => {
     return (
+      sanitizePresetDynamicTemplate(initialRecipientTemplatesSource?.trnTemplate) ||
       editingQuotation?.client_trn ||
       editingQuotation?.client_snapshot?.client_trn ||
       editingQuotation?.client_snapshot?.trn ||
@@ -2661,6 +2676,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
   // Project / Quotation Subject inheritance
   const [quotationSubject, setQuotationSubject] = useState<string>(() => {
     return (
+      sanitizePresetDynamicTemplate(initialRecipientTemplatesSource?.subjectTemplate) ||
       editingQuotation?.subject ||
       enquiry?.subject ||
       profile?.subject ||
@@ -2863,36 +2879,49 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       setAutoPaginateItems(Boolean(hydrated.autoPaginateItems));
 
       if (targetQuote) {
+        const activeTargetTemplates = !isFrozenQuote
+          ? targetQuote.recipient_config ||
+            (isBaselineOrUnstyledDraft
+              ? hydrated.recipientConfig || defaultPreset?.recipient_config || profile?.recipient_config
+              : undefined)
+          : undefined;
         setClientContactPerson(
-          targetQuote.client_contact_person ||
+          sanitizePresetDynamicTemplate(activeTargetTemplates?.attentionTemplate) ||
+            targetQuote.client_contact_person ||
             targetQuote.client_snapshot?.client_contact_person ||
             targetQuote.client_snapshot?.contact_person ||
             (enquiry as any)?.contact_person_name ||
+            (enquiry as any)?.contact_name ||
             enquiry?.concerned_person ||
             ''
         );
         setClientNameOverride(
-          targetQuote.client_snapshot?.entity_name ||
+          sanitizePresetDynamicTemplate(activeTargetTemplates?.companyNameTemplate) ||
+            targetQuote.client_snapshot?.entity_name ||
             enquiry?.company_name ||
             enquiry?.client_company ||
             ''
         );
         setClientAddressOverride(
-          targetQuote.client_address ||
+          sanitizePresetDynamicTemplate(activeTargetTemplates?.addressTemplate) ||
+            targetQuote.client_address ||
             targetQuote.client_snapshot?.client_address ||
             targetQuote.client_snapshot?.address ||
+            combineCityCountry((enquiry as any)?.city, (enquiry as any)?.country) ||
             enquiry?.project_location ||
             enquiry?.country ||
             ''
         );
         setClientTrnOverride(
-          targetQuote.client_trn ||
+          sanitizePresetDynamicTemplate(activeTargetTemplates?.trnTemplate) ||
+            targetQuote.client_trn ||
             targetQuote.client_snapshot?.client_trn ||
             targetQuote.client_snapshot?.trn ||
             ''
         );
         setClientPhoneOverride(
-          targetQuote.client_phone ||
+          sanitizePresetDynamicTemplate(activeTargetTemplates?.phoneTemplate) ||
+            targetQuote.client_phone ||
             targetQuote.client_snapshot?.client_phone ||
             targetQuote.client_snapshot?.phone ||
             (enquiry as any)?.contact_phone ||
@@ -2900,7 +2929,8 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
             ''
         );
         setClientEmailOverride(
-          targetQuote.client_email ||
+          sanitizePresetDynamicTemplate(activeTargetTemplates?.emailTemplate) ||
+            targetQuote.client_email ||
             targetQuote.client_snapshot?.client_email ||
             targetQuote.client_snapshot?.email ||
             (enquiry as any)?.contact_email ||
@@ -2916,7 +2946,13 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                   salespersonName
               )
         );
-        setQuotationSubject(targetQuote.subject || enquiry?.subject || profile?.subject || '');
+        setQuotationSubject(
+          sanitizePresetDynamicTemplate(activeTargetTemplates?.subjectTemplate) ||
+            targetQuote.subject ||
+            enquiry?.subject ||
+            profile?.subject ||
+            ''
+        );
         setCustomNotes(
           targetQuote.custom_notes ||
             targetQuote.applied_terms ||
@@ -3293,10 +3329,43 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
           setCustomBankOverride(null);
         }
       } else {
+        const newQuoteTemplates =
+          hydrated.recipientConfig ||
+          defaultPreset?.recipient_config ||
+          profile?.recipient_config;
+        setClientNameOverride(
+          sanitizePresetDynamicTemplate(newQuoteTemplates?.companyNameTemplate) ||
+            enquiry?.company_name ||
+            enquiry?.client_company ||
+            ''
+        );
         setClientContactPerson(
-          (enquiry as any)?.contact_person_name ||
+          sanitizePresetDynamicTemplate(newQuoteTemplates?.attentionTemplate) ||
+            (enquiry as any)?.contact_person_name ||
             (enquiry as any)?.contact_name ||
             enquiry?.concerned_person ||
+            ''
+        );
+        setClientAddressOverride(
+          sanitizePresetDynamicTemplate(newQuoteTemplates?.addressTemplate) ||
+            combineCityCountry((enquiry as any)?.city, (enquiry as any)?.country) ||
+            enquiry?.project_location ||
+            enquiry?.country ||
+            ''
+        );
+        setClientTrnOverride(
+          sanitizePresetDynamicTemplate(newQuoteTemplates?.trnTemplate) || ''
+        );
+        setClientPhoneOverride(
+          sanitizePresetDynamicTemplate(newQuoteTemplates?.phoneTemplate) ||
+            (enquiry as any)?.contact_phone ||
+            (enquiry as any)?.phone ||
+            ''
+        );
+        setClientEmailOverride(
+          sanitizePresetDynamicTemplate(newQuoteTemplates?.emailTemplate) ||
+            (enquiry as any)?.contact_email ||
+            (enquiry as any)?.email ||
             ''
         );
         setPreparedBy(
@@ -3306,7 +3375,12 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
               salespersonName
           )
         );
-        setQuotationSubject(enquiry?.subject || profile?.subject || '');
+        setQuotationSubject(
+          sanitizePresetDynamicTemplate(newQuoteTemplates?.subjectTemplate) ||
+            enquiry?.subject ||
+            profile?.subject ||
+            ''
+        );
         setCustomNotes(
           profile?.default_notes ||
             'All prices are subject to availability at the time of firm order.'
@@ -3933,6 +4007,39 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                   logoUrl: loaded.header_config?.logoUrl || loaded.logo_url || prev.logoUrl
                 }));
               }
+              if (loaded.recipient_config) {
+                const sanitizedProfileRecipient =
+                  QuotationRepository.sanitizePresetRecipientConfig(loaded.recipient_config) ||
+                  loaded.recipient_config;
+                setRecipientConfig((prev) => ({
+                  ...prev,
+                  ...sanitizedProfileRecipient
+                }));
+                const profileTemplates = QuotationRepository.extractDynamicRecipientTemplates(
+                  sanitizedProfileRecipient
+                );
+                if (profileTemplates.companyNameTemplate) {
+                  setClientNameOverride(profileTemplates.companyNameTemplate);
+                }
+                if (profileTemplates.attentionTemplate) {
+                  setClientContactPerson(profileTemplates.attentionTemplate);
+                }
+                if (profileTemplates.addressTemplate) {
+                  setClientAddressOverride(profileTemplates.addressTemplate);
+                }
+                if (profileTemplates.trnTemplate) {
+                  setClientTrnOverride(profileTemplates.trnTemplate);
+                }
+                if (profileTemplates.phoneTemplate) {
+                  setClientPhoneOverride(profileTemplates.phoneTemplate);
+                }
+                if (profileTemplates.emailTemplate) {
+                  setClientEmailOverride(profileTemplates.emailTemplate);
+                }
+                if (profileTemplates.subjectTemplate) {
+                  setQuotationSubject(profileTemplates.subjectTemplate);
+                }
+              }
               if (loaded.footer_config) {
                 setFooterConfig((prev) => ({
                   ...prev,
@@ -4449,28 +4556,149 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       setSignatureImageUrl(preset.signature_image_url || '');
     }
     if (preset.logo_position) setLogoPosition(preset.logo_position);
-    if (preset.recipient_config) {
+    const sanitizedPresetRecipientConfig = hydrated.recipientConfig;
+    if (sanitizedPresetRecipientConfig) {
       setRecipientConfig((prev) => ({
         ...prev,
-        ...preset.recipient_config,
+        ...sanitizedPresetRecipientConfig,
+        companyNameTemplate: sanitizedPresetRecipientConfig.companyNameTemplate,
+        attentionTemplate: sanitizedPresetRecipientConfig.attentionTemplate,
+        addressTemplate: sanitizedPresetRecipientConfig.addressTemplate,
+        trnTemplate: sanitizedPresetRecipientConfig.trnTemplate,
+        phoneTemplate: sanitizedPresetRecipientConfig.phoneTemplate,
+        emailTemplate: sanitizedPresetRecipientConfig.emailTemplate,
+        subjectTemplate: sanitizedPresetRecipientConfig.subjectTemplate,
         ...(preset.block_style
           ? {
               style: preset.block_style,
-              recipientCardStyle: preset.recipient_config?.recipientCardStyle || preset.block_style,
-              offerCardStyle: preset.recipient_config?.offerCardStyle || preset.block_style
+              recipientCardStyle: sanitizedPresetRecipientConfig.recipientCardStyle || preset.block_style,
+              offerCardStyle: sanitizedPresetRecipientConfig.offerCardStyle || preset.block_style
             }
           : {}),
         ...(preset.globalCardRadius
           ? {
               globalCardRadius: preset.globalCardRadius,
-              recipientCardRadius: preset.recipient_config?.recipientCardRadius || preset.globalCardRadius,
-              offerCardRadius: preset.recipient_config?.offerCardRadius || preset.globalCardRadius
+              recipientCardRadius:
+                sanitizedPresetRecipientConfig.recipientCardRadius || preset.globalCardRadius,
+              offerCardRadius:
+                sanitizedPresetRecipientConfig.offerCardRadius || preset.globalCardRadius
             }
           : {}),
         ...(preset.cardsOrder ? { cardsOrder: preset.cardsOrder } : {}),
         ...(preset.subjectPlacement ? { subjectPlacement: preset.subjectPlacement } : {})
       }));
     }
+
+    // Apply dynamic @tag recipient templates verbatim from the preset without leaking literal single-deal text.
+    // When switching from a preset with a @tag template to one without it, reset back to the current enquiry's default.
+    const presetTemplates = hydrated.recipientTemplates;
+    const defaultClientCompany =
+      (!isBaselineQuote && activeQuote?.client_snapshot?.entity_name) ||
+      enquiry?.company_name ||
+      enquiry?.client_company ||
+      '';
+    const defaultContactPerson =
+      (!isBaselineQuote &&
+        (activeQuote?.client_contact_person ||
+          activeQuote?.client_snapshot?.client_contact_person ||
+          activeQuote?.client_snapshot?.contact_person)) ||
+      (enquiry as any)?.contact_person_name ||
+      (enquiry as any)?.contact_name ||
+      enquiry?.concerned_person ||
+      '';
+    const defaultClientAddress =
+      (!isBaselineQuote &&
+        (activeQuote?.client_address ||
+          activeQuote?.client_snapshot?.client_address ||
+          activeQuote?.client_snapshot?.address)) ||
+      combineCityCountry((enquiry as any)?.city, (enquiry as any)?.country) ||
+      enquiry?.project_location ||
+      enquiry?.country ||
+      '';
+    const defaultClientTrn =
+      (!isBaselineQuote &&
+        (activeQuote?.client_trn ||
+          activeQuote?.client_snapshot?.client_trn ||
+          activeQuote?.client_snapshot?.trn)) ||
+      '';
+    const defaultClientPhone =
+      (!isBaselineQuote &&
+        (activeQuote?.client_phone ||
+          activeQuote?.client_snapshot?.client_phone ||
+          activeQuote?.client_snapshot?.phone)) ||
+      (enquiry as any)?.contact_phone ||
+      (enquiry as any)?.phone ||
+      '';
+    const defaultClientEmail =
+      (!isBaselineQuote &&
+        (activeQuote?.client_email ||
+          activeQuote?.client_snapshot?.client_email ||
+          activeQuote?.client_snapshot?.email)) ||
+      (enquiry as any)?.contact_email ||
+      (enquiry as any)?.email ||
+      '';
+    const defaultSubject =
+      (!isBaselineQuote && activeQuote?.subject) ||
+      enquiry?.subject ||
+      profile?.subject ||
+      '';
+
+    const applyDynamicTemplateOrReset = (
+      templateVal: string | undefined,
+      currentVal: string,
+      fallbackVal: string,
+      setter: React.Dispatch<React.SetStateAction<string>>
+    ) => {
+      const safeTpl = sanitizePresetDynamicTemplate(templateVal);
+      if (safeTpl) {
+        setter(safeTpl);
+      } else if (hasDynamicAtTag(currentVal)) {
+        setter(fallbackVal);
+      }
+    };
+
+    applyDynamicTemplateOrReset(
+      presetTemplates?.companyNameTemplate,
+      clientNameOverride,
+      defaultClientCompany,
+      setClientNameOverride
+    );
+    applyDynamicTemplateOrReset(
+      presetTemplates?.attentionTemplate,
+      clientContactPerson,
+      defaultContactPerson,
+      setClientContactPerson
+    );
+    applyDynamicTemplateOrReset(
+      presetTemplates?.addressTemplate,
+      clientAddressOverride,
+      defaultClientAddress,
+      setClientAddressOverride
+    );
+    applyDynamicTemplateOrReset(
+      presetTemplates?.trnTemplate,
+      clientTrnOverride,
+      defaultClientTrn,
+      setClientTrnOverride
+    );
+    applyDynamicTemplateOrReset(
+      presetTemplates?.phoneTemplate,
+      clientPhoneOverride,
+      defaultClientPhone,
+      setClientPhoneOverride
+    );
+    applyDynamicTemplateOrReset(
+      presetTemplates?.emailTemplate,
+      clientEmailOverride,
+      defaultClientEmail,
+      setClientEmailOverride
+    );
+    applyDynamicTemplateOrReset(
+      presetTemplates?.subjectTemplate,
+      quotationSubject,
+      defaultSubject,
+      setQuotationSubject
+    );
     if (preset.block_style) {
       handleSetGlobalBlockStyle(preset.block_style);
     }
@@ -8513,6 +8741,48 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     );
   };
 
+  // Capture ONLY dynamic @tag templates from Client & Recipient Info onto recipient_config.
+  // Literal single-deal values (like "Agua Nexus", "John Doe", or "sales@aguanexus.com") are stripped so they never leak across deals.
+  const buildRecipientConfigWithDynamicTemplates = (
+    baseConfig: QuotationRecipientConfig
+  ): QuotationRecipientConfig => {
+    const next: QuotationRecipientConfig = {
+      ...baseConfig,
+      globalCardRadius,
+      cardsOrder,
+      subjectPlacement
+    };
+    const templateFields: Array<
+      [
+        | 'companyNameTemplate'
+        | 'attentionTemplate'
+        | 'addressTemplate'
+        | 'trnTemplate'
+        | 'phoneTemplate'
+        | 'emailTemplate'
+        | 'subjectTemplate',
+        string
+      ]
+    > = [
+      ['companyNameTemplate', clientNameOverride],
+      ['attentionTemplate', clientContactPerson],
+      ['addressTemplate', clientAddressOverride],
+      ['trnTemplate', clientTrnOverride],
+      ['phoneTemplate', clientPhoneOverride],
+      ['emailTemplate', clientEmailOverride],
+      ['subjectTemplate', quotationSubject]
+    ];
+    for (const [key, currentVal] of templateFields) {
+      const safeTpl = sanitizePresetDynamicTemplate(currentVal);
+      if (safeTpl) {
+        next[key] = safeTpl;
+      } else {
+        delete next[key];
+      }
+    }
+    return next;
+  };
+
   // Switch between revisions in-studio (R1 <-> R2) without leaving the modal
   const handleSelectRevisionInStudio = (targetQuote: Quotation) => {
     setEnquiryRevisions((prev) =>
@@ -8663,7 +8933,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
             ? { logoUrl: companyLogoUrl }
             : {})
         },
-        recipient_config: recipientConfig,
+        recipient_config: buildRecipientConfigWithDynamicTemplates(recipientConfig),
         footer_config: {
           ...footerConfig,
           pageMode: pageMode,
@@ -8894,12 +9164,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
           ? { logoUrl: companyLogoUrl }
           : {})
       },
-      recipient_config: {
-        ...recipientConfig,
-        globalCardRadius,
-        cardsOrder,
-        subjectPlacement
-      },
+      recipient_config: buildRecipientConfigWithDynamicTemplates(recipientConfig),
       remittanceBankId: selectedBankId,
       remittance_bank_id: selectedBankId,
       selectedBank: activeBankProfile,
@@ -9042,6 +9307,114 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       if ((pCols.attributeDisplayFormat || 'grid_2col_balanced') !== (visibleColumns.attributeDisplayFormat || 'grid_2col_balanced')) return true;
     }
 
+    // Compare dynamic @tag templates on Client & Recipient Info (only @tag values persist to presets; literal deal strings never leak)
+    const presetRec = selectedPreset.recipient_config;
+    if (
+      (sanitizePresetDynamicTemplate(presetRec?.companyNameTemplate) || '') !==
+      (sanitizePresetDynamicTemplate(clientNameOverride) || '')
+    ) {
+      return true;
+    }
+    if (
+      (sanitizePresetDynamicTemplate(presetRec?.attentionTemplate) || '') !==
+      (sanitizePresetDynamicTemplate(clientContactPerson) || '')
+    ) {
+      return true;
+    }
+    if (
+      (sanitizePresetDynamicTemplate(presetRec?.addressTemplate) || '') !==
+      (sanitizePresetDynamicTemplate(clientAddressOverride) || '')
+    ) {
+      return true;
+    }
+    if (
+      (sanitizePresetDynamicTemplate(presetRec?.trnTemplate) || '') !==
+      (sanitizePresetDynamicTemplate(clientTrnOverride) || '')
+    ) {
+      return true;
+    }
+    if (
+      (sanitizePresetDynamicTemplate(presetRec?.phoneTemplate) || '') !==
+      (sanitizePresetDynamicTemplate(clientPhoneOverride) || '')
+    ) {
+      return true;
+    }
+    if (
+      (sanitizePresetDynamicTemplate(presetRec?.emailTemplate) || '') !==
+      (sanitizePresetDynamicTemplate(clientEmailOverride) || '')
+    ) {
+      return true;
+    }
+    if (
+      (sanitizePresetDynamicTemplate(presetRec?.subjectTemplate) || '') !==
+      (sanitizePresetDynamicTemplate(quotationSubject) || '')
+    ) {
+      return true;
+    }
+
+    // Compare @tag-capable overrides on Recipient, Offer, Header, and Footer configs
+    if (
+      (presetRec?.recipientHeadingOverride || '') !==
+      (recipientConfig.recipientHeadingOverride || '')
+    ) {
+      return true;
+    }
+    if (
+      (presetRec?.offerHeadingOverride || '') !==
+      (recipientConfig.offerHeadingOverride || '')
+    ) {
+      return true;
+    }
+    if (
+      (presetRec?.revisionBadgeTextOverride || '') !==
+      (recipientConfig.revisionBadgeTextOverride || '')
+    ) {
+      return true;
+    }
+    if (
+      (presetRec?.statusTextOverride || '') !==
+      (recipientConfig.statusTextOverride || '')
+    ) {
+      return true;
+    }
+    if (
+      JSON.stringify(presetRec?.recipientFieldRows || []) !==
+      JSON.stringify(recipientConfig.recipientFieldRows || [])
+    ) {
+      return true;
+    }
+    if (
+      JSON.stringify(presetRec?.offerFieldRows || []) !==
+      JSON.stringify(recipientConfig.offerFieldRows || [])
+    ) {
+      return true;
+    }
+    if (
+      (selectedPreset.companyNameOverride || selectedPreset.header_config?.companyNameOverride || '') !==
+      (headerConfig.companyNameOverride || '')
+    ) {
+      return true;
+    }
+    if (
+      Array.isArray(selectedPreset.header_config?.headerFields) &&
+      JSON.stringify(selectedPreset.header_config.headerFields) !==
+        JSON.stringify(headerConfig.headerFields || [])
+    ) {
+      return true;
+    }
+    if (
+      (selectedPreset.footer_config?.customDisclaimer || '') !==
+      (footerConfig.customDisclaimer || '')
+    ) {
+      return true;
+    }
+    if (
+      JSON.stringify(selectedPreset.footer_config?.customFooterPills || []) !==
+      JSON.stringify(footerConfig.customFooterPills || [])
+    ) {
+      return true;
+    }
+
     if (saveCommercialTermsToPreset) {
       if ((selectedPreset.default_tax_mode || (selectedPreset as any).tax_mode) && (selectedPreset.default_tax_mode || (selectedPreset as any).tax_mode) !== taxMode) return true;
       if ((selectedPreset.default_price_basis || (selectedPreset as any).price_basis || '') !== (priceBasis || '')) return true;
@@ -9068,10 +9441,27 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     signatoryMode,
     themeAccent,
     headerConfig.documentFontFamily,
+    headerConfig.companyNameOverride,
+    headerConfig.headerFields,
     pdfFilenamePattern,
     signatoryName,
     signatoryTitle,
     visibleColumns,
+    clientNameOverride,
+    clientContactPerson,
+    clientAddressOverride,
+    clientTrnOverride,
+    clientPhoneOverride,
+    clientEmailOverride,
+    quotationSubject,
+    recipientConfig.recipientHeadingOverride,
+    recipientConfig.offerHeadingOverride,
+    recipientConfig.revisionBadgeTextOverride,
+    recipientConfig.statusTextOverride,
+    recipientConfig.recipientFieldRows,
+    recipientConfig.offerFieldRows,
+    footerConfig.customDisclaimer,
+    footerConfig.customFooterPills,
     saveCommercialTermsToPreset,
     taxMode,
     priceBasis,
@@ -9214,12 +9604,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
           ...headerConfig,
           logoUrl: resolvedLogoUrl
         },
-        recipient_config: {
-          ...recipientConfig,
-          globalCardRadius,
-          cardsOrder,
-          subjectPlacement
-        },
+        recipient_config: buildRecipientConfigWithDynamicTemplates(recipientConfig),
         footer_config: {
           ...footerConfig,
           pageMode,

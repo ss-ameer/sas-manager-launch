@@ -8,6 +8,7 @@ import {
   BankAccountProfile,
   EnquiryQuotationSyncPayload,
   QuotationBlockConfig,
+  QuotationRecipientConfig,
   CommercialDocumentType
 } from '../../types';
 import { safeGetDocs, safeGetDoc, safeSetDoc, safeAddDoc, safeUpdateDoc, safeDeleteDoc, db } from '../../firebase';
@@ -20,6 +21,7 @@ import {
   hasInlineBase64Payload,
   INLINE_DATA_URI_MAX_BYTES
 } from '../attachmentStorage';
+import { sanitizePresetDynamicTemplate } from '../../utils/quotationTokenResolver';
 
 export const DEFAULT_QUOTATION_BLOCKS: QuotationBlockConfig[] = [
   { id: 'terms', type: 'terms', title: 'Commercial Terms & Conditions', is_visible: true, enabled: true, placement: 'left', width: '50', style: 'framed', fontScale: 'standard', padding: 'standard', order: 1 },
@@ -1754,6 +1756,7 @@ export class QuotationRepository {
         cardsOrder: fromPreset.cardsOrder,
         subjectPlacement: fromPreset.subjectPlacement,
         recipientConfig: fromPreset.recipientConfig ? { ...fromPreset.recipientConfig } : undefined,
+        recipientTemplates: { ...fromPreset.recipientTemplates },
         selectedBankId:
           fromPreset.remittanceBankId ||
           profile?.bank_accounts?.find((b) => b.is_default)?.id ||
@@ -1925,7 +1928,18 @@ export class QuotationRepository {
         quotation?.recipient_config?.subjectPlacement ||
         profile?.subjectPlacement ||
         'below_cards',
-      recipientConfig: quotation?.recipient_config ? { ...quotation.recipient_config } : undefined,
+      recipientConfig: quotation?.recipient_config
+        ? { ...quotation.recipient_config }
+        : defaultPreset?.recipient_config
+        ? this.sanitizePresetRecipientConfig(defaultPreset.recipient_config)
+        : profile?.recipient_config
+        ? this.sanitizePresetRecipientConfig(profile.recipient_config)
+        : undefined,
+      recipientTemplates: this.extractDynamicRecipientTemplates(
+        quotation?.recipient_config ||
+          defaultPreset?.recipient_config ||
+          profile?.recipient_config
+      ),
       selectedBankId,
       taxMode: quotation?.tax_mode || profile?.default_tax_mode || 'taxes_extra',
       priceBasis: quotation?.price_basis || profile?.default_price_basis || 'Ex-Works',
@@ -3093,6 +3107,79 @@ export class QuotationRepository {
   }
 
   /**
+   * Extracts only genuine dynamic `@tag` / `{{tag}}` client/recipient templates from a recipient_config.
+   * Literal single-deal values (like "Agua Nexus", "John Doe", or "sales@aguanexus.com") are stripped.
+   */
+  public static extractDynamicRecipientTemplates(cfg?: QuotationRecipientConfig | null): {
+    companyNameTemplate?: string;
+    attentionTemplate?: string;
+    addressTemplate?: string;
+    trnTemplate?: string;
+    phoneTemplate?: string;
+    emailTemplate?: string;
+    subjectTemplate?: string;
+  } {
+    if (!cfg) return {};
+    const companyNameTemplate = sanitizePresetDynamicTemplate(cfg.companyNameTemplate);
+    const attentionTemplate = sanitizePresetDynamicTemplate(cfg.attentionTemplate);
+    const addressTemplate = sanitizePresetDynamicTemplate(cfg.addressTemplate);
+    const trnTemplate = sanitizePresetDynamicTemplate(cfg.trnTemplate);
+    const phoneTemplate = sanitizePresetDynamicTemplate(cfg.phoneTemplate);
+    const emailTemplate = sanitizePresetDynamicTemplate(cfg.emailTemplate);
+    const subjectTemplate = sanitizePresetDynamicTemplate(cfg.subjectTemplate);
+    return {
+      ...(companyNameTemplate ? { companyNameTemplate } : {}),
+      ...(attentionTemplate ? { attentionTemplate } : {}),
+      ...(addressTemplate ? { addressTemplate } : {}),
+      ...(trnTemplate ? { trnTemplate } : {}),
+      ...(phoneTemplate ? { phoneTemplate } : {}),
+      ...(emailTemplate ? { emailTemplate } : {}),
+      ...(subjectTemplate ? { subjectTemplate } : {})
+    };
+  }
+
+  /**
+   * Clones `recipient_config` for preset storage while strictly allowing ONLY dynamic `@tag`
+   * templates in the `*Template` fields — preventing literal single-deal client data leakage.
+   */
+  public static sanitizePresetRecipientConfig(
+    cfg?: QuotationRecipientConfig | null
+  ): QuotationRecipientConfig | undefined {
+    if (!cfg) return undefined;
+    const next: QuotationRecipientConfig = {
+      ...cfg,
+      ...(Array.isArray(cfg.recipientFieldRows)
+        ? {
+            recipientFieldRows: cfg.recipientFieldRows.map((r) => ({ ...r }))
+          }
+        : {}),
+      ...(Array.isArray(cfg.offerFieldRows)
+        ? {
+            offerFieldRows: cfg.offerFieldRows.map((r) => ({ ...r }))
+          }
+        : {})
+    };
+    const templateKeys = [
+      'companyNameTemplate',
+      'attentionTemplate',
+      'addressTemplate',
+      'trnTemplate',
+      'phoneTemplate',
+      'emailTemplate',
+      'subjectTemplate'
+    ] as const;
+    for (const key of templateKeys) {
+      const safeTpl = sanitizePresetDynamicTemplate(cfg[key]);
+      if (safeTpl) {
+        next[key] = safeTpl;
+      } else {
+        delete next[key];
+      }
+    }
+    return next;
+  }
+
+  /**
    * Serializes a complete studio preset snapshot preserving 100% of Phase 1 & Phase 2 settings.
    */
   public static serializePresetSnapshot(
@@ -3373,21 +3460,7 @@ export class QuotationRepository {
       globalCardRadius: input.globalCardRadius || 'rounded',
       cardsOrder: input.cardsOrder || 'recipient_first',
       subjectPlacement: input.subjectPlacement || 'below_cards',
-      recipient_config: input.recipient_config
-        ? {
-            ...input.recipient_config,
-            ...(Array.isArray(input.recipient_config.recipientFieldRows)
-              ? {
-                  recipientFieldRows: input.recipient_config.recipientFieldRows.map((r) => ({ ...r }))
-                }
-              : {}),
-            ...(Array.isArray(input.recipient_config.offerFieldRows)
-              ? {
-                  offerFieldRows: input.recipient_config.offerFieldRows.map((r) => ({ ...r }))
-                }
-              : {})
-          }
-        : undefined,
+      recipient_config: this.sanitizePresetRecipientConfig(input.recipient_config),
       documentFontFamily: resolvedFontFamily,
       topAccentBarStyle: resolvedTopBarStyle,
       tableHeaderStyle: resolvedTableHeaderStyle,
@@ -3445,6 +3518,7 @@ export class QuotationRepository {
       cardsOrder: serialized.cardsOrder || 'recipient_first',
       subjectPlacement: serialized.subjectPlacement || 'below_cards',
       recipientConfig: serialized.recipient_config ? { ...serialized.recipient_config } : undefined,
+      recipientTemplates: this.extractDynamicRecipientTemplates(serialized.recipient_config),
       documentFontFamily: serialized.documentFontFamily || 'sans',
       topAccentBarStyle: serialized.topAccentBarStyle || 'thick',
       tableHeaderStyle: serialized.tableHeaderStyle || 'solid',

@@ -888,18 +888,43 @@ function formatAmount(num?: number | string | null): string {
   });
 }
 
+const EMAIL_ADDRESS_MASK_REGEX =
+  /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)+/g;
+
+/**
+ * Returns true when `val` contains at least one dynamic `@tag` or `{{tag}}` placeholder.
+ * Safely ignores literal email addresses (e.g. `sales@company.com`, `john-doe@acme.co.ae`).
+ */
+export function hasDynamicAtTag(val?: string | null): boolean {
+  if (!val || typeof val !== 'string') return false;
+  const trimmed = val.trim();
+  if (!trimmed) return false;
+  if (!trimmed.includes('@') && !trimmed.includes('{{')) return false;
+  if (/\{\{\s*@?[a-zA-Z_][a-zA-Z0-9_]*\s*\}\}/.test(trimmed)) return true;
+  const maskedEmails = trimmed.replace(EMAIL_ADDRESS_MASK_REGEX, '');
+  return /(?:^|[^a-zA-Z0-9])@[a-zA-Z_][a-zA-Z0-9_]*/.test(maskedEmails);
+}
+
+/**
+ * Returns the trimmed string ONLY if it contains a dynamic `@tag` / `{{tag}}` template;
+ * otherwise returns `undefined` so literal single-deal text (e.g. `"Agua Nexus"`,
+ * `"John Doe"`, `"sales@aguanexus.com"`) is never persisted into cross-deal presets.
+ */
+export function sanitizePresetDynamicTemplate(val?: string | null): string | undefined {
+  if (!hasDynamicAtTag(val)) return undefined;
+  return String(val).trim();
+}
+
 /**
  * Returns a clean string only if `val` does NOT contain unresolved `@tag` or `{{tag}}` tokens,
  * preventing self-referential loops when a field override itself is set to e.g. `@client_phone`.
- * Real email addresses like `info@aventura.ae` (where `@` is preceded by alphanumeric) are preserved.
+ * Real email addresses like `info@aventura.ae` or `john-doe@acme.co.ae` are preserved.
  */
 function nonTagValue(val?: any): string {
   if (val === undefined || val === null) return '';
   const str = String(val).trim();
   if (!str || str === '—' || str.toLowerCase() === 'not registered') return '';
-  if (str.startsWith('@') || str.startsWith('{{')) return '';
-  if (/(?:^|[\s(\[{"'‘“_\-/.,:;])@[a-zA-Z_][a-zA-Z0-9_]*/.test(str)) return '';
-  if (/\{\{\s*[a-zA-Z_][a-zA-Z0-9_]*\s*\}\}/.test(str)) return '';
+  if (hasDynamicAtTag(str)) return '';
   return str;
 }
 
@@ -924,9 +949,11 @@ export function combineCityCountry(city?: string | null, country?: string | null
 export function cleanDanglingSeparators(text: string): string {
   if (!text) return '';
   return text
+    .replace(/\(\s*\)/g, '')
     .replace(/\s*[,•]\s*—/g, '')
     .replace(/—\s*[,•]\s*/g, '')
     .replace(/,\s*,+/g, ', ')
+    .replace(/[ \t]{2,}/g, ' ')
     .replace(/^[,\s•-]+|[,\s•-]+$/gm, '')
     .trim();
 }
@@ -1067,6 +1094,8 @@ export function buildQuotationTokenMap(ctx?: QuotationTokenContext | null): Reco
         nonTagValue((enq as any)?.designation) ||
         nonTagValue(cont.designation) ||
         nonTagValue(cont.role) ||
+        nonTagValue((cont as any)?.job_title) ||
+        nonTagValue((cont as any)?.title) ||
         ''
       : '') ||
     '';

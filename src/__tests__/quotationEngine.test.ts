@@ -40,6 +40,11 @@ import {
   DEFAULT_RECIPIENT_CONFIG
 } from '../components/quotations/QuotationDocument';
 import { QuotationRepository } from '../services/repositories/QuotationRepository';
+import {
+  hasDynamicAtTag,
+  sanitizePresetDynamicTemplate,
+  resolveQuotationTokens
+} from '../utils/quotationTokenResolver';
 
 // ==========================================
 // TEST UTILITY & ASSERTION HARNESS
@@ -3294,6 +3299,154 @@ describe('Suite 23: Ghost Blank Page Elimination, Annex Page Numbering & Unified
     expect(res.annexSheets[0].excludeFromPageCount).toBe(true);
     expect(res.annexSheets[1].displayPageNumber).toBe(3);
     expect(res.annexSheets[1].excludeFromPageCount).toBe(false);
+  });
+});
+
+// ==========================================
+// SUITE 24: DOCUMENT LAYOUT PRESET @TAG DYNAMIC TEMPLATE PERSISTENCE & LEAKAGE GUARD
+// ==========================================
+
+describe('Suite 24: Document Layout Preset @tag Dynamic Template Persistence & Cross-Deal Leakage Guard', () => {
+  it('24a. hasDynamicAtTag & sanitizePresetDynamicTemplate detect real @tags while ignoring literal deal text and email addresses', () => {
+    expect(hasDynamicAtTag('Mr. @contact_person (@contact_designation)')).toBe(true);
+    expect(hasDynamicAtTag('Mr. @contact_name (@contact_designation)')).toBe(true);
+    expect(hasDynamicAtTag('@client_city, @client_country')).toBe(true);
+    expect(hasDynamicAtTag('{{contact_person}}')).toBe(true);
+    expect(hasDynamicAtTag('@quote_short_ref_@company_brand')).toBe(true);
+    expect(hasDynamicAtTag('Email: @client_email (alt: info@acme.com)')).toBe(true);
+
+    expect(hasDynamicAtTag('Agua Nexus')).toBe(false);
+    expect(hasDynamicAtTag('Siva Subramanian')).toBe(false);
+    expect(hasDynamicAtTag('sales@aguanexus.com')).toBe(false);
+    expect(hasDynamicAtTag('john-doe+procurement@sub.acme.co.ae')).toBe(false);
+    expect(hasDynamicAtTag('')).toBe(false);
+
+    expect(sanitizePresetDynamicTemplate('  @client_city, @client_country  ')).toBe(
+      '@client_city, @client_country'
+    );
+    expect(sanitizePresetDynamicTemplate('Agua Nexus')).toBe(undefined);
+    expect(sanitizePresetDynamicTemplate('sales@aguanexus.com')).toBe(undefined);
+  });
+
+  it('24b. serializePresetSnapshot -> hydrateFromPresetSnapshot preserves @tag templates verbatim, strips literal company/email leakage, and resolves dynamically on a different enquiry', () => {
+    const serialized = QuotationRepository.serializePresetSnapshot({
+      workspace_id: 'ws_24b',
+      preset_name: 'Dynamic Executive Layout',
+      document_type: 'quotation',
+      is_default: true,
+      default_tax_mode: 'taxes_extra',
+      default_validity_days: 30,
+      signatory_mode: 'single',
+      visible_columns: {
+        brand: true,
+        model: true,
+        origin: true,
+        availability: true,
+        unit_price: true
+      },
+      recipient_config: {
+        ...DEFAULT_RECIPIENT_CONFIG,
+        companyNameTemplate: 'Agua Nexus', // literal single-deal company name -> MUST NOT leak
+        attentionTemplate: 'Mr. @contact_person (@contact_designation)',
+        addressTemplate: '@client_city, @client_country',
+        phoneTemplate: '@client_phone',
+        emailTemplate: 'sales@aguanexus.com', // literal single-deal email -> MUST NOT leak
+        subjectTemplate: 'Commercial Offer — @subject'
+      }
+    });
+
+    // Dynamic @tag templates are preserved verbatim
+    expect(serialized.recipient_config?.attentionTemplate).toBe(
+      'Mr. @contact_person (@contact_designation)'
+    );
+    expect(serialized.recipient_config?.addressTemplate).toBe('@client_city, @client_country');
+    expect(serialized.recipient_config?.phoneTemplate).toBe('@client_phone');
+    expect(serialized.recipient_config?.subjectTemplate).toBe('Commercial Offer — @subject');
+
+    // Literal single-deal strings & literal emails are strictly stripped
+    expect(serialized.recipient_config?.companyNameTemplate).toBe(undefined);
+    expect(serialized.recipient_config?.emailTemplate).toBe(undefined);
+
+    const presetWithId = { ...serialized, id: 'preset_24b' };
+    const hydrated = QuotationRepository.hydrateFromPresetSnapshot(presetWithId);
+
+    expect(hydrated.recipientConfig?.attentionTemplate).toBe(
+      'Mr. @contact_person (@contact_designation)'
+    );
+    expect(hydrated.recipientTemplates.attentionTemplate).toBe(
+      'Mr. @contact_person (@contact_designation)'
+    );
+    expect(hydrated.recipientTemplates.addressTemplate).toBe('@client_city, @client_country');
+    expect(hydrated.recipientTemplates.phoneTemplate).toBe('@client_phone');
+    expect(hydrated.recipientTemplates.subjectTemplate).toBe('Commercial Offer — @subject');
+    expect(hydrated.recipientTemplates.companyNameTemplate).toBe(undefined);
+    expect(hydrated.recipientTemplates.emailTemplate).toBe(undefined);
+
+    // Brand-new quotation default preset hydration carries the templates cleanly
+    const newQuoteStudioState = QuotationRepository.hydrateStudioStateFromQuotation(
+      null,
+      null,
+      presetWithId
+    );
+    expect(newQuoteStudioState.recipientTemplates.attentionTemplate).toBe(
+      'Mr. @contact_person (@contact_designation)'
+    );
+    expect(newQuoteStudioState.recipientTemplates.addressTemplate).toBe(
+      '@client_city, @client_country'
+    );
+    expect(newQuoteStudioState.recipientTemplates.companyNameTemplate).toBe(undefined);
+
+    // Resolve the hydrated @tag templates against a completely different Enquiry B
+    const enquiryB: any = {
+      id: 'enq_b_24b',
+      company_name: 'Horizon Marine Engineering LLC',
+      contact_person_name: 'Tariq Al-Nuaimi',
+      contact_designation: 'Procurement Director',
+      city: 'Abu Dhabi',
+      country: 'UAE',
+      contact_phone: '+971 2 555 8899',
+      contact_email: 'tariq@horizonmarine.ae',
+      subject: 'RO Desalination Skid'
+    };
+
+    const resolvedAttention = resolveQuotationTokens(
+      hydrated.recipientTemplates.attentionTemplate,
+      { enquiry: enquiryB }
+    );
+    const resolvedAddress = resolveQuotationTokens(
+      hydrated.recipientTemplates.addressTemplate,
+      { enquiry: enquiryB }
+    );
+    const resolvedPhone = resolveQuotationTokens(
+      hydrated.recipientTemplates.phoneTemplate,
+      { enquiry: enquiryB }
+    );
+    const resolvedSubject = resolveQuotationTokens(
+      hydrated.recipientTemplates.subjectTemplate,
+      { enquiry: enquiryB }
+    );
+    const resolvedAliasAttention = resolveQuotationTokens(
+      'Mr. @contact_name (@contact_designation)',
+      { enquiry: enquiryB }
+    );
+
+    expect(resolvedAttention).toBe('Mr. Tariq Al-Nuaimi (Procurement Director)');
+    expect(resolvedAliasAttention).toBe('Mr. Tariq Al-Nuaimi (Procurement Director)');
+    expect(resolvedAddress).toBe('Abu Dhabi, UAE');
+    expect(resolvedPhone).toBe('+971 2 555 8899');
+    expect(resolvedSubject).toBe('Commercial Offer — RO Desalination Skid');
+
+    // Empty designation cleanly collapses empty parentheses
+    const resolvedNoDesignation = resolveQuotationTokens(
+      hydrated.recipientTemplates.attentionTemplate,
+      {
+        enquiry: {
+          ...enquiryB,
+          contact_designation: ''
+        }
+      }
+    );
+    expect(resolvedNoDesignation).toBe('Mr. Tariq Al-Nuaimi');
   });
 });
 
