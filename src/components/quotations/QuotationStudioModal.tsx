@@ -4108,6 +4108,19 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
   const [tableInspectorTab, setTableInspectorTab] = useState<'specs' | 'columns' | 'media' | 'pagination'>('specs');
   const [expandedRowAttrItemKey, setExpandedRowAttrItemKey] = useState<string | null>(null);
   const [isPresetMenuOpen, setIsPresetMenuOpen] = useState(false);
+  const [focusedItemAccordions, setFocusedItemAccordions] = useState<{
+    specs: boolean;
+    media: boolean;
+    composite: boolean;
+    pagination: boolean;
+  }>({
+    specs: false,
+    media: false,
+    composite: false,
+    pagination: false
+  });
+  const [showFocusedMediaAdvanced, setShowFocusedMediaAdvanced] = useState(false);
+  const [showFocusedImageUrlInput, setShowFocusedImageUrlInput] = useState(false);
 
   // Dedicated Signatory Presets State & Built-in Definitions (Decoupled from Document Layout Presets)
   const [customSignatoryPresets, setCustomSignatoryPresets] = useState<SignatoryPreset[]>(() => {
@@ -14059,27 +14072,26 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                   )}
                   </div>
 
-                  {/* Direct Document Line Items Editor for PO, MRN, DN, DO & Quotation */}
+                  {/* Compact Interactive Line-Item Quick-Jump Outline (Full editing happens in Right Inspector) */}
                   {documentType !== 'receipt' && documentType !== 'payment_voucher' && (
                     <div
                       id="studio-line-items-editor"
-                      className="bg-slate-50 border border-slate-200/80 rounded-xl p-4 space-y-3"
+                      className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 space-y-2.5"
                     >
-                      <div className="flex items-center justify-between gap-2 flex-wrap">
-                        <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
-                          <Package className="w-3.5 h-3.5 text-indigo-600" />
-                          Document Line Items ({quotationLineItems.length})
+                      <div className="flex items-center justify-between gap-1.5">
+                        <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5 min-w-0 truncate">
+                          <Package className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                          <span className="truncate">Line Items ({quotationLineItems.length})</span>
                         </span>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1 shrink-0">
                           {enquiry?.line_items && enquiry.line_items.length > 0 && (
                             <button
                               type="button"
                               onClick={handleSyncFromEnquiryForm}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300 font-bold text-[11px] cursor-pointer transition shadow-2xs"
-                              title="Pull updated line items, delivery times, and pricing directly from the Enquiry Form"
+                              className="p-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 cursor-pointer transition"
+                              title="Pull updated line items, delivery times, and pricing from the Enquiry Form"
                             >
                               <RefreshCw className="w-3 h-3 text-emerald-600" />
-                              <span>Pull from Enquiry</span>
                             </button>
                           )}
                           <div className="relative">
@@ -14091,14 +14103,14 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                 );
                                 setStudioCatalogSearchQuery('');
                               }}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-200 font-bold text-[11px] cursor-pointer transition shadow-2xs"
-                              title="Insert a pre-configured product directly from the Workspace Catalog"
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-200 font-bold text-[10.5px] cursor-pointer transition whitespace-nowrap"
+                              title="Insert a product from the Workspace Catalog"
                             >
                               <Package className="w-3 h-3 text-indigo-600" />
-                              <span>+ From Catalog</span>
+                              <span>+ Catalog</span>
                             </button>
                             {studioCatalogPickerLocation === 'sidebar' && (
-                              <div className="absolute right-0 top-full mt-1.5 w-96 bg-white border border-slate-200 rounded-xl shadow-xl z-50 p-2.5 space-y-2">
+                              <div className="absolute right-0 top-full mt-1.5 w-80 max-w-[calc(100vw-2rem)] bg-white border border-slate-200 rounded-xl shadow-xl z-50 p-2.5 space-y-2">
                                 <div className="flex items-center justify-between gap-2 pb-1 border-b border-slate-100">
                                   <span className="text-[11px] font-bold text-slate-800 flex items-center gap-1.5">
                                     <Package className="w-3.5 h-3.5 text-indigo-600" />
@@ -14130,8 +14142,9 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                             type="button"
                             onClick={() => {
                               const currentList = customStudioLineItems ?? quotationLineItems;
+                              const nextIdx = currentList.length;
                               const nextItem: QuotationLineItem = {
-                                id: `st_li_${Date.now()}_${currentList.length + 1}`,
+                                id: `st_li_${Date.now()}_${nextIdx + 1}`,
                                 item_name: '',
                                 description: '',
                                 quantity: 1,
@@ -14141,326 +14154,205 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                 total_price: 0
                               };
                               setCustomStudioLineItems([...currentList, nextItem]);
+                              setSelectedSection('items_table');
+                              setFocusedItemIndex(nextIdx);
+                              setInspectorSubTarget(`item:${nextIdx}::${Date.now()}`);
                             }}
-                            className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[11px] cursor-pointer"
+                            className="px-2 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[10.5px] cursor-pointer whitespace-nowrap transition"
+                            title="Add a blank line item and open it in the Right Inspector"
                           >
-                            + Add Line Item
+                            + Item
                           </button>
                         </div>
                       </div>
 
                       {quotationLineItems.length === 0 ? (
                         <div className="p-3 rounded-lg border border-dashed border-slate-300 bg-white text-center text-[11px] text-slate-500">
-                          No line items on this document yet. Click <strong>+ Add Line Item</strong> above to add items.
+                          No line items yet. Click <strong>+ Catalog</strong> or <strong>+ Item</strong> above.
                         </div>
                       ) : (
-                        <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
-                          {quotationLineItems.map((li, idx) => (
-                            <div
-                              key={li.id || idx}
-                              className="p-2.5 rounded-lg bg-white border border-slate-200 space-y-2 text-[11px]"
-                            >
-                              <div className="flex items-center justify-between gap-2">
-                                <div className="flex items-center gap-1.5 shrink-0">
-                                  <span className="font-mono font-bold text-slate-500">#{idx + 1}</span>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setFocusedItemIndex(idx);
-                                      setSelectedSection('items_table');
-                                      setInspectorSubTarget(`item:${idx}::${Date.now()}`);
-                                    }}
-                                    className={`px-1.5 py-0.5 rounded text-[10px] font-bold cursor-pointer transition-colors ${
-                                      focusedItemIndex === idx && selectedSection === 'items_table'
-                                        ? 'bg-blue-600 text-white'
-                                        : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200'
-                                    }`}
-                                    title="Open Unified Item Inspector"
-                                  >
-                                    Inspect #{idx + 1}
-                                  </button>
-                                </div>
-                                <select
-                                  value={li.product_id || ''}
-                                  onChange={(e) => {
-                                    const pid = e.target.value;
-                                    const currentList = customStudioLineItems ?? quotationLineItems;
-                                    const rowKey = li.id || `item_${idx}`;
-                                    if (!pid) {
-                                      setItemLinkedProductIds((prev) => ({
-                                        ...prev,
-                                        [rowKey]: ''
-                                      }));
-                                      setCustomStudioLineItems(
-                                        currentList.map((row, rIdx) =>
-                                          rIdx === idx
-                                            ? {
-                                                ...row,
-                                                product_id: undefined,
-                                                sku: undefined,
-                                                product_sku: undefined,
-                                                variant_id: undefined,
-                                                variant_name: undefined
-                                              }
-                                            : row
-                                        )
-                                      );
-                                      return;
-                                    }
-                                    const prod = workspaceProducts.find((p) => p.id === pid);
-                                    if (!prod) return;
-                                    setItemLinkedProductIds((prev) => ({
-                                      ...prev,
-                                      [rowKey]: prod.id!
-                                    }));
-                                    const isVendorCostDoc =
-                                      documentType === 'purchase_order' ||
-                                      documentType === 'material_return_note' ||
-                                      (documentType as string) === 'material_return' ||
-                                      documentType === 'debit_note';
-                                    const wasPopulated = isLineItemPopulated(li);
-                                    setCustomStudioLineItems(
-                                      currentList.map((row, rIdx) =>
-                                        rIdx === idx
-                                          ? linkLineItemToCatalogProductNonDestructive(
-                                              row,
-                                              prod,
-                                              liveQuotation.currency,
-                                              isVendorCostDoc,
-                                              workspaceProducts
-                                            )
-                                          : row
-                                      )
-                                    );
-                                    if (triggerToast) {
-                                      const skuLabel = prod.sku || prod.name || 'Catalog SKU';
-                                      if (wasPopulated) {
-                                        triggerToast(
-                                          `Linked to SKU ${skuLabel} — kept your custom quote price & specs intact. Use the SKU Sync menu to Save as Variant, Push to Catalog, or Pull Catalog Defaults.`,
-                                          'info'
-                                        );
-                                      } else {
-                                        triggerToast(`Linked line item to SKU ${skuLabel}.`, 'success');
-                                      }
-                                    }
-                                  }}
-                                  className="flex-1 rounded border border-slate-300 px-2 py-1 bg-slate-50 text-[11px] min-w-0"
-                                >
-                                  <option value="">-- Pick Catalog Item or Type Below --</option>
-                                  {workspaceProducts.filter((p) => !p.is_deleted).map((p) => (
-                                    <option key={p.id} value={p.id}>
-                                      {formatProductVariantSelectorLabel(p, workspaceProducts)}
-                                    </option>
-                                  ))}
-                                </select>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    const currentList = customStudioLineItems ?? quotationLineItems;
-                                    setCustomStudioLineItems(currentList.filter((_, rIdx) => rIdx !== idx));
-                                  }}
-                                  className="p-1 text-rose-500 hover:bg-rose-50 rounded cursor-pointer"
-                                  title="Remove Line Item"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
-                              </div>
+                        <div className="space-y-1.5 max-h-[340px] overflow-y-auto pr-0.5">
+                          {quotationLineItems.map((li, idx) => {
+                            const isActive =
+                              selectedSection === 'items_table' && focusedItemIndex === idx;
+                            const qty = Number(li.quantity) || 0;
+                            const unitPrice = Number(li.unit_price) || 0;
+                            const lineTotal = QuotationRepository.roundCurrency(qty * unitPrice);
+                            const subCount = Array.isArray(li.sub_components)
+                              ? li.sub_components.length
+                              : 0;
+                            const hasSku = Boolean(li.product_id || li.sku || li.product_sku);
+                            const hasPhoto = Boolean(li.image_url);
+                            const hasBreak = Boolean(li.page_break_after);
+                            const isOptional = Boolean(li.is_optional);
 
-                              <input
-                                type="text"
-                                value={li.item_name || ''}
-                                onChange={(e) => {
-                                  const val = e.target.value;
-                                  const currentList = customStudioLineItems ?? quotationLineItems;
-                                  setCustomStudioLineItems(
-                                    currentList.map((row, rIdx) =>
-                                      rIdx === idx ? { ...row, item_name: val } : row
-                                    )
+                            const moveItem = (delta: -1 | 1) => {
+                              const targetIdx = idx + delta;
+                              const currentList = customStudioLineItems ?? quotationLineItems;
+                              if (targetIdx < 0 || targetIdx >= currentList.length) return;
+                              const nextList = [...currentList];
+                              const [moved] = nextList.splice(idx, 1);
+                              nextList.splice(targetIdx, 0, moved);
+                              setCustomStudioLineItems(nextList);
+                              if (focusedItemIndex === idx) {
+                                setFocusedItemIndex(targetIdx);
+                              } else if (focusedItemIndex === targetIdx) {
+                                setFocusedItemIndex(idx);
+                              }
+                            };
+
+                            const removeItem = () => {
+                              const currentList = customStudioLineItems ?? quotationLineItems;
+                              const nextList = currentList.filter((_, rIdx) => rIdx !== idx);
+                              setCustomStudioLineItems(nextList);
+                              if (focusedItemIndex !== null) {
+                                if (focusedItemIndex === idx) {
+                                  setFocusedItemIndex(
+                                    nextList.length > 0 ? Math.min(idx, nextList.length - 1) : null
                                   );
-                                }}
-                                placeholder="Item Name / Heading *"
-                                className="w-full rounded border border-slate-300 px-2 py-1 bg-white text-slate-900 font-semibold"
-                              />
+                                } else if (focusedItemIndex > idx) {
+                                  setFocusedItemIndex(focusedItemIndex - 1);
+                                }
+                              }
+                            };
 
-                              <div className="space-y-1">
-                                <div className="flex flex-wrap items-center justify-between gap-1">
-                                  <span className="text-[9.5px] font-semibold text-slate-500 uppercase tracking-wider">
-                                    Technical Description &amp; Multi-Section Specs
+                            return (
+                              <div
+                                key={li.id || idx}
+                                role="button"
+                                tabIndex={0}
+                                onClick={() => {
+                                  setSelectedSection('items_table');
+                                  setFocusedItemIndex(idx);
+                                  setInspectorSubTarget(`item:${idx}::${Date.now()}`);
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault();
+                                    setSelectedSection('items_table');
+                                    setFocusedItemIndex(idx);
+                                    setInspectorSubTarget(`item:${idx}::${Date.now()}`);
+                                  }
+                                }}
+                                className={`group w-full text-left px-2.5 py-2 rounded-lg border transition cursor-pointer space-y-1 ${
+                                  isActive
+                                    ? 'bg-blue-50/90 border-blue-400 ring-1 ring-blue-200 shadow-2xs'
+                                    : 'bg-white border-slate-200/90 hover:border-blue-300 hover:bg-slate-50/80'
+                                }`}
+                                title="Click to inspect & edit this item in the Right Inspector"
+                              >
+                                <div className="flex items-center gap-1.5 min-w-0">
+                                  <span
+                                    className={`px-1.5 py-0.5 rounded font-mono font-bold text-[9.5px] shrink-0 ${
+                                      isActive
+                                        ? 'bg-blue-600 text-white'
+                                        : 'bg-slate-100 text-slate-600'
+                                    }`}
+                                  >
+                                    #{idx + 1}
                                   </span>
-                                  <div className="flex items-center gap-1">
+                                  <span
+                                    className={`flex-1 min-w-0 truncate text-[11px] font-semibold ${
+                                      isActive ? 'text-blue-950' : 'text-slate-800'
+                                    }`}
+                                    title={li.item_name || 'Untitled Line Item'}
+                                  >
+                                    {li.item_name?.trim() || 'Untitled Line Item'}
+                                  </span>
+                                  <div
+                                    className="flex items-center gap-0.5 shrink-0 opacity-70 group-hover:opacity-100 transition-opacity"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
                                     <button
                                       type="button"
-                                      onClick={() => {
-                                        const cur = (li.description || '').trim();
-                                        const prefix = cur ? `${cur}\n` : '';
-                                        const nextVal = `${prefix}SECTION HEADING :-\n`;
-                                        const currentList = customStudioLineItems ?? quotationLineItems;
-                                        setCustomStudioLineItems(
-                                          currentList.map((row, rIdx) =>
-                                            rIdx === idx ? { ...row, description: nextVal } : row
-                                          )
-                                        );
-                                      }}
-                                      className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-blue-700 border border-slate-200 transition cursor-pointer"
-                                      title="Insert uppercase section sub-heading (e.g. MOTOR SPECIFICATIONS :-)"
+                                      disabled={idx === 0}
+                                      onClick={() => moveItem(-1)}
+                                      className="p-0.5 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-200/70 disabled:opacity-25 disabled:cursor-not-allowed cursor-pointer"
+                                      title="Move Item Up"
                                     >
-                                      + Sub-Heading
+                                      <ArrowUp className="w-3 h-3" />
                                     </button>
                                     <button
                                       type="button"
-                                      onClick={() => {
-                                        const cur = (li.description || '').trim();
-                                        const prefix = cur ? `${cur}\n` : '';
-                                        const nextVal = `${prefix}• `;
-                                        const currentList = customStudioLineItems ?? quotationLineItems;
-                                        setCustomStudioLineItems(
-                                          currentList.map((row, rIdx) =>
-                                            rIdx === idx ? { ...row, description: nextVal } : row
-                                          )
-                                        );
-                                      }}
-                                      className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-blue-700 border border-slate-200 transition cursor-pointer"
+                                      disabled={idx === quotationLineItems.length - 1}
+                                      onClick={() => moveItem(1)}
+                                      className="p-0.5 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-200/70 disabled:opacity-25 disabled:cursor-not-allowed cursor-pointer"
+                                      title="Move Item Down"
                                     >
-                                      • Bullet
+                                      <ArrowDown className="w-3 h-3" />
                                     </button>
                                     <button
                                       type="button"
-                                      onClick={() => {
-                                        const raw = (li.description || '').trim();
-                                        if (!raw) return;
-                                        const formatted = formatSlashSeparatedDescription(raw);
-                                        const currentList = customStudioLineItems ?? quotationLineItems;
-                                        setCustomStudioLineItems(
-                                          currentList.map((row, rIdx) =>
-                                            rIdx === idx ? { ...row, description: formatted } : row
-                                          )
-                                        );
-                                      }}
-                                      className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 transition cursor-pointer"
-                                      title='Split "/" separated specs and sub-headings into clean lines'
+                                      onClick={removeItem}
+                                      className="p-0.5 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 cursor-pointer"
+                                      title="Remove Line Item"
                                     >
-                                      ✨ Split &quot;/&quot; into Lines
+                                      <Trash2 className="w-3 h-3" />
                                     </button>
                                   </div>
                                 </div>
-                                <textarea
-                                  rows={Math.min(8, Math.max(2, (li.description || '').split('\n').length))}
-                                  value={li.description || ''}
-                                  onChange={(e) => {
-                                    const val = e.target.value;
-                                    const currentList = customStudioLineItems ?? quotationLineItems;
-                                    setCustomStudioLineItems(
-                                      currentList.map((row, rIdx) =>
-                                        rIdx === idx ? { ...row, description: val } : row
-                                      )
-                                    );
-                                  }}
-                                  placeholder="Multi-line technical specifications (use SECTION :- for bold sub-headings)..."
-                                  className="w-full rounded border border-slate-300 px-2 py-1 bg-white text-slate-700 text-[11px] leading-relaxed resize-y"
-                                />
-                              </div>
 
-                              <div className="grid grid-cols-3 gap-2">
-                                <div>
-                                  <label className="block text-[10px] text-slate-400">Qty</label>
-                                  <input
-                                    type="number"
-                                    min="1"
-                                    value={li.quantity === 0 ? '' : li.quantity}
-                                    onChange={(e) => {
-                                      const q = e.target.value === '' ? 0 : Math.max(0, Number(e.target.value));
-                                      const currentList = customStudioLineItems ?? quotationLineItems;
-                                      setCustomStudioLineItems(
-                                        currentList.map((row, rIdx) =>
-                                          rIdx === idx
-                                            ? {
-                                                ...row,
-                                                quantity: q,
-                                                qty_ordered: q,
-                                                total_price: QuotationRepository.roundCurrency(
-                                                  q * (Number(row.unit_price) || 0)
-                                                )
-                                              }
-                                            : row
-                                        )
-                                      );
-                                    }}
-                                    className="w-full rounded border border-slate-300 px-2 py-1 font-mono text-right"
-                                  />
-                                </div>
-                                <div>
-                                  <label className="block text-[10px] text-slate-400">UOM</label>
-                                  <input
-                                    type="text"
-                                    value={li.unit || 'Nos'}
-                                    onChange={(e) => {
-                                      const u = e.target.value;
-                                      const currentList = customStudioLineItems ?? quotationLineItems;
-                                      setCustomStudioLineItems(
-                                        currentList.map((row, rIdx) =>
-                                          rIdx === idx ? { ...row, unit: u } : row
-                                        )
-                                      );
-                                    }}
-                                    className="w-full rounded border border-slate-300 px-2 py-1 font-mono"
-                                  />
-                                </div>
-                                <div>
-                                  <label className="flex items-center justify-between text-[10px] text-slate-400">
-                                    <span>Unit Rate</span>
-                                    <span
-                                      className={`px-1 rounded text-[8.5px] font-bold ${
-                                        documentType === 'purchase_order' ||
-                                        documentType === 'material_return_note' ||
-                                        (documentType as string) === 'material_return' ||
-                                        documentType === 'debit_note'
-                                          ? 'bg-indigo-50 text-indigo-700'
-                                          : 'bg-emerald-50 text-emerald-700'
-                                      }`}
-                                    >
-                                      {documentType === 'purchase_order' ||
-                                      documentType === 'material_return_note' ||
-                                      (documentType as string) === 'material_return' ||
-                                      documentType === 'debit_note'
-                                        ? 'Supplier Cost'
-                                        : 'Selling Price'}
+                                <div className="flex items-center justify-between gap-2 min-w-0">
+                                  <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
+                                    <span className="text-[10px] font-mono tabular-nums text-slate-500 whitespace-nowrap">
+                                      {qty} {li.unit || 'Nos'} × {unitPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                     </span>
-                                  </label>
-                                  <input
-                                    type="number"
-                                    step="0.01"
-                                    value={li.unit_price === 0 ? '' : li.unit_price}
-                                    placeholder="0.00"
-                                    onChange={(e) => {
-                                      const r = e.target.value === '' ? 0 : Math.max(0, Number(e.target.value));
-                                      const isVendorCostDoc =
-                                        documentType === 'purchase_order' ||
-                                        documentType === 'material_return_note' ||
-                                        (documentType as string) === 'material_return' ||
-                                        documentType === 'debit_note';
-                                      const currentList = customStudioLineItems ?? quotationLineItems;
-                                      setCustomStudioLineItems(
-                                        currentList.map((row, rIdx) =>
-                                          rIdx === idx
-                                            ? {
-                                                ...row,
-                                                unit_price: r,
-                                                ...(isVendorCostDoc ? { cost_price: r } : {}),
-                                                total_price: QuotationRepository.roundCurrency(
-                                                  (Number(row.quantity) || 0) * r
-                                                )
-                                              }
-                                            : row
-                                        )
-                                      );
-                                    }}
-                                    className="w-full rounded border border-slate-300 px-2 py-1 font-mono text-right"
-                                  />
+                                    <div className="flex items-center gap-1">
+                                      {hasSku && (
+                                        <span
+                                          className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block"
+                                          title={`Linked SKU: ${li.sku || li.product_sku || 'Catalog'}`}
+                                        />
+                                      )}
+                                      {hasPhoto && (
+                                        <span
+                                          className="w-1.5 h-1.5 rounded-full bg-blue-500 inline-block"
+                                          title="Product photo attached"
+                                        />
+                                      )}
+                                      {subCount > 0 && (
+                                        <span
+                                          className="px-1 py-px rounded bg-indigo-50 text-indigo-700 border border-indigo-200/80 text-[8.5px] font-bold leading-none"
+                                          title={`${subCount} included sub-item${subCount === 1 ? '' : 's'}`}
+                                        >
+                                          {subCount} sub
+                                        </span>
+                                      )}
+                                      {hasBreak && (
+                                        <span
+                                          className="px-1 py-px rounded bg-amber-50 text-amber-700 border border-amber-200/80 text-[8.5px] font-bold leading-none"
+                                          title="Page break after this item"
+                                        >
+                                          Break
+                                        </span>
+                                      )}
+                                      {isOptional && (
+                                        <span
+                                          className="px-1 py-px rounded bg-slate-100 text-slate-600 border border-slate-200 text-[8.5px] font-semibold leading-none"
+                                          title="Optional row"
+                                        >
+                                          Opt
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <span className="text-[10.5px] font-mono font-bold tabular-nums text-slate-800 shrink-0">
+                                    {liveQuotation.currency || 'AED'}{' '}
+                                    {lineTotal.toLocaleString(undefined, {
+                                      minimumFractionDigits: 2,
+                                      maximumFractionDigits: 2
+                                    })}
+                                  </span>
                                 </div>
                               </div>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
+                      )}
+                      {quotationLineItems.length > 0 && (
+                        <p className="text-[10px] text-slate-400 leading-snug">
+                          Click any item to edit commercials, specs, photo &amp; package contents in the Right Inspector.
+                        </p>
                       )}
                     </div>
                   )}
@@ -20108,18 +20000,120 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                           updateCurItem({ visible_attributes: nextVis });
                         };
 
+                        const visibleSpecCount = itemAttrs.filter(
+                          (k) =>
+                            currentVisible.includes(k) && isGlobalAttributeVisible(visibleColumns, k)
+                        ).length;
+                        const specsBadgeText =
+                          itemAttrs.length === 0
+                            ? 'No Specs'
+                            : `${visibleSpecCount}/${itemAttrs.length} visible · ${isItemAttrOverridden ? 'Custom' : 'Global'}`;
+
+                        const hasPrimaryPhoto = Boolean(curItem.image_url);
+                        const hasSecondaryPhoto = Boolean(curItem.secondary_image_url);
+                        const hasDatasheet = Boolean(curItem.datasheet_attachment?.url);
+                        const isDatasheetIncluded =
+                          hasDatasheet && curItem.include_datasheet_in_quote !== false;
+                        const mediaSummaryParts: string[] = [];
+                        if (hasPrimaryPhoto) mediaSummaryParts.push('Photo');
+                        if (hasSecondaryPhoto) mediaSummaryParts.push('2nd');
+                        if (isDatasheetIncluded) mediaSummaryParts.push('Annex PDF');
+                        else if (hasDatasheet) mediaSummaryParts.push('PDF (Off)');
+                        const mediaBadgeText =
+                          mediaSummaryParts.length > 0 ? mediaSummaryParts.join(' · ') : 'No Media';
+
+                        const hasAdvancedMediaOverrides = Boolean(
+                          (curItem.image_display_override && curItem.image_display_override !== 'inherit') ||
+                            (curItem.image_size_override && curItem.image_size_override !== 'inherit') ||
+                            (curItem.image_aspect_override && curItem.image_aspect_override !== 'inherit') ||
+                            (curItem.image_bg_mode && curItem.image_bg_mode !== 'transparent') ||
+                            curItem.image_caption ||
+                            hasSecondaryPhoto
+                        );
+
+                        const subItemCount = Array.isArray(curItem.sub_components)
+                          ? curItem.sub_components.length
+                          : 0;
+                        const isCompositeActive = Boolean(
+                          curItem.is_composite_set || subItemCount > 0
+                        );
+                        const compositeBadgeText =
+                          subItemCount > 0
+                            ? `${subItemCount} Sub-Item${subItemCount === 1 ? '' : 's'}`
+                            : isCompositeActive
+                              ? 'Composite Set'
+                              : 'Single Item';
+
+                        const isLastItem = focusedItemIndex === quotationLineItems.length - 1;
+                        const spacerMm = Number(curItem.row_spacer_after_mm) || 0;
+                        const paginationParts: string[] = [];
+                        if (curItem.page_break_after) paginationParts.push('Page Break');
+                        if (spacerMm > 0) paginationParts.push(`Spacer ${spacerMm}mm`);
+                        if (curItem.row_note?.trim()) paginationParts.push('Note');
+                        if (curItem.row_highlight) paginationParts.push('Highlight');
+                        if (curItem.row_bold) paginationParts.push('Bold');
+                        const paginationBadgeText =
+                          paginationParts.length > 0 ? paginationParts.join(' · ') : 'None';
+
+                        const effectiveLeadTime =
+                          curItem.lead_time_note ||
+                          (curItem as any).delivery_time ||
+                          (curItem as any).lead_time ||
+                          curItem.availability ||
+                          '';
+
+                        const toggleAccordion = (
+                          key: keyof typeof focusedItemAccordions
+                        ) => {
+                          setFocusedItemAccordions((prev) => ({
+                            ...prev,
+                            [key]: !prev[key]
+                          }));
+                        };
+
                         return (
-                          <div className="space-y-4 w-full min-w-0 overflow-x-hidden">
-                            {/* Card 1: Core Row & Price */}
+                          <div className="space-y-2.5 w-full min-w-0 overflow-x-hidden">
+                            {/* Card 1: Core Commercials & Scope (Expanded by Default) */}
                             <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/70 space-y-3 w-full min-w-0">
-                              <div className="flex items-center justify-between">
-                                <span className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
-                                  <Tag className="w-3.5 h-3.5 text-blue-600" />
-                                  Core Row &amp; Pricing
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="font-bold text-slate-800 text-xs flex items-center gap-1.5 min-w-0">
+                                  <Tag className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                                  <span className="truncate">Core Commercials &amp; Scope</span>
                                 </span>
-                                <span className="text-[10px] font-mono text-slate-400">
-                                  #{focusedItemIndex + 1}
-                                </span>
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  {!matchedProd ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => setCatalogModalTarget({ itemKey, item: curItem })}
+                                      className="px-2 py-0.5 rounded-md bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-[10px] font-semibold transition cursor-pointer whitespace-nowrap"
+                                    >
+                                      + Save to Catalog
+                                    </button>
+                                  ) : (
+                                    <CatalogSyncMenu
+                                      item={curItem}
+                                      matchedProduct={matchedProd}
+                                      products={workspaceProducts}
+                                      setProducts={(updater) => {
+                                        setWorkspaceProducts((prev) => {
+                                          const next =
+                                            typeof updater === 'function' ? updater(prev) : updater;
+                                          try {
+                                            localStorage.setItem('omni_products', JSON.stringify(next));
+                                          } catch (_) {}
+                                          return next;
+                                        });
+                                        if (propSetProducts) propSetProducts(updater);
+                                      }}
+                                      currency={liveQuotation.currency}
+                                      isVendorCostDoc={isVendorCostDoc}
+                                      activeWorkspaceId={activeWorkspace?.id}
+                                      triggerToast={triggerToast}
+                                      compact
+                                      onUpdateLineItem={(patch) => updateCurItem(patch)}
+                                    />
+                                  )}
+                                </div>
                               </div>
 
                               <div className="min-w-0">
@@ -20189,39 +20183,98 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
 
                               <div className="flex items-center justify-between pt-1 border-t border-slate-200/80">
                                 <span className="text-[11px] font-medium text-slate-500">Calculated Line Total</span>
-                                <span className="font-mono font-bold text-xs text-blue-700">
+                                <span className="font-mono font-bold tabular-nums text-xs text-blue-700">
                                   {liveQuotation.currency || 'AED'} {((Number(curItem.quantity) || 0) * (Number(curItem.unit_price) || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                 </span>
                               </div>
 
-                              {/* Catalog Product Link */}
-                              <div className="space-y-1.5">
-                                <div className="flex items-center justify-between gap-2">
-                                  <label className="block text-[10px] text-slate-500">Link Catalog Product (Non-Destructive)</label>
-                                  {!matchedProd ? (
+                              {/* Lead Time / Delivery */}
+                              <div className="min-w-0">
+                                <label className="block text-[10px] font-medium text-slate-500 mb-0.5">
+                                  Lead Time / Delivery
+                                </label>
+                                <input
+                                  type="text"
+                                  value={effectiveLeadTime}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    updateCurItem({
+                                      lead_time_note: val,
+                                      availability: val,
+                                      ...({ delivery_time: val, lead_time: val } as any)
+                                    });
+                                  }}
+                                  placeholder="e.g. Ex-Stock, 2-3 Weeks, 4-6 Weeks"
+                                  className="min-w-0 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs text-slate-800 focus:ring-2 focus:ring-blue-500"
+                                />
+                              </div>
+
+                              {/* Description / Technical Scope Note */}
+                              <div className="space-y-1.5 pt-1 border-t border-slate-200/80">
+                                <div className="flex items-center justify-between gap-1.5 flex-wrap">
+                                  <label className="text-[10.5px] font-semibold text-slate-600 flex items-center gap-1">
+                                    <FileText className="w-3 h-3 text-indigo-600" />
+                                    Description / Scope Note
+                                  </label>
+                                  <div className="flex items-center gap-1">
                                     <button
                                       type="button"
-                                      onClick={() => setCatalogModalTarget({ itemKey, item: curItem })}
-                                      className="px-2 py-0.5 rounded-md bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-[10px] font-semibold transition cursor-pointer"
-                                    >
-                                      + Save to Catalog
-                                    </button>
-                                  ) : (
-                                    <CatalogSyncMenu
-                                      item={curItem}
-                                      matchedProduct={matchedProd}
-                                      products={workspaceProducts}
-                                      setProducts={(updater) => {
-                                        setWorkspaceProducts(updater);
-                                        if (propSetProducts) propSetProducts(updater);
+                                      onClick={() => {
+                                        const cur = (curItem.description || '').trim();
+                                        const prefix = cur ? `${cur}\n` : '';
+                                        updateCurItem({ description: `${prefix}SECTION HEADING :-\n` });
                                       }}
-                                      currency={liveQuotation.currency}
-                                      isVendorCostDoc={isVendorCostDoc}
-                                      activeWorkspaceId={activeWorkspace?.id}
-                                      triggerToast={triggerToast}
-                                      compact
-                                      onUpdateLineItem={(patch) => updateCurItem(patch)}
-                                    />
+                                      className="px-1.5 py-0.5 rounded text-[9.5px] font-semibold bg-white hover:bg-blue-50 text-slate-700 hover:text-blue-700 border border-slate-200 transition cursor-pointer"
+                                      title="Insert bold uppercase sub-heading"
+                                    >
+                                      + Heading
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const cur = (curItem.description || '').trim();
+                                        const prefix = cur ? `${cur}\n` : '';
+                                        updateCurItem({ description: `${prefix}• ` });
+                                      }}
+                                      className="px-1.5 py-0.5 rounded text-[9.5px] font-semibold bg-white hover:bg-blue-50 text-slate-700 hover:text-blue-700 border border-slate-200 transition cursor-pointer"
+                                      title="Insert bullet point"
+                                    >
+                                      • Bullet
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const raw = (curItem.description || '').trim();
+                                        if (!raw) return;
+                                        const formatted = formatSlashSeparatedDescription(raw);
+                                        updateCurItem({ description: formatted });
+                                      }}
+                                      className="px-1.5 py-0.5 rounded text-[9.5px] font-semibold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 transition cursor-pointer"
+                                      title='Split "/" separated specs into clean lines'
+                                    >
+                                      ✨ Split &quot;/&quot;
+                                    </button>
+                                  </div>
+                                </div>
+                                <textarea
+                                  rows={Math.min(8, Math.max(3, (curItem.description || '').split('\n').length))}
+                                  value={curItem.description || ''}
+                                  onChange={(e) => updateCurItem({ description: e.target.value })}
+                                  placeholder="Multi-line technical specifications (use SECTION :- for bold sub-headings, • for bullets)..."
+                                  className="w-full rounded-lg border border-slate-300 bg-white p-2 text-xs text-slate-800 leading-relaxed resize-y focus:ring-2 focus:ring-blue-500"
+                                />
+                              </div>
+
+                              {/* Single Deduplicated Catalog Product Link & Variant Family Bar */}
+                              <div className="space-y-1.5 pt-1 border-t border-slate-200/80">
+                                <div className="flex items-center justify-between gap-2">
+                                  <label className="block text-[10px] font-medium text-slate-500">
+                                    Catalog SKU Link
+                                  </label>
+                                  {matchedProd && (
+                                    <span className="text-[10px] font-mono text-slate-500 truncate max-w-[170px]" title={matchedProd.sku || matchedProd.name}>
+                                      {matchedProd.sku || matchedProd.name}
+                                    </span>
                                   )}
                                 </div>
                                 <select
@@ -20299,7 +20352,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                 )}
                               </div>
 
-                              <div className="flex items-center justify-between pt-1 border-t border-slate-200/80">
+                              <div className="flex items-center justify-between pt-1.5 border-t border-slate-200/80">
                                 <label className="flex items-center gap-1.5 cursor-pointer">
                                   <input
                                     type="checkbox"
@@ -20321,732 +20374,948 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                               </div>
                             </div>
 
-                            {/* Card 2: Multi-Line Technical Description */}
-                            <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/70 space-y-2.5">
-                              <div className="flex items-center justify-between">
-                                <span className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
-                                  <FileText className="w-3.5 h-3.5 text-indigo-600" />
-                                  Technical Description &amp; Specs
-                                </span>
-                              </div>
-
-                              <div className="flex flex-wrap items-center gap-1">
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    const cur = (curItem.description || '').trim();
-                                    const prefix = cur ? `${cur}\n` : '';
-                                    updateCurItem({ description: `${prefix}SECTION HEADING :-\n` });
-                                  }}
-                                  className="px-2 py-0.5 rounded text-[10px] font-semibold bg-white hover:bg-blue-50 text-slate-700 hover:text-blue-700 border border-slate-200 transition cursor-pointer"
-                                  title="Insert bold uppercase sub-heading"
-                                >
-                                  + Sub-Heading
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    const cur = (curItem.description || '').trim();
-                                    const prefix = cur ? `${cur}\n` : '';
-                                    updateCurItem({ description: `${prefix}• ` });
-                                  }}
-                                  className="px-2 py-0.5 rounded text-[10px] font-semibold bg-white hover:bg-blue-50 text-slate-700 hover:text-blue-700 border border-slate-200 transition cursor-pointer"
-                                  title="Insert bullet point"
-                                >
-                                  • Bullet
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    const raw = (curItem.description || '').trim();
-                                    if (!raw) return;
-                                    const formatted = formatSlashSeparatedDescription(raw);
-                                    updateCurItem({ description: formatted });
-                                  }}
-                                  className="px-2 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 transition cursor-pointer"
-                                  title='Split "/" separated specs into clean lines'
-                                >
-                                  ✨ Split &quot;/&quot; into Lines
-                                </button>
-                              </div>
-
-                              <textarea
-                                rows={Math.min(10, Math.max(3, (curItem.description || '').split('\n').length))}
-                                value={curItem.description || ''}
-                                onChange={(e) => updateCurItem({ description: e.target.value })}
-                                placeholder="Multi-line technical specifications (use SECTION :- for bold sub-headings, • for bullets)..."
-                                className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-xs text-slate-800 leading-relaxed resize-y focus:ring-2 focus:ring-blue-500"
-                              />
-                            </div>
-
-                            {/* Card 3: Spec & Core Attributes (Sortable Override Manager) */}
-                            <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/70 space-y-2.5">
-                              <div className="flex items-center justify-between gap-2">
-                                <div className="flex items-center gap-1.5 min-w-0">
+                            {/* Accordion 1: Spec & Core Attributes */}
+                            <div className="rounded-xl border border-slate-200 bg-slate-50/70 overflow-hidden">
+                              <button
+                                type="button"
+                                onClick={() => toggleAccordion('specs')}
+                                className="w-full px-3.5 py-2.5 flex items-center justify-between gap-2 text-left hover:bg-slate-100/70 transition cursor-pointer"
+                              >
+                                <span className="font-bold text-slate-800 text-xs flex items-center gap-1.5 min-w-0">
                                   <Sliders className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                                  <span className="font-bold text-slate-800 text-xs truncate">
-                                    Spec &amp; Core Attributes
-                                  </span>
-                                </div>
-                                <span
-                                  className={`shrink-0 px-1.5 py-0.5 rounded text-[9.5px] font-bold border ${
-                                    isItemAttrOverridden
-                                      ? 'bg-amber-50 text-amber-800 border-amber-200'
-                                      : 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                  }`}
-                                >
-                                  {isItemAttrOverridden ? 'Custom Override' : 'Inheriting Global'}
+                                  <span className="truncate">Spec &amp; Core Attributes</span>
                                 </span>
-                              </div>
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  <span
+                                    className={`px-1.5 py-0.5 rounded text-[9.5px] font-bold border whitespace-nowrap ${
+                                      itemAttrs.length === 0
+                                        ? 'bg-white text-slate-500 border-slate-200'
+                                        : isItemAttrOverridden
+                                          ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                          : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                    }`}
+                                  >
+                                    {specsBadgeText}
+                                  </span>
+                                  {focusedItemAccordions.specs ? (
+                                    <ChevronUp className="w-3.5 h-3.5 text-slate-400" />
+                                  ) : (
+                                    <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                                  )}
+                                </div>
+                              </button>
 
-                              {itemAttrs.length > 0 && (
-                                <div className="flex flex-wrap items-center justify-between gap-1.5 text-[10px]">
-                                  <div className="flex items-center gap-1.5">
-                                    <span className="font-mono text-slate-500">
-                                      {itemAttrs.filter((k) =>
-                                        currentVisible.includes(k) && isGlobalAttributeVisible(visibleColumns, k)
-                                      ).length}/{itemAttrs.length} visible
+                              {focusedItemAccordions.specs && (
+                                <div className="px-3.5 pb-3.5 pt-2 border-t border-slate-200/80 space-y-2.5">
+                                  {itemAttrs.length > 0 && (
+                                    <div className="flex flex-wrap items-center justify-between gap-1.5 text-[10px]">
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="font-mono text-slate-500">
+                                          {visibleSpecCount}/{itemAttrs.length} visible
+                                        </span>
+                                        {itemAttrs.length >= 2 && (
+                                          <>
+                                            <span className="text-slate-300">•</span>
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                showAllItemAttributes(itemKey, itemAttrs);
+                                                updateCurItem({ visible_attributes: [...itemAttrs] });
+                                              }}
+                                              className="font-semibold text-blue-600 hover:text-blue-800 transition cursor-pointer"
+                                            >
+                                              Show All
+                                            </button>
+                                            <span className="text-slate-300">•</span>
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                hideAllItemAttributes(itemKey);
+                                                updateCurItem({ visible_attributes: [] });
+                                              }}
+                                              className="font-semibold text-slate-500 hover:text-slate-700 transition cursor-pointer"
+                                            >
+                                              Hide All
+                                            </button>
+                                          </>
+                                        )}
+                                      </div>
+
+                                      <div className="flex items-center gap-1.5">
+                                        {isItemAttrOverridden && (
+                                          <button
+                                            type="button"
+                                            onClick={() => resetSingleItemAttributesToGlobal(itemKey)}
+                                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-slate-200 bg-white text-[9.5px] font-semibold text-slate-600 hover:text-slate-900 hover:border-slate-300 transition cursor-pointer"
+                                            title="Clear custom overrides on this item and inherit global Specs & Grid settings"
+                                          >
+                                            <RotateCcw className="w-2.5 h-2.5" />
+                                            Reset to Global
+                                          </button>
+                                        )}
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            applyItemAttributeLayoutToAll(
+                                              itemAttrs,
+                                              currentVisible,
+                                              rowBreaks,
+                                              rowFullWidth
+                                            )
+                                          }
+                                          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-indigo-200 bg-indigo-50 text-[9.5px] font-semibold text-indigo-700 hover:bg-indigo-100 transition cursor-pointer"
+                                          title="Push this item's order, width, breaks & visibility to global Specs & Grid and unify all line items"
+                                        >
+                                          <Layers className="w-2.5 h-2.5" />
+                                          Apply to All
+                                        </button>
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  <SpecAttributeSortableList
+                                    compact
+                                    emptyLabel="No spec or metadata attributes on this item yet."
+                                    items={itemAttrs.map((attrKey) => {
+                                      const ck = canonicalSpecAttributeKey(attrKey);
+                                      const isVisible = currentVisible.some(
+                                        (k) => k === attrKey || canonicalSpecAttributeKey(k) === ck
+                                      );
+                                      const hasBreak = rowBreaks.some(
+                                        (k) => k === attrKey || canonicalSpecAttributeKey(k) === ck
+                                      );
+                                      const isFull = rowFullWidth.some(
+                                        (k) => k === attrKey || canonicalSpecAttributeKey(k) === ck
+                                      );
+                                      const globallyHidden = !isGlobalAttributeVisible(visibleColumns, attrKey);
+                                      return {
+                                        key: attrKey,
+                                        isVisible,
+                                        isFullWidth: isFull,
+                                        hasBreakAfter: hasBreak,
+                                        globallyHidden
+                                      };
+                                    })}
+                                    onToggleVisibility={toggleVis}
+                                    onToggleFullWidth={toggleRowFullWidth}
+                                    onToggleBreakAfter={toggleRowBreak}
+                                    onReorder={reorderRowAttrs}
+                                  />
+
+                                  {Array.isArray(curItem.attributes) && curItem.attributes.length > 0 && (
+                                    <div className="pt-2 border-t border-slate-200/80 space-y-1.5">
+                                      <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                                        Edit Spec Values {(curItem as any).template_parent_id ? '(Base Template)' : ''}
+                                      </span>
+                                      <div className="space-y-1 max-h-40 overflow-y-auto pr-0.5">
+                                        {curItem.attributes.map((attr, attrIdx) => {
+                                          const isBlankTemplate = Boolean(attr.key?.trim() && !attr.value?.trim());
+                                          return (
+                                            <div key={`${attr.key}_${attrIdx}`} className="flex items-center gap-1.5">
+                                              <span
+                                                className={`w-28 shrink-0 truncate text-[10.5px] font-mono font-semibold px-1.5 py-1 rounded border ${
+                                                  isBlankTemplate
+                                                    ? 'bg-amber-50 text-amber-800 border-amber-300'
+                                                    : 'bg-white text-slate-600 border-slate-200'
+                                                }`}
+                                                title={attr.key}
+                                              >
+                                                {attr.key}
+                                              </span>
+                                              <input
+                                                type="text"
+                                                value={attr.value || ''}
+                                                onChange={(e) => {
+                                                  const nextVal = e.target.value;
+                                                  const nextAttrs = (curItem.attributes || []).map((a, i) =>
+                                                    i === attrIdx ? { ...a, value: nextVal } : a
+                                                  );
+                                                  updateCurItem({ attributes: nextAttrs });
+                                                }}
+                                                placeholder={
+                                                  isBlankTemplate
+                                                    ? `Enter ${attr.key} for this quote...`
+                                                    : 'Value...'
+                                                }
+                                                className={`flex-1 min-w-0 rounded border px-2 py-1 text-xs ${
+                                                  isBlankTemplate
+                                                    ? 'border-amber-400 bg-amber-50/40 focus:bg-white focus:border-amber-500'
+                                                    : 'border-slate-300 bg-white focus:border-blue-500'
+                                                }`}
+                                              />
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  const nextAttrs = (curItem.attributes || []).filter(
+                                                    (_, i) => i !== attrIdx
+                                                  );
+                                                  updateCurItem({ attributes: nextAttrs });
+                                                }}
+                                                className="p-1 rounded text-slate-400 hover:text-rose-600 cursor-pointer shrink-0"
+                                                title={`Remove ${attr.key}`}
+                                              >
+                                                <X className="w-3 h-3" />
+                                              </button>
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {/* Inline + Add Spec Pill Row */}
+                                  <div className="pt-2 border-t border-slate-200/80 space-y-1.5">
+                                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                                      + Add Spec Pill
                                     </span>
-                                    {itemAttrs.length >= 2 && (
-                                      <>
-                                        <span className="text-slate-300">•</span>
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            showAllItemAttributes(itemKey, itemAttrs);
-                                            updateCurItem({ visible_attributes: [...itemAttrs] });
-                                          }}
-                                          className="font-semibold text-blue-600 hover:text-blue-800 transition cursor-pointer"
-                                        >
-                                          Show All
-                                        </button>
-                                        <span className="text-slate-300">•</span>
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            hideAllItemAttributes(itemKey);
-                                            updateCurItem({ visible_attributes: [] });
-                                          }}
-                                          className="font-semibold text-slate-500 hover:text-slate-700 transition cursor-pointer"
-                                        >
-                                          Hide All
-                                        </button>
-                                      </>
-                                    )}
-                                  </div>
-
-                                  <div className="flex items-center gap-1.5">
-                                    {isItemAttrOverridden && (
+                                    <div className="flex items-center gap-1.5">
+                                      <input
+                                        type="text"
+                                        value={newSpecKey}
+                                        onChange={(e) => setNewSpecKey(e.target.value)}
+                                        placeholder="Spec (e.g. Tank Size)"
+                                        className="flex-1 min-w-0 rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs"
+                                      />
+                                      <input
+                                        type="text"
+                                        value={newSpecVal}
+                                        onChange={(e) => setNewSpecVal(e.target.value)}
+                                        placeholder="Value (e.g. 24x72)"
+                                        className="flex-1 min-w-0 rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs"
+                                      />
                                       <button
                                         type="button"
-                                        onClick={() => resetSingleItemAttributesToGlobal(itemKey)}
-                                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-slate-200 bg-white text-[9.5px] font-semibold text-slate-600 hover:text-slate-900 hover:border-slate-300 transition cursor-pointer"
-                                        title="Clear custom overrides on this item and inherit global Specs & Grid settings"
+                                        disabled={!newSpecKey.trim()}
+                                        onClick={() => {
+                                          if (!newSpecKey.trim()) return;
+                                          const k = newSpecKey.trim();
+                                          const v = newSpecVal.trim();
+                                          const existingAttrs = Array.isArray(curItem.attributes) ? [...curItem.attributes] : [];
+                                          const nextAttrs = [...existingAttrs, { key: k, value: v }];
+                                          const nextVisible = [...currentVisible, k];
+                                          updateCurItem({
+                                            attributes: nextAttrs,
+                                            visible_attributes: nextVisible
+                                          });
+                                          handleUpdateTopItemRowOption(itemKey, {
+                                            attributes: nextAttrs,
+                                            visible_attributes: nextVisible
+                                          });
+                                          setItemVisibleAttributes((prev) => ({ ...prev, [itemKey]: nextVisible }));
+                                          setNewSpecKey('');
+                                          setNewSpecVal('');
+                                        }}
+                                        className="px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shrink-0"
                                       >
-                                        <RotateCcw className="w-2.5 h-2.5" />
-                                        Reset to Global
+                                        Add
                                       </button>
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Accordion 2: Product Image, Secondary Photo & Datasheet (Streamlined, No Duplicate Catalog Sync) */}
+                            <div className="rounded-xl border border-slate-200 bg-slate-50/70 overflow-hidden">
+                              <button
+                                type="button"
+                                onClick={() => toggleAccordion('media')}
+                                className="w-full px-3.5 py-2.5 flex items-center justify-between gap-2 text-left hover:bg-slate-100/70 transition cursor-pointer"
+                              >
+                                <span className="font-bold text-slate-800 text-xs flex items-center gap-1.5 min-w-0">
+                                  <ImageIcon className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                                  <span className="truncate">Product Image &amp; Datasheet</span>
+                                </span>
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  <span
+                                    className={`px-1.5 py-0.5 rounded text-[9.5px] font-bold border whitespace-nowrap ${
+                                      hasPrimaryPhoto || hasSecondaryPhoto || isDatasheetIncluded
+                                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                        : 'bg-white text-slate-500 border-slate-200'
+                                    }`}
+                                  >
+                                    {mediaBadgeText}
+                                  </span>
+                                  {focusedItemAccordions.media ? (
+                                    <ChevronUp className="w-3.5 h-3.5 text-slate-400" />
+                                  ) : (
+                                    <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                                  )}
+                                </div>
+                              </button>
+
+                              {focusedItemAccordions.media && (
+                                <div className="px-3.5 pb-3.5 pt-2.5 border-t border-slate-200/80 space-y-2.5">
+                                  {/* Primary Photo Compact Row */}
+                                  <div className="flex items-center gap-2.5 p-2 rounded-lg bg-white border border-slate-200/90">
+                                    <div className="w-14 h-14 rounded-lg border border-slate-200 bg-slate-50 flex items-center justify-center overflow-hidden shrink-0">
+                                      {curItem.image_url ? (
+                                        <img
+                                          src={curItem.image_url}
+                                          alt={curItem.item_name || 'Product'}
+                                          style={{
+                                            transform: curItem.image_adjustments?.rotation
+                                              ? `rotate(${curItem.image_adjustments.rotation}deg)`
+                                              : undefined
+                                          }}
+                                          className="w-full h-full object-contain p-0.5 transition-transform"
+                                        />
+                                      ) : (
+                                        <ImageIcon className="w-5 h-5 text-slate-300" />
+                                      )}
+                                    </div>
+                                    <div className="flex-1 min-w-0 space-y-1.5">
+                                      <div className="text-[10.5px] font-semibold text-slate-700 truncate">
+                                        {curItem.image_url ? 'Primary Product Photo' : 'No Primary Photo'}
+                                      </div>
+                                      <div className="flex flex-wrap items-center gap-1">
+                                        <label className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-[10.5px] font-semibold cursor-pointer transition">
+                                          <Upload className="w-3 h-3" />
+                                          <span>{curItem.image_url ? 'Replace' : 'Upload'}</span>
+                                          <input
+                                            type="file"
+                                            accept="image/*"
+                                            className="hidden"
+                                            onChange={(e) => {
+                                              const file = e.target.files?.[0];
+                                              if (!file) return;
+                                              const reader = new FileReader();
+                                              reader.onload = (evt) => {
+                                                const base64 = evt.target?.result as string;
+                                                if (base64) {
+                                                  const nextDisplayOverride =
+                                                    curItem.image_display_override === 'none' ||
+                                                    curItem.image_display_override === 'hidden'
+                                                      ? ('inherit' as const)
+                                                      : curItem.image_display_override;
+                                                  const uploadPatch = {
+                                                    image_url: base64,
+                                                    image_storage_key: '',
+                                                    ...(nextDisplayOverride ? { image_display_override: nextDisplayOverride } : {})
+                                                  };
+                                                  updateCurItem(uploadPatch as any);
+                                                  handleUpdateTopItemRowOption(itemKey, uploadPatch as any);
+                                                  setItemImageOverrides((prev) => ({ ...prev, [itemKey]: base64 }));
+                                                  setVisibleColumns((prev) => ({ ...prev, showLineItemImages: true }));
+                                                }
+                                              };
+                                              reader.readAsDataURL(file);
+                                            }}
+                                          />
+                                        </label>
+
+                                        <button
+                                          type="button"
+                                          onClick={() => setShowFocusedImageUrlInput((v) => !v)}
+                                          className={`px-2 py-1 rounded-md text-[10.5px] font-semibold border transition cursor-pointer ${
+                                            showFocusedImageUrlInput
+                                              ? 'bg-slate-800 text-white border-slate-800'
+                                              : 'bg-white hover:bg-slate-100 text-slate-600 border-slate-200'
+                                          }`}
+                                        >
+                                          Paste URL
+                                        </button>
+
+                                        {curItem.image_url && (
+                                          <>
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                const currentRot = curItem.image_adjustments?.rotation || 0;
+                                                const nextRot = (currentRot + 90) % 360;
+                                                const nextAdj = { ...(curItem.image_adjustments || {}), rotation: nextRot };
+                                                updateCurItem({ image_adjustments: nextAdj });
+                                                handleUpdateTopItemRowOption(itemKey, { image_adjustments: nextAdj });
+                                              }}
+                                              className="p-1 rounded-md bg-white hover:bg-slate-100 text-slate-600 border border-slate-200 transition cursor-pointer"
+                                              title="Rotate 90°"
+                                            >
+                                              <RotateCw className="w-3 h-3" />
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                const clearPrimaryPatch = {
+                                                  image_url: '',
+                                                  image_storage_key: '',
+                                                  image_display_override: 'none' as const
+                                                };
+                                                updateCurItem(clearPrimaryPatch as any);
+                                                handleUpdateTopItemRowOption(itemKey, clearPrimaryPatch as any);
+                                                setItemImageOverrides((prev) => ({ ...prev, [itemKey]: '' }));
+                                              }}
+                                              className="p-1 rounded-md bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 transition cursor-pointer"
+                                              title="Remove Photo"
+                                            >
+                                              <Trash2 className="w-3 h-3" />
+                                            </button>
+                                          </>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  {showFocusedImageUrlInput && (
+                                    <div>
+                                      <input
+                                        type="text"
+                                        value={curItem.image_url || ''}
+                                        onChange={(e) => {
+                                          const val = e.target.value;
+                                          const nextDisplayOverride =
+                                            val &&
+                                            (curItem.image_display_override === 'none' ||
+                                              curItem.image_display_override === 'hidden')
+                                              ? ('inherit' as const)
+                                              : curItem.image_display_override;
+                                          const urlPatch = {
+                                            image_url: val,
+                                            image_storage_key: '',
+                                            ...(nextDisplayOverride ? { image_display_override: nextDisplayOverride } : {})
+                                          };
+                                          updateCurItem(urlPatch as any);
+                                          handleUpdateTopItemRowOption(itemKey, urlPatch as any);
+                                          setItemImageOverrides((prev) => ({ ...prev, [itemKey]: val }));
+                                          if (val) setVisibleColumns((prev) => ({ ...prev, showLineItemImages: true }));
+                                        }}
+                                        placeholder="Paste direct image URL (https://...)"
+                                        className="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-mono"
+                                      />
+                                    </div>
+                                  )}
+
+                                  {/* Datasheet as Annex Toggle / Upload */}
+                                  {curItem.datasheet_attachment && curItem.datasheet_attachment.url ? (
+                                    <div className="flex items-center justify-between gap-2 px-2.5 py-2 rounded-lg bg-indigo-50/70 border border-indigo-200/80">
+                                      <label className="flex items-center gap-2 min-w-0 flex-1 cursor-pointer">
+                                        <input
+                                          type="checkbox"
+                                          checked={curItem.include_datasheet_in_quote !== false}
+                                          onChange={(e) => {
+                                            const checked = e.target.checked;
+                                            setItemDatasheetToggles((prev) => ({
+                                              ...prev,
+                                              [itemKey]: checked
+                                            }));
+                                            updateCurItem({ include_datasheet_in_quote: checked });
+                                          }}
+                                          className="rounded border-indigo-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer shrink-0"
+                                        />
+                                        <span className="text-[10.5px] font-semibold text-indigo-900 truncate" title={curItem.datasheet_attachment.name}>
+                                          Attach Datasheet as Annex ({curItem.datasheet_attachment.name})
+                                        </span>
+                                      </label>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          updateCurItem({
+                                            datasheet_attachment: undefined,
+                                            include_datasheet_in_quote: false
+                                          });
+                                          setItemDatasheetToggles((prev) => ({
+                                            ...prev,
+                                            [itemKey]: false
+                                          }));
+                                        }}
+                                        className="p-0.5 rounded text-indigo-400 hover:text-rose-600 cursor-pointer shrink-0"
+                                        title="Remove Datasheet"
+                                      >
+                                        <X className="w-3.5 h-3.5" />
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <label className="w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg border border-dashed border-slate-300 bg-white hover:bg-indigo-50/50 hover:border-indigo-300 text-slate-600 hover:text-indigo-700 text-[10.5px] font-semibold cursor-pointer transition">
+                                      <span className="flex items-center gap-1.5 truncate">
+                                        <Paperclip className="w-3 h-3 shrink-0" />
+                                        <span>Attach Datasheet as Annex (PDF / Image)</span>
+                                      </span>
+                                      <span className="text-[10px] font-bold text-indigo-600 shrink-0">+ Upload</span>
+                                      <input
+                                        type="file"
+                                        accept=".pdf,image/*"
+                                        className="hidden"
+                                        onChange={(e) => {
+                                          const file = e.target.files?.[0];
+                                          if (!file) return;
+                                          const reader = new FileReader();
+                                          reader.onload = (evt) => {
+                                            const dataUrl = evt.target?.result as string;
+                                            if (dataUrl) {
+                                              const att: Attachment = {
+                                                id: `ds_${Date.now()}`,
+                                                name: file.name,
+                                                size: file.size,
+                                                type: file.type,
+                                                url: dataUrl,
+                                                uploadedAt: new Date().toISOString(),
+                                                isLocal: true
+                                              };
+                                              updateCurItem({
+                                                datasheet_attachment: att,
+                                                include_datasheet_in_quote: true
+                                              });
+                                              setItemDatasheetToggles((prev) => ({
+                                                ...prev,
+                                                [itemKey]: true
+                                              }));
+                                            }
+                                          };
+                                          reader.readAsDataURL(file);
+                                        }}
+                                      />
+                                    </label>
+                                  )}
+
+                                  {/* Nested Toggle: Display & Secondary Photo Options */}
+                                  <div className="pt-1 border-t border-slate-200/80">
+                                    <button
+                                      type="button"
+                                      onClick={() => setShowFocusedMediaAdvanced((v) => !v)}
+                                      className="w-full flex items-center justify-between gap-2 py-1 text-[10.5px] font-semibold text-slate-600 hover:text-slate-900 cursor-pointer transition"
+                                    >
+                                      <span className="flex items-center gap-1.5">
+                                        <span>Display &amp; Secondary Photo Options</span>
+                                        {hasAdvancedMediaOverrides && (
+                                          <span className="px-1.5 py-px rounded bg-amber-50 text-amber-800 border border-amber-200 text-[9px] font-bold">
+                                            Active
+                                          </span>
+                                        )}
+                                      </span>
+                                      {showFocusedMediaAdvanced ? (
+                                        <ChevronUp className="w-3.5 h-3.5 text-slate-400" />
+                                      ) : (
+                                        <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                                      )}
+                                    </button>
+
+                                    {showFocusedMediaAdvanced && (
+                                      <div className="mt-2 space-y-2.5 pt-2 border-t border-slate-200/60">
+                                        {curItem.image_url && (
+                                          <div>
+                                            <label className="block text-[10px] text-slate-500 mb-0.5 font-medium">
+                                              Primary Photo Caption (Optional)
+                                            </label>
+                                            <input
+                                              type="text"
+                                              value={curItem.image_caption || ''}
+                                              onChange={(e) => {
+                                                updateCurItem({ image_caption: e.target.value });
+                                                handleUpdateTopItemRowOption(itemKey, { image_caption: e.target.value });
+                                              }}
+                                              placeholder="e.g. Assembled Duplex Filter Unit"
+                                              className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs"
+                                            />
+                                          </div>
+                                        )}
+
+                                        <div className="grid grid-cols-3 gap-2">
+                                          <div className="min-w-0">
+                                            <label className="block text-[10px] text-slate-500 mb-0.5 font-medium truncate">Placement</label>
+                                            <select
+                                              value={curItem.image_display_override || 'inherit'}
+                                              onChange={(e) => {
+                                                const val = e.target.value as any;
+                                                updateCurItem({ image_display_override: val });
+                                                handleUpdateTopItemRowOption(itemKey, { image_display_override: val });
+                                              }}
+                                              className="min-w-0 w-full rounded-lg border border-slate-300 bg-white px-1.5 py-1 text-[11px] text-slate-700"
+                                            >
+                                              <option value="inherit">Inherit Table</option>
+                                              <option value="below_specs">Below Specs</option>
+                                              <option value="inline_left">Inline Left</option>
+                                              <option value="inline_right">Inline Right</option>
+                                              <option value="column">Media Column</option>
+                                              <option value="hidden">Hide Photo</option>
+                                            </select>
+                                          </div>
+
+                                          <div className="min-w-0">
+                                            <label className="block text-[10px] text-slate-500 mb-0.5 font-medium truncate">Size</label>
+                                            <select
+                                              value={curItem.image_size_override || 'inherit'}
+                                              onChange={(e) => {
+                                                const val = e.target.value as any;
+                                                updateCurItem({ image_size_override: val });
+                                                handleUpdateTopItemRowOption(itemKey, { image_size_override: val });
+                                              }}
+                                              className="min-w-0 w-full rounded-lg border border-slate-300 bg-white px-1.5 py-1 text-[11px] text-slate-700"
+                                            >
+                                              <option value="inherit">Inherit Table</option>
+                                              <option value="xs">XS (32px)</option>
+                                              <option value="sm">SM (48px)</option>
+                                              <option value="md">MD (72px)</option>
+                                              <option value="lg">LG (110px)</option>
+                                              <option value="xl">XL (160px)</option>
+                                            </select>
+                                          </div>
+
+                                          <div className="min-w-0">
+                                            <label className="block text-[10px] text-slate-500 mb-0.5 font-medium truncate">Aspect Ratio</label>
+                                            <select
+                                              value={curItem.image_aspect_override || 'inherit'}
+                                              onChange={(e) => {
+                                                const val = e.target.value as any;
+                                                updateCurItem({ image_aspect_override: val });
+                                                handleUpdateTopItemRowOption(itemKey, { image_aspect_override: val });
+                                              }}
+                                              className="min-w-0 w-full rounded-lg border border-slate-300 bg-white px-1.5 py-1 text-[11px] text-slate-700"
+                                            >
+                                              <option value="inherit">Inherit Table</option>
+                                              <option value="1:1">1:1 Square</option>
+                                              <option value="4:3">4:3 Standard</option>
+                                              <option value="16:9">16:9 Wide</option>
+                                              <option value="auto">Auto / Natural</option>
+                                            </select>
+                                          </div>
+                                        </div>
+
+                                        {((curItem.image_display_override && curItem.image_display_override !== 'inherit') ||
+                                          (curItem.image_size_override && curItem.image_size_override !== 'inherit') ||
+                                          (curItem.image_aspect_override && curItem.image_aspect_override !== 'inherit')) && (
+                                          <div className="flex items-center justify-between px-2 py-1 rounded-lg bg-amber-50 border border-amber-200">
+                                            <span className="text-[10px] font-medium text-amber-800">
+                                              Custom photo overrides active
+                                            </span>
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                const resetPatch = {
+                                                  image_display_override: 'inherit' as const,
+                                                  image_size_override: 'inherit' as const,
+                                                  image_aspect_override: 'inherit' as const
+                                                };
+                                                updateCurItem(resetPatch);
+                                                handleUpdateTopItemRowOption(itemKey, resetPatch);
+                                              }}
+                                              className="text-[10px] font-bold text-amber-900 underline hover:text-amber-700 cursor-pointer"
+                                            >
+                                              Reset to Table Default
+                                            </button>
+                                          </div>
+                                        )}
+
+                                        <div className="min-w-0">
+                                          <label className="block text-[10px] text-slate-500 mb-0.5 font-medium">
+                                            Image Background Fill (Print &amp; Preview)
+                                          </label>
+                                          <select
+                                            value={curItem.image_bg_mode || curItem.image_adjustments?.bgFill || 'transparent'}
+                                            onChange={(e) => {
+                                              const val = e.target.value as any;
+                                              const nextAdj = { ...(curItem.image_adjustments || {}), bgFill: val === 'clear' ? 'transparent' : val };
+                                              updateCurItem({ image_bg_mode: val, image_adjustments: nextAdj });
+                                              handleUpdateTopItemRowOption(itemKey, { image_bg_mode: val, image_adjustments: nextAdj });
+                                            }}
+                                            className="min-w-0 w-full rounded-lg border border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-700"
+                                          >
+                                            <option value="transparent">Transparent / Clear (Multiply Print)</option>
+                                            <option value="white">Pure White</option>
+                                            <option value="slate">Soft Neutral Slate</option>
+                                          </select>
+                                        </div>
+
+                                        {/* Secondary Diagram / 2nd Photo */}
+                                        <div className="pt-2 border-t border-slate-200/80 space-y-2">
+                                          <div className="flex items-center justify-between">
+                                            <span className="text-[10.5px] font-bold text-slate-700 flex items-center gap-1.5">
+                                              <ImageIcon className="w-3 h-3 text-indigo-600" />
+                                              Secondary Technical Diagram
+                                            </span>
+                                            {curItem.secondary_image_url && (
+                                              <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                                Attached
+                                              </span>
+                                            )}
+                                          </div>
+
+                                          {curItem.secondary_image_url ? (
+                                            <div className="space-y-2">
+                                              <div className="relative group rounded-xl border border-slate-200 bg-white p-2 flex items-center justify-center overflow-hidden">
+                                                <img
+                                                  src={curItem.secondary_image_url}
+                                                  alt="Secondary Diagram"
+                                                  className="max-h-24 object-contain rounded-lg"
+                                                />
+                                                <button
+                                                  type="button"
+                                                  onClick={() => {
+                                                    const clearSecPatch = {
+                                                      secondary_image_url: '',
+                                                      secondary_image_storage_key: ''
+                                                    };
+                                                    updateCurItem(clearSecPatch as any);
+                                                    handleUpdateTopItemRowOption(itemKey, clearSecPatch as any);
+                                                  }}
+                                                  className="absolute top-2 right-2 p-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white shadow-md transition cursor-pointer"
+                                                  title="Remove Secondary Diagram"
+                                                >
+                                                  <Trash2 className="w-3 h-3" />
+                                                </button>
+                                              </div>
+                                              <div>
+                                                <label className="block text-[10px] text-slate-500 mb-0.5">2nd Diagram Caption</label>
+                                                <input
+                                                  type="text"
+                                                  value={curItem.secondary_image_caption || ''}
+                                                  onChange={(e) => {
+                                                    updateCurItem({ secondary_image_caption: e.target.value });
+                                                    handleUpdateTopItemRowOption(itemKey, { secondary_image_caption: e.target.value });
+                                                  }}
+                                                  placeholder="e.g. Dimensional GA Drawing / P&amp;ID Schematic"
+                                                  className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs"
+                                                />
+                                              </div>
+                                            </div>
+                                          ) : (
+                                            <label className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg border border-dashed border-indigo-300 bg-indigo-50/50 hover:bg-indigo-100/50 text-indigo-700 font-semibold text-[11px] cursor-pointer transition">
+                                              <Upload className="w-3.5 h-3.5" />
+                                              <span>+ Add 2nd Diagram / Schematic</span>
+                                              <input
+                                                type="file"
+                                                accept="image/*"
+                                                className="hidden"
+                                                onChange={(e) => {
+                                                  const file = e.target.files?.[0];
+                                                  if (!file) return;
+                                                  const reader = new FileReader();
+                                                  reader.onload = (evt) => {
+                                                    const base64 = evt.target?.result as string;
+                                                    if (base64) {
+                                                      updateCurItem({ secondary_image_url: base64, secondary_image_storage_key: '' } as any);
+                                                      handleUpdateTopItemRowOption(itemKey, { secondary_image_url: base64, secondary_image_storage_key: '' } as any);
+                                                    }
+                                                  };
+                                                  reader.readAsDataURL(file);
+                                                }}
+                                              />
+                                            </label>
+                                          )}
+                                        </div>
+                                      </div>
                                     )}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Accordion 3: Included Items / Composite Package */}
+                            <div className="rounded-xl border border-slate-200 bg-slate-50/70 overflow-hidden">
+                              <button
+                                type="button"
+                                onClick={() => toggleAccordion('composite')}
+                                className="w-full px-3.5 py-2.5 flex items-center justify-between gap-2 text-left hover:bg-slate-100/70 transition cursor-pointer"
+                              >
+                                <span className="font-bold text-slate-800 text-xs flex items-center gap-1.5 min-w-0">
+                                  <Layers className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                                  <span className="truncate">Included Items / Composite Package</span>
+                                </span>
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  <span
+                                    className={`px-1.5 py-0.5 rounded text-[9.5px] font-bold border whitespace-nowrap ${
+                                      subItemCount > 0 || isCompositeActive
+                                        ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                                        : 'bg-white text-slate-500 border-slate-200'
+                                    }`}
+                                  >
+                                    {compositeBadgeText}
+                                  </span>
+                                  {focusedItemAccordions.composite ? (
+                                    <ChevronUp className="w-3.5 h-3.5 text-slate-400" />
+                                  ) : (
+                                    <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                                  )}
+                                </div>
+                              </button>
+
+                              {focusedItemAccordions.composite && (
+                                <div className="px-3.5 pb-3.5 pt-2.5 border-t border-slate-200/80 space-y-2.5">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-[10.5px] font-semibold text-slate-600">
+                                      Package / Set Breakdown
+                                    </span>
+                                    <label className="flex items-center gap-1.5 cursor-pointer">
+                                      <input
+                                        type="checkbox"
+                                        checked={isCompositeActive}
+                                        onChange={(e) => {
+                                          const checked = e.target.checked;
+                                          updateCurItem({ is_composite_set: checked });
+                                          handleUpdateTopItemRowOption(itemKey, { is_composite_set: checked });
+                                        }}
+                                        className="rounded text-indigo-600 focus:ring-indigo-500"
+                                      />
+                                      <span className="text-[11px] font-bold text-slate-700">Composite Set</span>
+                                    </label>
+                                  </div>
+
+                                  <CompositePackageEditor
+                                    item={curItem}
+                                    compact={true}
+                                    isCompositeSet={isCompositeActive}
+                                    subComponents={curItem.sub_components || []}
+                                    packagePricingMode={curItem.package_pricing_mode || 'lump_sum'}
+                                    optionScopeNotes={curItem.option_scope_notes || ''}
+                                    parentQuantity={curItem.quantity || 1}
+                                    currency={liveQuotation.currency || 'AED'}
+                                    products={workspaceProducts}
+                                    setProducts={(updater) => {
+                                      setWorkspaceProducts((prev) => {
+                                        const next = typeof updater === 'function' ? updater(prev) : updater;
+                                        try {
+                                          localStorage.setItem('omni_products', JSON.stringify(next));
+                                        } catch (_) {}
+                                        return next;
+                                      });
+                                      if (propSetProducts) propSetProducts(updater);
+                                    }}
+                                    activeWorkspace={activeWorkspace}
+                                    tokenContext={studioTokenContext}
+                                    onChange={(patch) => {
+                                      const cleanedPatch = { ...patch };
+                                      const effectivePricingMode =
+                                        cleanedPatch.package_pricing_mode ||
+                                        curItem.package_pricing_mode ||
+                                        'lump_sum';
+                                      if (
+                                        effectivePricingMode === 'lump_sum' &&
+                                        cleanedPatch.unit_price === 0 &&
+                                        Number(curItem.unit_price) > 0
+                                      ) {
+                                        delete cleanedPatch.unit_price;
+                                        delete cleanedPatch.total_price;
+                                      }
+                                      updateCurItem(cleanedPatch);
+                                      handleUpdateTopItemRowOption(itemKey, cleanedPatch);
+                                      setItemCompositeOverrides((prev) => ({
+                                        ...prev,
+                                        [itemKey]: {
+                                          ...(prev[itemKey] || {}),
+                                          ...cleanedPatch
+                                        }
+                                      }));
+                                    }}
+                                  />
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Accordion 4: Row Pagination, Spacer & Custom Note */}
+                            <div className="rounded-xl border border-slate-200 bg-slate-50/70 overflow-hidden">
+                              <button
+                                type="button"
+                                onClick={() => toggleAccordion('pagination')}
+                                className="w-full px-3.5 py-2.5 flex items-center justify-between gap-2 text-left hover:bg-slate-100/70 transition cursor-pointer"
+                              >
+                                <span className="font-bold text-slate-800 text-xs flex items-center gap-1.5 min-w-0">
+                                  <Scissors className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                                  <span className="truncate">Row Pagination, Spacer &amp; Note</span>
+                                </span>
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  <span
+                                    className={`px-1.5 py-0.5 rounded text-[9.5px] font-bold border whitespace-nowrap ${
+                                      paginationParts.length > 0
+                                        ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                        : 'bg-white text-slate-500 border-slate-200'
+                                    }`}
+                                  >
+                                    {paginationBadgeText}
+                                  </span>
+                                  {focusedItemAccordions.pagination ? (
+                                    <ChevronUp className="w-3.5 h-3.5 text-slate-400" />
+                                  ) : (
+                                    <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                                  )}
+                                </div>
+                              </button>
+
+                              {focusedItemAccordions.pagination && (
+                                <div className="px-3.5 pb-3.5 pt-2.5 border-t border-slate-200/80 space-y-2.5">
+                                  <div className="flex flex-wrap items-center gap-1.5">
+                                    <button
+                                      type="button"
+                                      onClick={() => toggleItemPageBreak(itemKey, curItem.page_break_after)}
+                                      className={`px-2 py-1 rounded-lg text-[10px] font-semibold flex items-center gap-1 transition cursor-pointer ${
+                                        curItem.page_break_after
+                                          ? 'bg-amber-600 text-white shadow-2xs'
+                                          : 'bg-white hover:bg-amber-50 text-slate-700 hover:text-amber-800 border border-slate-200'
+                                      }`}
+                                    >
+                                      <Scissors className="w-3 h-3" />
+                                      <span>
+                                        {isLastItem ? 'Break After Table' : 'Page Break After Item'}
+                                      </span>
+                                    </button>
+
                                     <button
                                       type="button"
                                       onClick={() =>
-                                        applyItemAttributeLayoutToAll(
-                                          itemAttrs,
-                                          currentVisible,
-                                          rowBreaks,
-                                          rowFullWidth
-                                        )
+                                        handleUpdateTopItemRowOption(itemKey, {
+                                          row_highlight: !curItem.row_highlight
+                                        })
                                       }
-                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-indigo-200 bg-indigo-50 text-[9.5px] font-semibold text-indigo-700 hover:bg-indigo-100 transition cursor-pointer"
-                                      title="Push this item's order, width, breaks & visibility to global Specs & Grid and unify all line items"
+                                      className={`px-2 py-1 rounded-lg text-[10px] font-semibold border transition cursor-pointer ${
+                                        curItem.row_highlight
+                                          ? 'bg-amber-100 text-amber-900 border-amber-300'
+                                          : 'bg-white text-slate-600 border-slate-200 hover:border-amber-300'
+                                      }`}
+                                      title="Soft amber highlight on this row"
                                     >
-                                      <Layers className="w-2.5 h-2.5" />
-                                      Apply to All
+                                      Highlight
                                     </button>
-                                  </div>
-                                </div>
-                              )}
 
-                              <SpecAttributeSortableList
-                                compact
-                                emptyLabel="No spec or metadata attributes on this item yet."
-                                items={itemAttrs.map((attrKey) => {
-                                  const ck = canonicalSpecAttributeKey(attrKey);
-                                  const isVisible = currentVisible.some(
-                                    (k) => k === attrKey || canonicalSpecAttributeKey(k) === ck
-                                  );
-                                  const hasBreak = rowBreaks.some(
-                                    (k) => k === attrKey || canonicalSpecAttributeKey(k) === ck
-                                  );
-                                  const isFull = rowFullWidth.some(
-                                    (k) => k === attrKey || canonicalSpecAttributeKey(k) === ck
-                                  );
-                                  const globallyHidden = !isGlobalAttributeVisible(visibleColumns, attrKey);
-                                  return {
-                                    key: attrKey,
-                                    isVisible,
-                                    isFullWidth: isFull,
-                                    hasBreakAfter: hasBreak,
-                                    globallyHidden
-                                  };
-                                })}
-                                onToggleVisibility={toggleVis}
-                                onToggleFullWidth={toggleRowFullWidth}
-                                onToggleBreakAfter={toggleRowBreak}
-                                onReorder={reorderRowAttrs}
-                              />
-
-                              {Array.isArray(curItem.attributes) && curItem.attributes.length > 0 && (
-                                <div className="pt-2 border-t border-slate-200/80 space-y-1.5">
-                                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
-                                    Edit Spec Values {(curItem as any).template_parent_id ? '(Base Template)' : ''}
-                                  </span>
-                                  <div className="space-y-1 max-h-40 overflow-y-auto pr-0.5">
-                                    {curItem.attributes.map((attr, attrIdx) => {
-                                      const isBlankTemplate = Boolean(attr.key?.trim() && !attr.value?.trim());
-                                      return (
-                                        <div key={`${attr.key}_${attrIdx}`} className="flex items-center gap-1.5">
-                                          <span
-                                            className={`w-28 shrink-0 truncate text-[10.5px] font-mono font-semibold px-1.5 py-1 rounded border ${
-                                              isBlankTemplate
-                                                ? 'bg-amber-50 text-amber-800 border-amber-300'
-                                                : 'bg-white text-slate-600 border-slate-200'
-                                            }`}
-                                            title={attr.key}
-                                          >
-                                            {attr.key}
-                                          </span>
-                                          <input
-                                            type="text"
-                                            value={attr.value || ''}
-                                            onChange={(e) => {
-                                              const nextVal = e.target.value;
-                                              const nextAttrs = (curItem.attributes || []).map((a, i) =>
-                                                i === attrIdx ? { ...a, value: nextVal } : a
-                                              );
-                                              updateCurItem({ attributes: nextAttrs });
-                                            }}
-                                            placeholder={
-                                              isBlankTemplate
-                                                ? `Enter ${attr.key} for this quote...`
-                                                : 'Value...'
-                                            }
-                                            className={`flex-1 min-w-0 rounded border px-2 py-1 text-xs ${
-                                              isBlankTemplate
-                                                ? 'border-amber-400 bg-amber-50/40 focus:bg-white focus:border-amber-500'
-                                                : 'border-slate-300 bg-white focus:border-blue-500'
-                                            }`}
-                                          />
-                                          <button
-                                            type="button"
-                                            onClick={() => {
-                                              const nextAttrs = (curItem.attributes || []).filter(
-                                                (_, i) => i !== attrIdx
-                                              );
-                                              updateCurItem({ attributes: nextAttrs });
-                                            }}
-                                            className="p-1 rounded text-slate-400 hover:text-rose-600 cursor-pointer shrink-0"
-                                            title={`Remove ${attr.key}`}
-                                          >
-                                            <X className="w-3 h-3" />
-                                          </button>
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                </div>
-                              )}
-
-                              {/* Inline + Add Spec Pill Row */}
-                              <div className="pt-2 border-t border-slate-200/80 space-y-1.5">
-                                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
-                                  + Add Spec Pill
-                                </span>
-                                <div className="flex items-center gap-1.5">
-                                  <input
-                                    type="text"
-                                    value={newSpecKey}
-                                    onChange={(e) => setNewSpecKey(e.target.value)}
-                                    placeholder="Spec (e.g. Tank Size)"
-                                    className="flex-1 min-w-0 rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs"
-                                  />
-                                  <input
-                                    type="text"
-                                    value={newSpecVal}
-                                    onChange={(e) => setNewSpecVal(e.target.value)}
-                                    placeholder="Value (e.g. 24x72)"
-                                    className="flex-1 min-w-0 rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs"
-                                  />
-                                  <button
-                                    type="button"
-                                    disabled={!newSpecKey.trim()}
-                                    onClick={() => {
-                                      if (!newSpecKey.trim()) return;
-                                      const k = newSpecKey.trim();
-                                      const v = newSpecVal.trim();
-                                      const existingAttrs = Array.isArray(curItem.attributes) ? [...curItem.attributes] : [];
-                                      const nextAttrs = [...existingAttrs, { key: k, value: v }];
-                                      const nextVisible = [...currentVisible, k];
-                                      updateCurItem({
-                                        attributes: nextAttrs,
-                                        visible_attributes: nextVisible
-                                      });
-                                      handleUpdateTopItemRowOption(itemKey, {
-                                        attributes: nextAttrs,
-                                        visible_attributes: nextVisible
-                                      });
-                                      setItemVisibleAttributes((prev) => ({ ...prev, [itemKey]: nextVisible }));
-                                      setNewSpecKey('');
-                                      setNewSpecVal('');
-                                    }}
-                                    className="px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shrink-0"
-                                  >
-                                    Add
-                                  </button>
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* Card 4: Product Photo & Diagram */}
-                            <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/70 space-y-3">
-                              <div className="flex items-center justify-between">
-                                <span className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
-                                  <ImageIcon className="w-3.5 h-3.5 text-blue-600" />
-                                  Product Photo &amp; Diagram
-                                </span>
-                                {curItem.image_url && (
-                                  <span className="px-1.5 py-0.5 rounded text-[9.5px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                                    Primary Attached
-                                  </span>
-                                )}
-                              </div>
-
-                              {curItem.image_url ? (
-                                <div className="space-y-2.5">
-                                  <div className="relative group rounded-xl border border-slate-200 bg-white p-2 flex items-center justify-center overflow-hidden">
-                                    <img
-                                      src={curItem.image_url}
-                                      alt={curItem.item_name || 'Product'}
-                                      style={{
-                                        transform: curItem.image_adjustments?.rotation
-                                          ? `rotate(${curItem.image_adjustments.rotation}deg)`
-                                          : undefined
-                                      }}
-                                      className="max-h-36 object-contain rounded-lg transition-transform"
-                                    />
-                                    <div className="absolute top-2 right-2 flex items-center gap-1">
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          const currentRot = curItem.image_adjustments?.rotation || 0;
-                                          const nextRot = (currentRot + 90) % 360;
-                                          const nextAdj = { ...(curItem.image_adjustments || {}), rotation: nextRot };
-                                          updateCurItem({ image_adjustments: nextAdj });
-                                          handleUpdateTopItemRowOption(itemKey, { image_adjustments: nextAdj });
-                                        }}
-                                        className="p-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-900 text-white shadow-md transition cursor-pointer"
-                                        title="Rotate 90°"
-                                      >
-                                        <RotateCw className="w-3.5 h-3.5" />
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          const clearPrimaryPatch = {
-                                            image_url: '',
-                                            image_storage_key: '',
-                                            image_display_override: 'none' as const
-                                          };
-                                          updateCurItem(clearPrimaryPatch as any);
-                                          handleUpdateTopItemRowOption(itemKey, clearPrimaryPatch as any);
-                                          setItemImageOverrides((prev) => ({ ...prev, [itemKey]: '' }));
-                                        }}
-                                        className="p-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white shadow-md transition cursor-pointer"
-                                        title="Remove Photo"
-                                      >
-                                        <Trash2 className="w-3.5 h-3.5" />
-                                      </button>
-                                    </div>
-                                  </div>
-
-                                  <div>
-                                    <label className="block text-[10px] text-slate-500 mb-1">Primary Caption (Optional)</label>
-                                    <input
-                                      type="text"
-                                      value={curItem.image_caption || ''}
-                                      onChange={(e) => {
-                                        updateCurItem({ image_caption: e.target.value });
-                                        handleUpdateTopItemRowOption(itemKey, { image_caption: e.target.value });
-                                      }}
-                                      placeholder="e.g. Assembled Duplex Filter Unit"
-                                      className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs"
-                                    />
-                                  </div>
-                                </div>
-                              ) : (
-                                <div className="space-y-2">
-                                  <p className="text-[11px] text-slate-500">
-                                    Add an equipment diagram or catalog photo to display directly alongside this item.
-                                  </p>
-                                  <div className="flex items-center gap-2">
-                                    <label className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg border border-dashed border-blue-300 bg-blue-50/50 hover:bg-blue-100/50 text-blue-700 font-semibold text-xs cursor-pointer transition">
-                                      <Upload className="w-3.5 h-3.5" />
-                                      <span>Upload Image</span>
-                                      <input
-                                        type="file"
-                                        accept="image/*"
-                                        className="hidden"
-                                        onChange={(e) => {
-                                          const file = e.target.files?.[0];
-                                          if (!file) return;
-                                          const reader = new FileReader();
-                                          reader.onload = (evt) => {
-                                            const base64 = evt.target?.result as string;
-                                            if (base64) {
-                                              const nextDisplayOverride =
-                                                curItem.image_display_override === 'none' ||
-                                                curItem.image_display_override === 'hidden'
-                                                  ? ('inherit' as const)
-                                                  : curItem.image_display_override;
-                                              const uploadPatch = {
-                                                image_url: base64,
-                                                image_storage_key: '',
-                                                ...(nextDisplayOverride ? { image_display_override: nextDisplayOverride } : {})
-                                              };
-                                              updateCurItem(uploadPatch as any);
-                                              handleUpdateTopItemRowOption(itemKey, uploadPatch as any);
-                                              setItemImageOverrides((prev) => ({ ...prev, [itemKey]: base64 }));
-                                              setVisibleColumns((prev) => ({ ...prev, showLineItemImages: true }));
-                                            }
-                                          };
-                                          reader.readAsDataURL(file);
-                                        }}
-                                      />
-                                    </label>
-                                  </div>
-                                  <div>
-                                    <label className="block text-[10px] text-slate-400 mb-0.5">Or Paste Direct Image URL</label>
-                                    <input
-                                      type="text"
-                                      value={curItem.image_url || ''}
-                                      onChange={(e) => {
-                                        const val = e.target.value;
-                                        const nextDisplayOverride =
-                                          val &&
-                                          (curItem.image_display_override === 'none' ||
-                                            curItem.image_display_override === 'hidden')
-                                            ? ('inherit' as const)
-                                            : curItem.image_display_override;
-                                        const urlPatch = {
-                                          image_url: val,
-                                          image_storage_key: '',
-                                          ...(nextDisplayOverride ? { image_display_override: nextDisplayOverride } : {})
-                                        };
-                                        updateCurItem(urlPatch as any);
-                                        handleUpdateTopItemRowOption(itemKey, urlPatch as any);
-                                        setItemImageOverrides((prev) => ({ ...prev, [itemKey]: val }));
-                                        if (val) setVisibleColumns((prev) => ({ ...prev, showLineItemImages: true }));
-                                      }}
-                                      placeholder="https://..."
-                                      className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs font-mono"
-                                    />
-                                  </div>
-                                </div>
-                              )}
-
-                              {/* Image Placement, Size, and Aspect Ratio Overrides */}
-                              <div className="pt-2 border-t border-slate-200/80 space-y-2">
-                                <div className="grid grid-cols-3 gap-2">
-                                  <div>
-                                    <label className="block text-[10px] text-slate-500 mb-0.5 font-medium">Placement</label>
-                                    <select
-                                      value={curItem.image_display_override || 'inherit'}
-                                      onChange={(e) => {
-                                        const val = e.target.value as any;
-                                        updateCurItem({ image_display_override: val });
-                                        handleUpdateTopItemRowOption(itemKey, { image_display_override: val });
-                                      }}
-                                      className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-700"
-                                    >
-                                      <option value="inherit">Inherit Table</option>
-                                      <option value="below_specs">Below Specs Banner</option>
-                                      <option value="inline_left">Inline Left</option>
-                                      <option value="inline_right">Inline Right</option>
-                                      <option value="column">Media Column</option>
-                                      <option value="hidden">Hide Photo</option>
-                                    </select>
-                                  </div>
-
-                                  <div>
-                                    <label className="block text-[10px] text-slate-500 mb-0.5 font-medium">Size Override</label>
-                                    <select
-                                      value={curItem.image_size_override || 'inherit'}
-                                      onChange={(e) => {
-                                        const val = e.target.value as any;
-                                        updateCurItem({ image_size_override: val });
-                                        handleUpdateTopItemRowOption(itemKey, { image_size_override: val });
-                                      }}
-                                      className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-700"
-                                    >
-                                      <option value="inherit">Inherit Table</option>
-                                      <option value="xs">XS (32px)</option>
-                                      <option value="sm">SM (48px)</option>
-                                      <option value="md">MD (72px)</option>
-                                      <option value="lg">LG (110px)</option>
-                                      <option value="xl">XL (160px)</option>
-                                    </select>
-                                  </div>
-
-                                  <div className="min-w-0">
-                                    <label className="block text-[10px] text-slate-500 mb-0.5 font-medium truncate">Aspect Ratio</label>
-                                    <select
-                                      value={curItem.image_aspect_override || 'inherit'}
-                                      onChange={(e) => {
-                                        const val = e.target.value as any;
-                                        updateCurItem({ image_aspect_override: val });
-                                        handleUpdateTopItemRowOption(itemKey, { image_aspect_override: val });
-                                      }}
-                                      className="min-w-0 w-full rounded-lg border border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-700"
-                                    >
-                                      <option value="inherit">Inherit Table</option>
-                                      <option value="1:1">1:1 Square</option>
-                                      <option value="4:3">4:3 Standard</option>
-                                      <option value="16:9">16:9 Wide</option>
-                                      <option value="auto">Auto / Natural</option>
-                                    </select>
-                                  </div>
-                                </div>
-                                {((curItem.image_display_override && curItem.image_display_override !== 'inherit') ||
-                                  (curItem.image_size_override && curItem.image_size_override !== 'inherit') ||
-                                  (curItem.image_aspect_override && curItem.image_aspect_override !== 'inherit')) && (
-                                  <div className="flex items-center justify-between px-2 py-1 rounded-lg bg-amber-50 border border-amber-200">
-                                    <span className="text-[10px] font-medium text-amber-800">
-                                      Item has custom photo overrides active
-                                    </span>
                                     <button
                                       type="button"
-                                      onClick={() => {
-                                        const resetPatch = {
-                                          image_display_override: 'inherit' as const,
-                                          image_size_override: 'inherit' as const,
-                                          image_aspect_override: 'inherit' as const
-                                        };
-                                        updateCurItem(resetPatch);
-                                        handleUpdateTopItemRowOption(itemKey, resetPatch);
-                                      }}
-                                      className="text-[10px] font-bold text-amber-900 underline hover:text-amber-700 cursor-pointer"
+                                      onClick={() =>
+                                        handleUpdateTopItemRowOption(itemKey, {
+                                          row_bold: !curItem.row_bold
+                                        })
+                                      }
+                                      className={`px-2 py-1 rounded-lg text-[10px] font-bold border transition cursor-pointer ${
+                                        curItem.row_bold
+                                          ? 'bg-slate-800 text-white border-slate-800'
+                                          : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
+                                      }`}
+                                      title="Bold emphasis on this row"
                                     >
-                                      Reset to Table Default
+                                      B Bold
                                     </button>
-                                  </div>
-                                )}
 
-                                <div className="min-w-0">
-                                  <label className="block text-[10px] text-slate-500 mb-0.5 font-medium">
-                                    Image Background Fill (Print &amp; Preview)
-                                  </label>
-                                  <select
-                                    value={curItem.image_bg_mode || curItem.image_adjustments?.bgFill || 'transparent'}
-                                    onChange={(e) => {
-                                      const val = e.target.value as any;
-                                      const nextAdj = { ...(curItem.image_adjustments || {}), bgFill: val === 'clear' ? 'transparent' : val };
-                                      updateCurItem({ image_bg_mode: val, image_adjustments: nextAdj });
-                                      handleUpdateTopItemRowOption(itemKey, { image_bg_mode: val, image_adjustments: nextAdj });
-                                    }}
-                                    className="min-w-0 w-full rounded-lg border border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-700"
-                                  >
-                                    <option value="transparent">Transparent / Clear (Multiply Print)</option>
-                                    <option value="white">Pure White</option>
-                                    <option value="slate">Soft Neutral Slate</option>
-                                  </select>
-                                </div>
-                              </div>
-
-                              {/* Secondary Diagram / 2nd Image */}
-                              <div className="pt-2 border-t border-slate-200/80 space-y-2">
-                                <div className="flex items-center justify-between">
-                                  <span className="text-[10.5px] font-bold text-slate-700 flex items-center gap-1.5">
-                                    <ImageIcon className="w-3 h-3 text-indigo-600" />
-                                    Secondary Technical Diagram
-                                  </span>
-                                  {curItem.secondary_image_url && (
-                                    <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
-                                      2nd Diagram Attached
-                                    </span>
-                                  )}
-                                </div>
-
-                                {curItem.secondary_image_url ? (
-                                  <div className="space-y-2">
-                                    <div className="relative group rounded-xl border border-slate-200 bg-white p-2 flex items-center justify-center overflow-hidden">
-                                      <img
-                                        src={curItem.secondary_image_url}
-                                        alt="Secondary Diagram"
-                                        className="max-h-28 object-contain rounded-lg"
-                                      />
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          const clearSecPatch = {
-                                            secondary_image_url: '',
-                                            secondary_image_storage_key: ''
-                                          };
-                                          updateCurItem(clearSecPatch as any);
-                                          handleUpdateTopItemRowOption(itemKey, clearSecPatch as any);
-                                        }}
-                                        className="absolute top-2 right-2 p-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white shadow-md transition cursor-pointer"
-                                        title="Remove Secondary Diagram"
+                                    <div className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-white border border-slate-200 text-[10px] text-slate-600">
+                                      <span>Spacer:</span>
+                                      <select
+                                        value={spacerMm}
+                                        onChange={(e) =>
+                                          handleUpdateTopItemRowOption(itemKey, {
+                                            row_spacer_after_mm: Number(e.target.value) || undefined
+                                          })
+                                        }
+                                        className="bg-transparent font-mono font-semibold text-slate-800 focus:outline-none cursor-pointer"
                                       >
-                                        <Trash2 className="w-3.5 h-3.5" />
-                                      </button>
-                                    </div>
-                                    <div>
-                                      <label className="block text-[10px] text-slate-500 mb-0.5">2nd Diagram Caption</label>
-                                      <input
-                                        type="text"
-                                        value={curItem.secondary_image_caption || ''}
-                                        onChange={(e) => {
-                                          updateCurItem({ secondary_image_caption: e.target.value });
-                                          handleUpdateTopItemRowOption(itemKey, { secondary_image_caption: e.target.value });
-                                        }}
-                                        placeholder="e.g. Dimensional GA Drawing / P&amp;ID Schematic"
-                                        className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs"
-                                      />
+                                        <option value={0}>0mm</option>
+                                        <option value={4}>4mm</option>
+                                        <option value={8}>8mm</option>
+                                        <option value={12}>12mm</option>
+                                        <option value={16}>16mm</option>
+                                      </select>
                                     </div>
                                   </div>
-                                ) : (
-                                  <div className="space-y-1.5">
-                                    <label className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg border border-dashed border-indigo-300 bg-indigo-50/50 hover:bg-indigo-100/50 text-indigo-700 font-semibold text-[11px] cursor-pointer transition">
-                                      <Upload className="w-3.5 h-3.5" />
-                                      <span>+ Add 2nd Diagram / Schematic</span>
-                                      <input
-                                        type="file"
-                                        accept="image/*"
-                                        className="hidden"
-                                        onChange={(e) => {
-                                          const file = e.target.files?.[0];
-                                          if (!file) return;
-                                          const reader = new FileReader();
-                                          reader.onload = (evt) => {
-                                            const base64 = evt.target?.result as string;
-                                            if (base64) {
-                                              updateCurItem({ secondary_image_url: base64, secondary_image_storage_key: '' } as any);
-                                              handleUpdateTopItemRowOption(itemKey, { secondary_image_url: base64, secondary_image_storage_key: '' } as any);
-                                            }
-                                          };
-                                          reader.readAsDataURL(file);
-                                        }}
-                                      />
-                                    </label>
-                                  </div>
-                                )}
 
-                                {/* 3-Action Catalog Sync Menu */}
-                                {matchedProd && (
-                                  <div className="pt-1 flex items-center justify-between gap-2">
-                                    <span className="text-[11px] font-mono text-slate-500 truncate">
-                                      Linked SKU: <strong className="text-slate-700">{matchedProd.sku || matchedProd.name}</strong>
-                                    </span>
-                                    <CatalogSyncMenu
-                                      item={curItem}
-                                      matchedProduct={matchedProd}
-                                      products={workspaceProducts}
-                                      setProducts={(updater) => {
-                                        setWorkspaceProducts((prev) => {
-                                          const next = typeof updater === 'function' ? updater(prev) : updater;
-                                          try {
-                                            localStorage.setItem('omni_products', JSON.stringify(next));
-                                          } catch (_) {}
-                                          return next;
-                                        });
-                                        if (propSetProducts) propSetProducts(updater);
-                                      }}
-                                      currency={liveQuotation.currency}
-                                      isVendorCostDoc={isVendorCostDoc}
-                                      activeWorkspaceId={activeWorkspace?.id}
-                                      triggerToast={triggerToast}
-                                      onUpdateLineItem={(patch) => updateCurItem(patch)}
+                                  <div className="space-y-1">
+                                    <label className="block text-[10px] font-medium text-slate-500">
+                                      Custom Row Note (prints directly below this item)
+                                    </label>
+                                    <AtMentionInput
+                                      value={curItem.row_note || ''}
+                                      onChange={(nextVal) =>
+                                        handleUpdateTopItemRowOption(itemKey, { row_note: nextVal })
+                                      }
+                                      tokenContext={studioTokenContext}
+                                      placeholder={`Custom note for Item #${focusedItemIndex + 1} (type @ for live tags)...`}
+                                      className="w-full bg-white border border-slate-300 focus:border-blue-500 rounded-lg px-2.5 py-1.5 text-xs text-slate-700 focus:outline-none"
                                     />
                                   </div>
-                                )}
-                              </div>
-                            </div>
-
-                            {/* Card 5: Included Items & Scope Notes (Package / Composite Breakdown) */}
-                            <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/70 space-y-3">
-                              <div className="flex items-center justify-between">
-                                <span className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
-                                  <Layers className="w-3.5 h-3.5 text-indigo-600" />
-                                  Package / Set Breakdown &amp; Scope
-                                </span>
-                                <label className="flex items-center gap-1.5 cursor-pointer">
-                                  <input
-                                    type="checkbox"
-                                    checked={Boolean(
-                                      curItem.is_composite_set ||
-                                        (curItem.sub_components && curItem.sub_components.length > 0)
-                                    )}
-                                    onChange={(e) => {
-                                      const checked = e.target.checked;
-                                      updateCurItem({ is_composite_set: checked });
-                                      handleUpdateTopItemRowOption(itemKey, { is_composite_set: checked });
-                                    }}
-                                    className="rounded text-indigo-600 focus:ring-indigo-500"
-                                  />
-                                  <span className="text-[11px] font-bold text-slate-700">Composite Set</span>
-                                </label>
-                              </div>
-
-                              <CompositePackageEditor
-                                item={curItem}
-                                compact={true}
-                                isCompositeSet={Boolean(
-                                  curItem.is_composite_set ||
-                                    (curItem.sub_components && curItem.sub_components.length > 0)
-                                )}
-                                subComponents={curItem.sub_components || []}
-                                packagePricingMode={curItem.package_pricing_mode || 'lump_sum'}
-                                optionScopeNotes={curItem.option_scope_notes || ''}
-                                parentQuantity={curItem.quantity || 1}
-                                currency={liveQuotation.currency || 'AED'}
-                                products={workspaceProducts}
-                                setProducts={(updater) => {
-                                  setWorkspaceProducts((prev) => {
-                                    const next = typeof updater === 'function' ? updater(prev) : updater;
-                                    try {
-                                      localStorage.setItem('omni_products', JSON.stringify(next));
-                                    } catch (_) {}
-                                    return next;
-                                  });
-                                  if (propSetProducts) propSetProducts(updater);
-                                }}
-                                activeWorkspace={activeWorkspace}
-                                tokenContext={studioTokenContext}
-                                onChange={(patch) => {
-                                  const cleanedPatch = { ...patch };
-                                  const effectivePricingMode =
-                                    cleanedPatch.package_pricing_mode ||
-                                    curItem.package_pricing_mode ||
-                                    'lump_sum';
-                                  if (
-                                    effectivePricingMode === 'lump_sum' &&
-                                    cleanedPatch.unit_price === 0 &&
-                                    Number(curItem.unit_price) > 0
-                                  ) {
-                                    delete cleanedPatch.unit_price;
-                                    delete cleanedPatch.total_price;
-                                  }
-                                  updateCurItem(cleanedPatch);
-                                  handleUpdateTopItemRowOption(itemKey, cleanedPatch);
-                                  setItemCompositeOverrides((prev) => ({
-                                    ...prev,
-                                    [itemKey]: {
-                                      ...(prev[itemKey] || {}),
-                                      ...cleanedPatch
-                                    }
-                                  }));
-                                }}
-                              />
+                                </div>
+                              )}
                             </div>
                           </div>
                         );
