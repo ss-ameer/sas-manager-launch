@@ -65,7 +65,9 @@ import {
   ShoppingBag,
   GitFork,
   Link2,
-  Unlink
+  Unlink,
+  RefreshCw,
+  ShieldCheck
 } from 'lucide-react';
 import SearchResultCounter from './common/SearchResultCounter';
 import HoverScrollText from './common/HoverScrollText';
@@ -75,6 +77,17 @@ import {
   resolveProductFamilyKey,
   resolveProductFamilyDisplayName
 } from '../utils/productVariantFormat';
+import {
+  ParentSyncFieldKey,
+  ALL_PARENT_SYNC_FIELDS,
+  suggestParentBaseSku,
+  buildSmartVariantSku,
+  deduplicateSku,
+  detectProtectedVariantSpecKeys,
+  isProtectedVariantSpecKey,
+  getDefaultSelectedParentSyncFields,
+  buildParentToVariantSyncPatch
+} from '../utils/catalogVariantUtils';
 import {
   compileDescriptionWithSpecs,
   resolveEffectiveCatalogProduct,
@@ -299,6 +312,12 @@ export default function ProductManager({
   const [isLoadingMovements, setIsLoadingMovements] = useState(false);
   const [collapsedParentIds, setCollapsedParentIds] = useState<Record<string, boolean>>({});
   const variantLabelInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Smart Auto-SKU & Controlled Parent -> Variant Sync State
+  const [isSkuAutoManaged, setIsSkuAutoManaged] = useState<boolean>(false);
+  const [showParentSyncModal, setShowParentSyncModal] = useState<boolean>(false);
+  const [selectedParentSyncFields, setSelectedParentSyncFields] = useState<ParentSyncFieldKey[]>([]);
+  const [isSyncingVariants, setIsSyncingVariants] = useState<boolean>(false);
 
   // AI Bulk Catalog Importer Modal State
   const [showAiCatalogModal, setShowAiCatalogModal] = useState<boolean>(false);
@@ -1224,6 +1243,7 @@ export default function ProductManager({
     setFormPackagePricingMode('itemized');
     setFormOptionScopeNotes('');
     setFormSku('');
+    setIsSkuAutoManaged(false);
     setFormBrandMake('');
     setFormModelPartNo('');
     setFormDefaultAvailability('');
@@ -1268,6 +1288,7 @@ export default function ProductManager({
     setFormPackagePricingMode(p.package_pricing_mode || 'itemized');
     setFormOptionScopeNotes(p.option_scope_notes || '');
     setFormSku(p.sku || '');
+    setIsSkuAutoManaged(false);
     const brandAttr = (p.attributes || []).find((a) => /^(brand|make|manufacturer|brand \/ make)$/i.test(a.key.trim()))?.value;
     const modelAttr = (p.attributes || []).find((a) => /^(model|model no|part no|model \/ part no)$/i.test(a.key.trim()))?.value;
     setFormBrandMake(p.brand_make || brandAttr || '');
@@ -1297,19 +1318,24 @@ export default function ProductManager({
     const rootParentId = (p as any).parent_product_id || p.variant_parent_id || p.id || null;
     const parentProd = activeCatalogProducts.find((item) => item.id === rootParentId) || p;
     const baseName = (parentProd.name || parentProd.description || '').replace(/\s*\(copy\)\s*$/i, '').trim();
-    const familyKey = resolveProductFamilyKey(parentProd);
-    const siblingCount = activeCatalogProducts.filter(
-      (item) =>
-        resolveProductFamilyKey(item) === familyKey ||
-        item.variant_parent_id === rootParentId ||
-        (item as any).parent_product_id === rootParentId
-    ).length;
-    const baseSku = (parentProd.sku || '').replace(/-V\d+$/i, '').trim();
-    const nextVariantSku = baseSku ? `${baseSku}-V${siblingCount + 1}` : '';
-
     const blankTemplateKeys = (parentProd.attributes || [])
       .filter((a) => a && a.key.trim() !== '' && a.value.trim() === '')
       .map((a) => ({ key: a.key.trim(), value: '' }));
+
+    const existingActiveSkus = activeCatalogProducts
+      .map((item) => item.sku)
+      .filter((s): s is string => Boolean(s && s.trim()));
+    const nextVariantSku = buildSmartVariantSku(
+      parentProd.sku,
+      parentProd,
+      {
+        variant_label: '',
+        model_part_no: '',
+        name: baseName,
+        attributes: blankTemplateKeys
+      },
+      existingActiveSkus
+    );
 
     setEditingProduct(null);
     setPendingDeletedStorageUrls([]);
@@ -1336,6 +1362,7 @@ export default function ProductManager({
     setFormPackagePricingMode(parentProd.package_pricing_mode || 'itemized');
     setFormOptionScopeNotes(parentProd.option_scope_notes || '');
     setFormSku(nextVariantSku);
+    setIsSkuAutoManaged(true);
     setFormBrandMake(parentProd.brand_make || '');
     setFormModelPartNo(parentProd.model_part_no || '');
     setFormDefaultAvailability(parentProd.default_availability || '');
@@ -1365,6 +1392,160 @@ export default function ProductManager({
         `Adding Variant under "${baseName}". Shared base specs are inherited automatically—enter your Variant Label, SKU, and differentiating specs.`,
         'info'
       );
+    }
+  };
+
+  // Smart Hierarchical Auto-SKU generator for both Master Parents and Child Variants
+  const handleGenerateAutoSku = (overrides?: {
+    variantLabel?: string;
+    modelPartNo?: string;
+    attributes?: ProductAttribute[];
+    silent?: boolean;
+  }) => {
+    const otherActiveSkus = activeCatalogProducts
+      .filter((p) => p.id !== editingProduct?.id)
+      .map((p) => p.sku)
+      .filter((s): s is string => Boolean(s && s.trim()));
+
+    const activeVariantLabel = overrides?.variantLabel ?? formVariantLabel;
+    const activeModelPartNo = overrides?.modelPartNo ?? formModelPartNo;
+    const activeAttributes = overrides?.attributes ?? formAttributes;
+
+    if (formVariantParentId) {
+      const parentProd =
+        activeCatalogProducts.find((c) => c.id === formVariantParentId && c.id !== editingProduct?.id) ||
+        null;
+      const generated = buildSmartVariantSku(
+        parentProd?.sku,
+        parentProd || {
+          sku: undefined,
+          brand_make: formBrandMake,
+          name: formProductFamily || formName,
+          product_type: formProductType
+        },
+        {
+          variant_label: activeVariantLabel,
+          model_part_no: activeModelPartNo,
+          name: formName,
+          attributes: activeAttributes
+        },
+        otherActiveSkus
+      );
+      setFormSku(generated);
+      if (!overrides?.silent && triggerToast) {
+        triggerToast(`Generated variant SKU: ${generated}`, 'info');
+      }
+      return;
+    }
+
+    const baseParentCode = suggestParentBaseSku(formBrandMake, formName, formProductType);
+    const uniqueParentSku = deduplicateSku(baseParentCode, otherActiveSkus);
+    setFormSku(uniqueParentSku);
+    if (!overrides?.silent && triggerToast) {
+      triggerToast(`Generated parent base SKU: ${uniqueParentSku}`, 'info');
+    }
+  };
+
+  // Builds the effective Master Parent snapshot from the live form state for Parent -> Variant sync
+  const buildLiveParentSyncSnapshot = (): Partial<Product> => {
+    const cleanFormAttrs = formAttributes
+      .map((a) => ({ key: a.key.trim(), value: a.value.trim() }))
+      .filter((a) => a.key !== '');
+    return {
+      ...(editingProduct || {}),
+      name: formName.trim() || editingProduct?.name,
+      product_type: formProductType || editingProduct?.product_type || 'General',
+      brand_make: formBrandMake.trim() || undefined,
+      brand: formBrandMake.trim() || undefined,
+      country_of_origin: formCountryOfOrigin.trim() || undefined,
+      default_availability: formDefaultAvailability.trim() || undefined,
+      description: formDescription.trim() || editingProduct?.description || '',
+      image_url: formImageUrl.trim() || undefined,
+      secondary_image_url: formSecondaryImageUrl.trim() || undefined,
+      image_caption: formImageCaption.trim() || undefined,
+      secondary_image_caption: formSecondaryImageCaption.trim() || undefined,
+      image_adjustments: formImageAdjustments || undefined,
+      datasheet_attachment: formDatasheetAttachment || undefined,
+      datasheet_url: formDatasheetAttachment?.url || editingProduct?.datasheet_url || undefined,
+      attributes: cleanFormAttrs,
+      is_composite_set: formIsCompositeSet,
+      sub_components: formIsCompositeSet ? formSubComponents : undefined,
+      package_pricing_mode: formIsCompositeSet ? formPackagePricingMode : undefined,
+      option_scope_notes:
+        formIsCompositeSet && formOptionScopeNotes.trim()
+          ? formOptionScopeNotes.trim()
+          : undefined
+    };
+  };
+
+  const getEditingLinkedVariants = (): Product[] => {
+    if (!editingProduct?.id || formVariantParentId) return [];
+    return activeCatalogProducts.filter(
+      (c) =>
+        c.id !== editingProduct.id &&
+        ((c as any).parent_product_id === editingProduct.id ||
+          c.variant_parent_id === editingProduct.id)
+    );
+  };
+
+  const openParentSyncModal = () => {
+    const linkedChildren = getEditingLinkedVariants();
+    if (linkedChildren.length === 0) return;
+    const liveParent = buildLiveParentSyncSnapshot();
+    setSelectedParentSyncFields(getDefaultSelectedParentSyncFields(liveParent, linkedChildren));
+    setShowParentSyncModal(true);
+  };
+
+  const handleExecuteParentSyncToVariants = async () => {
+    if (isSyncingVariants) return;
+    const linkedChildren = getEditingLinkedVariants();
+    if (linkedChildren.length === 0 || selectedParentSyncFields.length === 0) return;
+
+    setIsSyncingVariants(true);
+    try {
+      const liveParent = buildLiveParentSyncSnapshot();
+      const updatedMap = new Map<string, Product>();
+
+      for (const child of linkedChildren) {
+        if (!child.id) continue;
+        const patch = buildParentToVariantSyncPatch(
+          liveParent,
+          child,
+          selectedParentSyncFields,
+          linkedChildren
+        );
+        if (Object.keys(patch).length === 0) continue;
+
+        const updatedChild: Product = {
+          ...child,
+          ...patch,
+          id: child.id
+        } as Product;
+
+        await safeUpdateDoc('products', child.id, sanitizeFirestorePayload(updatedChild));
+        await MetadataRepository.upsertLocalProduct(updatedChild).catch(() => {});
+        updatedMap.set(child.id, updatedChild);
+      }
+
+      if (setProducts && updatedMap.size > 0) {
+        setProducts(products.map((p) => (p.id && updatedMap.has(p.id) ? updatedMap.get(p.id)! : p)));
+      }
+
+      setShowParentSyncModal(false);
+      if (triggerToast) {
+        const count = updatedMap.size;
+        triggerToast(
+          `Synced ${selectedParentSyncFields.length} shared field${selectedParentSyncFields.length === 1 ? '' : 's'} to ${count} variant${count === 1 ? '' : 's'} — child SKUs, models, prices, stock & size specs preserved.`,
+          'success'
+        );
+      }
+    } catch (err: any) {
+      console.error('Parent-to-variant sync failed:', err);
+      if (triggerToast) {
+        triggerToast(`Sync failed: ${err?.message || 'Unable to update linked variants.'}`, 'error');
+      }
+    } finally {
+      setIsSyncingVariants(false);
     }
   };
 
@@ -3843,14 +4024,15 @@ export default function ProductManager({
                       !cand.variant_parent_id &&
                       !(cand as any).parent_product_id
                   );
-                  const isEditingAlreadyParent =
-                    Boolean(editingProduct?.id) &&
-                    activeCatalogProducts.some(
-                      (c) =>
-                        c.id !== editingProduct?.id &&
-                        ((c as any).parent_product_id === editingProduct?.id ||
-                          c.variant_parent_id === editingProduct?.id)
-                    );
+                  const linkedChildVariants = editingProduct?.id
+                    ? activeCatalogProducts.filter(
+                        (c) =>
+                          c.id !== editingProduct.id &&
+                          ((c as any).parent_product_id === editingProduct.id ||
+                            c.variant_parent_id === editingProduct.id)
+                      )
+                    : [];
+                  const isEditingAlreadyParent = linkedChildVariants.length > 0;
 
                   if (!formVariantParentId && !showVariantLinkEditor) {
                     return (
@@ -3860,8 +4042,26 @@ export default function ProductManager({
                           <span className="text-xs font-bold text-indigo-950 dark:text-indigo-200">
                             {isEditingAlreadyParent ? 'Master Parent Family Product' : 'Standalone / Master Product'}
                           </span>
+                          {isEditingAlreadyParent && (
+                            <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-white dark:bg-slate-900 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-700">
+                              {linkedChildVariants.length} Variant{linkedChildVariants.length === 1 ? '' : 's'}
+                            </span>
+                          )}
                         </div>
                         <div className="flex items-center gap-2 flex-wrap">
+                          {isEditingAlreadyParent && (
+                            <button
+                              type="button"
+                              onClick={openParentSyncModal}
+                              className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold inline-flex items-center gap-1.5 transition cursor-pointer shadow-2xs"
+                              title="Push selected shared metadata, photos, datasheet, or base specs to all linked child variants without touching child SKUs, models, prices, or stock"
+                            >
+                              <RefreshCw className="w-3 h-3" />
+                              <span>
+                                Sync to {linkedChildVariants.length} Variant{linkedChildVariants.length === 1 ? '' : 's'}
+                              </span>
+                            </button>
+                          )}
                           {!isEditingAlreadyParent && (
                             <button
                               type="button"
@@ -3988,7 +4188,13 @@ export default function ProductManager({
                             ref={variantLabelInputRef}
                             type="text"
                             value={formVariantLabel}
-                            onChange={(e) => setFormVariantLabel(e.target.value)}
+                            onChange={(e) => {
+                              const nextLabel = e.target.value;
+                              setFormVariantLabel(nextLabel);
+                              if (isSkuAutoManaged && !editingProduct && formVariantParentId) {
+                                handleGenerateAutoSku({ variantLabel: nextLabel, silent: true });
+                              }
+                            }}
                             placeholder='e.g. 48" x 72" or 15LPH @ 3 Bar'
                             className="w-full rounded-xl border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs font-semibold text-slate-900 dark:text-slate-100 focus:outline-none focus:border-indigo-500"
                           />
@@ -4168,15 +4374,33 @@ export default function ProductManager({
 
                     {/* SKU / Code */}
                     <div className="sm:col-span-3">
-                      <label className="block text-[11px] font-mono text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5 font-bold">
-                        SKU / Internal Code
-                      </label>
+                      <div className="flex items-center justify-between gap-1 mb-1.5">
+                        <label className="block text-[11px] font-mono text-slate-500 dark:text-slate-400 uppercase tracking-wider font-bold truncate">
+                          SKU / Internal Code
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => handleGenerateAutoSku()}
+                          className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 border border-indigo-200/80 dark:border-indigo-800/70 px-1.5 py-0.5 rounded-md inline-flex items-center gap-0.5 transition cursor-pointer shrink-0"
+                          title={
+                            formVariantParentId
+                              ? 'Generate hierarchical variant SKU ([PARENT_SKU]-[VARIANT_TOKEN]) from Variant Label, Spec, or Model'
+                              : 'Generate clean base SKU ([BRAND]-[SERIES]) from Brand, Product Name, and Category'
+                          }
+                        >
+                          <Sparkles className="w-2.5 h-2.5" />
+                          <span>Auto-SKU</span>
+                        </button>
+                      </div>
                       <input
                         type="text"
                         value={formSku}
-                        onChange={(e) => setFormSku(e.target.value)}
+                        onChange={(e) => {
+                          setFormSku(e.target.value);
+                          setIsSkuAutoManaged(false);
+                        }}
                         className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 focus:border-blue-500 rounded-xl h-[38px] px-3 text-xs font-mono font-semibold text-slate-800 dark:text-slate-100 focus:outline-none"
-                        placeholder="e.g. SKU-1042-A"
+                        placeholder={formVariantParentId ? 'e.g. AVE-MMF-3672' : 'e.g. AVE-MMF'}
                       />
                     </div>
 
@@ -4202,7 +4426,13 @@ export default function ProductManager({
                       <input
                         type="text"
                         value={formModelPartNo}
-                        onChange={(e) => setFormModelPartNo(e.target.value)}
+                        onChange={(e) => {
+                          const nextModel = e.target.value;
+                          setFormModelPartNo(nextModel);
+                          if (isSkuAutoManaged && !editingProduct && formVariantParentId) {
+                            handleGenerateAutoSku({ modelPartNo: nextModel, silent: true });
+                          }
+                        }}
                         className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 focus:border-blue-500 rounded-xl h-[38px] px-3 text-xs font-mono text-slate-800 dark:text-slate-100 focus:outline-none"
                         placeholder="e.g. MOD-200X"
                       />
@@ -5020,6 +5250,209 @@ export default function ProductManager({
             </form>
           </div>
         )}
+
+        {/* Controlled Master Parent -> Linked Variants Sync Modal */}
+        {showParentSyncModal && editingProduct && (() => {
+          const linkedChildren = getEditingLinkedVariants();
+          const liveParent = buildLiveParentSyncSnapshot();
+          const protectedSpecKeys = detectProtectedVariantSpecKeys(linkedChildren);
+          const syncableParentSpecs = (liveParent.attributes || []).filter(
+            (a) =>
+              a &&
+              a.key.trim() !== '' &&
+              a.value.trim() !== '' &&
+              !isProtectedVariantSpecKey(a.key, protectedSpecKeys)
+          );
+          const mediaCount = [liveParent.image_url, liveParent.secondary_image_url].filter(
+            (u) => Boolean(u && u.trim())
+          ).length;
+
+          const syncFieldOptions: Array<{
+            key: ParentSyncFieldKey;
+            label: string;
+            preview: string;
+          }> = [
+            {
+              key: 'category',
+              label: 'Product Category',
+              preview: liveParent.product_type ? String(liveParent.product_type) : 'Empty'
+            },
+            {
+              key: 'brand_make',
+              label: 'Brand / Make',
+              preview: (liveParent.brand_make || '').trim() || 'Empty'
+            },
+            {
+              key: 'country_of_origin',
+              label: 'Country of Origin',
+              preview: (liveParent.country_of_origin || '').trim() || 'Empty'
+            },
+            {
+              key: 'lead_time',
+              label: 'Lead Time / Availability',
+              preview: (liveParent.default_availability || '').trim() || 'Empty'
+            },
+            {
+              key: 'description',
+              label: 'Commercial Description',
+              preview: (liveParent.description || '').trim()
+                ? `${String(liveParent.description).trim().slice(0, 48)}${String(liveParent.description).trim().length > 48 ? '…' : ''}`
+                : 'Empty'
+            },
+            {
+              key: 'media',
+              label: 'Product Photos (Primary & Secondary)',
+              preview: mediaCount > 0 ? `${mediaCount} photo${mediaCount === 1 ? '' : 's'} attached` : 'No photos (clears child photos)'
+            },
+            {
+              key: 'datasheet',
+              label: 'Datasheet PDF Attachment',
+              preview: liveParent.datasheet_attachment?.name || (liveParent.datasheet_url ? 'Linked datasheet' : 'None')
+            },
+            {
+              key: 'shared_specs',
+              label: 'Shared Technical Specs',
+              preview:
+                syncableParentSpecs.length > 0
+                  ? `${syncableParentSpecs.length} shared spec${syncableParentSpecs.length === 1 ? '' : 's'} (${protectedSpecKeys.size} size/variant key${protectedSpecKeys.size === 1 ? '' : 's'} protected)`
+                  : 'No shared non-size specs to merge'
+            },
+            {
+              key: 'sub_components',
+              label: 'Included Items / Package Contents',
+              preview:
+                liveParent.is_composite_set && Array.isArray(liveParent.sub_components) && liveParent.sub_components.length > 0
+                  ? `${liveParent.sub_components.length} sub-item${liveParent.sub_components.length === 1 ? '' : 's'}`
+                  : 'Not a composite package'
+            }
+          ];
+
+          const toggleSyncField = (key: ParentSyncFieldKey) => {
+            setSelectedParentSyncFields((prev) =>
+              prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
+            );
+          };
+
+          return (
+            <div className="fixed inset-0 z-[60] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+                <div className="px-5 py-3.5 border-b border-slate-200/80 dark:border-slate-800 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="p-2 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 border border-indigo-200/80 dark:border-indigo-800/60 shrink-0">
+                      <RefreshCw className="w-4 h-4" />
+                    </div>
+                    <div className="min-w-0">
+                      <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">
+                        Sync Shared Fields to {linkedChildren.length} Variant{linkedChildren.length === 1 ? '' : 's'}
+                      </h4>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                        Master Parent: {liveParent.name || editingProduct.name}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => !isSyncingVariants && setShowParentSyncModal(false)}
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <div className="p-4 space-y-3 max-h-[68vh] overflow-y-auto">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="font-semibold text-slate-700 dark:text-slate-300">
+                      Select parent fields to push down ({selectedParentSyncFields.length}/{ALL_PARENT_SYNC_FIELDS.length})
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedParentSyncFields([...ALL_PARENT_SYNC_FIELDS])}
+                        className="text-indigo-600 dark:text-indigo-400 hover:underline font-semibold cursor-pointer"
+                      >
+                        Select All
+                      </button>
+                      <span className="text-slate-300">·</span>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedParentSyncFields([])}
+                        className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 hover:underline font-semibold cursor-pointer"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    {syncFieldOptions.map((opt) => {
+                      const checked = selectedParentSyncFields.includes(opt.key);
+                      return (
+                        <label
+                          key={opt.key}
+                          className={`flex items-start gap-2.5 p-2.5 rounded-xl border transition cursor-pointer ${
+                            checked
+                              ? 'bg-indigo-50/70 dark:bg-indigo-950/35 border-indigo-200 dark:border-indigo-800'
+                              : 'bg-slate-50/50 dark:bg-slate-900 border-slate-200/80 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/60'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleSyncField(opt.key)}
+                            className="mt-0.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <span className="block text-xs font-bold text-slate-900 dark:text-slate-100 leading-tight">
+                              {opt.label}
+                            </span>
+                            <span className="block text-[10.5px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                              {opt.preview}
+                            </span>
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+
+                  <div className="p-2.5 rounded-xl bg-emerald-50/80 dark:bg-emerald-950/30 border border-emerald-200/90 dark:border-emerald-800/70 flex items-start gap-2">
+                    <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                    <p className="text-[11px] font-medium text-emerald-900 dark:text-emerald-200 leading-snug">
+                      <span className="font-bold">Protected:</span> Child SKUs, Models, Prices, Stock &amp; size-specific specs are never overwritten.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="px-5 py-3 border-t border-slate-200/80 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/80 flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    disabled={isSyncingVariants}
+                    onClick={() => setShowParentSyncModal(false)}
+                    className="h-9 px-3.5 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isSyncingVariants || selectedParentSyncFields.length === 0}
+                    onClick={() => void handleExecuteParentSyncToVariants()}
+                    className="h-9 px-4 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white text-xs font-bold inline-flex items-center gap-1.5 transition cursor-pointer disabled:cursor-not-allowed shadow-2xs"
+                  >
+                    {isSyncingVariants ? (
+                      <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    ) : (
+                      <RefreshCw className="w-3.5 h-3.5" />
+                    )}
+                    <span>
+                      {isSyncingVariants
+                        ? 'Syncing Variants...'
+                        : `Push to ${linkedChildren.length} Variant${linkedChildren.length === 1 ? '' : 's'}`}
+                    </span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Catalog Product Lightbox & Quick Image Inspector */}
         {lightboxProduct && (
