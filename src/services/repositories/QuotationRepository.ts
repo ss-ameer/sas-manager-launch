@@ -1025,6 +1025,18 @@ export class QuotationRepository {
           ...source.visible_columns,
           ...(Array.isArray(source.visible_columns.hiddenAttributeKeys)
             ? { hiddenAttributeKeys: [...source.visible_columns.hiddenAttributeKeys] }
+            : {}),
+          ...(Array.isArray(source.visible_columns.attributeLayoutOrder)
+            ? { attributeLayoutOrder: [...source.visible_columns.attributeLayoutOrder] }
+            : {}),
+          ...(Array.isArray(source.visible_columns.attributeLineBreaksAfter)
+            ? { attributeLineBreaksAfter: [...source.visible_columns.attributeLineBreaksAfter] }
+            : {}),
+          ...(Array.isArray(source.visible_columns.attributeFullWidthKeys)
+            ? { attributeFullWidthKeys: [...source.visible_columns.attributeFullWidthKeys] }
+            : {}),
+          ...(typeof source.visible_columns.balanceOrphanAttributeRow === 'boolean'
+            ? { balanceOrphanAttributeRow: source.visible_columns.balanceOrphanAttributeRow }
             : {})
         }
       : undefined;
@@ -1815,6 +1827,16 @@ export class QuotationRepository {
       hiddenAttributeKeys: Array.isArray(rawCols.hiddenAttributeKeys)
         ? [...rawCols.hiddenAttributeKeys]
         : [],
+      attributeLayoutOrder: Array.isArray(rawCols.attributeLayoutOrder)
+        ? [...rawCols.attributeLayoutOrder]
+        : [],
+      attributeLineBreaksAfter: Array.isArray(rawCols.attributeLineBreaksAfter)
+        ? [...rawCols.attributeLineBreaksAfter]
+        : [],
+      attributeFullWidthKeys: Array.isArray(rawCols.attributeFullWidthKeys)
+        ? [...rawCols.attributeFullWidthKeys]
+        : [],
+      balanceOrphanAttributeRow: rawCols.balanceOrphanAttributeRow !== false,
       showAmountInWords:
         rawCols.showAmountInWords ??
         quotation?.amount_in_words_enabled ??
@@ -3271,6 +3293,16 @@ export class QuotationRepository {
       hiddenAttributeKeys: Array.isArray(rawCols.hiddenAttributeKeys)
         ? [...rawCols.hiddenAttributeKeys]
         : [],
+      attributeLayoutOrder: Array.isArray(rawCols.attributeLayoutOrder)
+        ? [...rawCols.attributeLayoutOrder]
+        : [],
+      attributeLineBreaksAfter: Array.isArray(rawCols.attributeLineBreaksAfter)
+        ? [...rawCols.attributeLineBreaksAfter]
+        : [],
+      attributeFullWidthKeys: Array.isArray(rawCols.attributeFullWidthKeys)
+        ? [...rawCols.attributeFullWidthKeys]
+        : [],
+      balanceOrphanAttributeRow: rawCols.balanceOrphanAttributeRow !== false,
       showAmountInWords: resolvedAmountInWords,
       showLineItemImages: Boolean(rawCols.showLineItemImages),
       lineItemImageLayout: (
@@ -3550,7 +3582,13 @@ export class QuotationRepository {
       documentType: serialized.document_type || 'quotation',
       pdfFilenamePattern: serialized.pdf_filename_pattern || '',
       isDefault: Boolean(preset.is_default),
-      visibleColumns: { ...serialized.visible_columns },
+      visibleColumns: {
+        ...serialized.visible_columns,
+        hiddenAttributeKeys: [...(serialized.visible_columns.hiddenAttributeKeys || [])],
+        attributeLayoutOrder: [...(serialized.visible_columns.attributeLayoutOrder || [])],
+        attributeLineBreaksAfter: [...(serialized.visible_columns.attributeLineBreaksAfter || [])],
+        attributeFullWidthKeys: [...(serialized.visible_columns.attributeFullWidthKeys || [])]
+      },
       layoutBlocks: serialized.layout_blocks ? serialized.layout_blocks.map((b) => ({ ...b })) : [],
       flyerAttachments: serialized.flyer_attachments
         ? serialized.flyer_attachments.map((att) => ({ ...att }))

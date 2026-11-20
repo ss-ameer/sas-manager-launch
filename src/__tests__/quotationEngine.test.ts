@@ -49,6 +49,15 @@ import {
   sanitizePresetDynamicTemplate,
   resolveQuotationTokens
 } from '../utils/quotationTokenResolver';
+import {
+  isGlobalAttributeVisible,
+  setGlobalAttributeVisibility,
+  showAllGlobalAttributes,
+  hideAllGlobalAttributes,
+  buildQuickSpecLayoutPreset,
+  hasItemAttributeOverrides,
+  resolveLineItemAttributeLayout
+} from '../utils/specAttributeLayout';
 
 // ==========================================
 // TEST UTILITY & ASSERTION HARNESS
@@ -3826,6 +3835,255 @@ describe('Suite 25: Per-Page Header Customization (pageHeaderOverrides)', () => 
       }
     });
     expect(inheritOnlyClone.header_config?.pageHeaderOverrides).toBe(undefined);
+  });
+});
+
+// ==========================================
+// SUITE 26: GLOBAL CORE ATTRIBUTES, SPEC LAYOUT PRESETS & PERSISTENCE
+// ==========================================
+
+describe('Suite 26: Global Core Attributes, Spec Layout Presets & Preset/Revision Persistence', () => {
+  it('26a. Two-way visibility sync keeps brand/model/origin/availability flags and hiddenAttributeKeys strictly synchronized', () => {
+    let cols: QuotationPresetColumns = {
+      brand: true,
+      model: true,
+      origin: true,
+      availability: true,
+      hiddenAttributeKeys: []
+    };
+
+    expect(isGlobalAttributeVisible(cols, 'Brand')).toBe(true);
+    expect(isGlobalAttributeVisible(cols, 'Delivery')).toBe(true);
+
+    // Hide Core attribute 'Origin' and custom spec 'Voltage'
+    cols = setGlobalAttributeVisibility(cols, 'Origin', false);
+    cols = setGlobalAttributeVisibility(cols, 'Delivery', false);
+    cols = setGlobalAttributeVisibility(cols, 'Voltage', false);
+
+    expect(cols.origin).toBe(false);
+    expect(cols.availability).toBe(false);
+    expect(isGlobalAttributeVisible(cols, 'Origin')).toBe(false);
+    expect(isGlobalAttributeVisible(cols, 'Country of Origin')).toBe(false);
+    expect(isGlobalAttributeVisible(cols, 'Delivery')).toBe(false);
+    expect(isGlobalAttributeVisible(cols, 'Availability')).toBe(false);
+    expect(isGlobalAttributeVisible(cols, 'Voltage')).toBe(false);
+    expect(isGlobalAttributeVisible(cols, 'Brand')).toBe(true);
+
+    // Re-enable Origin via alias 'Country of Origin' -> restores cols.origin = true and cleans hiddenAttributeKeys
+    cols = setGlobalAttributeVisibility(cols, 'Country of Origin', true);
+    expect(cols.origin).toBe(true);
+    expect(isGlobalAttributeVisible(cols, 'Origin')).toBe(true);
+
+    // Hide All / Show All synchronize all 4 core boolean flags + custom keys
+    const hiddenAll = hideAllGlobalAttributes(cols, ['Brand', 'Model', 'Origin', 'Delivery', 'Voltage', 'Flow Rate']);
+    expect(hiddenAll.brand).toBe(false);
+    expect(hiddenAll.model).toBe(false);
+    expect(hiddenAll.origin).toBe(false);
+    expect(hiddenAll.availability).toBe(false);
+    expect(isGlobalAttributeVisible(hiddenAll, 'Flow Rate')).toBe(false);
+
+    const shownAll = showAllGlobalAttributes(hiddenAll);
+    expect(shownAll.brand).toBe(true);
+    expect(shownAll.model).toBe(true);
+    expect(shownAll.origin).toBe(true);
+    expect(shownAll.availability).toBe(true);
+    expect(shownAll.hiddenAttributeKeys).toEqual([]);
+  });
+
+  it('26b. Quick layout presets and resolveLineItemAttributeLayout pack Core attributes and technical specs deterministically', () => {
+    const baseCols: QuotationPresetColumns = {
+      brand: true,
+      model: true,
+      origin: true,
+      availability: true,
+      attributeDisplayFormat: 'grid_2col_balanced',
+      hiddenAttributeKeys: []
+    };
+
+    const sampleItem: QuotationLineItem = {
+      id: 'item_spec_26b',
+      item_name: 'Booster Pump Assembly',
+      description: 'Vertical multistage stainless steel booster pump',
+      quantity: 2,
+      unit: 'Set',
+      unit_price: 4500,
+      total_price: 9000,
+      brand_make: 'Grundfos',
+      model_part_no: 'CR 15-4',
+      country_of_origin: 'Denmark',
+      availability: '2 Weeks',
+      attributes: [
+        { key: 'Flow Rate', value: '15 m³/hr' },
+        { key: 'Head', value: '42 m' },
+        { key: 'Motor Power', value: '3.0 kW / 400V / 3Ph' }
+      ]
+    };
+
+    // 1. Preset: Metadata 2-Up + Tech Specs Full
+    const meta2UpCols = buildQuickSpecLayoutPreset(
+      'metadata_2up_tech_full',
+      ['Flow Rate', 'Brand', 'Head', 'Model', 'Origin', 'Delivery', 'Motor Power'],
+      baseCols
+    );
+    expect(meta2UpCols.attributeLayoutOrder?.slice(0, 4)).toEqual(['Brand', 'Model', 'Origin', 'Delivery']);
+    expect(meta2UpCols.attributeFullWidthKeys).toEqual(['Flow Rate', 'Head', 'Motor Power']);
+
+    const resolvedMeta2Up = resolveLineItemAttributeLayout(sampleItem, meta2UpCols);
+    // Row 1: Brand + Model (50%/50%), Row 2: Origin + Delivery (50%/50%), Rows 3-5: Tech specs at 100% full width
+    expect(resolvedMeta2Up.rows.length).toBe(5);
+    expect(resolvedMeta2Up.rows[0].map((a) => a.key)).toEqual(['Brand', 'Model']);
+    expect(resolvedMeta2Up.rows[1].map((a) => a.key)).toEqual(['Origin', 'Delivery']);
+    expect(resolvedMeta2Up.rows[2].map((a) => a.key)).toEqual(['Flow Rate']);
+    expect(resolvedMeta2Up.rows[2][0].isFullWidth).toBe(true);
+    expect(resolvedMeta2Up.rows[4].map((a) => a.key)).toEqual(['Motor Power']);
+
+    // 2. Preset: All Balanced 2-Col
+    const balanced2Col = buildQuickSpecLayoutPreset(
+      'all_balanced_2col',
+      ['Brand', 'Model', 'Origin', 'Delivery', 'Flow Rate', 'Head'],
+      meta2UpCols
+    );
+    expect(balanced2Col.attributeFullWidthKeys).toEqual([]);
+    expect(balanced2Col.attributeLineBreaksAfter).toEqual([]);
+    const resolvedBalanced = resolveLineItemAttributeLayout(sampleItem, balanced2Col);
+    // 7 attributes in 2-col -> 4 rows (2, 2, 2, 1)
+    expect(resolvedBalanced.rows.length).toBe(4);
+    expect(resolvedBalanced.rows[2].map((a) => a.key)).toEqual(['Flow Rate', 'Head']);
+
+    // 3. Preset: All Full-Width Rows
+    const fullWidthAll = buildQuickSpecLayoutPreset(
+      'all_full_width',
+      ['Brand', 'Model', 'Origin', 'Delivery', 'Flow Rate', 'Head', 'Motor Power'],
+      baseCols
+    );
+    const resolvedFull = resolveLineItemAttributeLayout(sampleItem, fullWidthAll);
+    expect(resolvedFull.rows.length).toBe(7);
+    expect(resolvedFull.rows.every((r) => r.length === 1 && r[0].isFullWidth)).toBe(true);
+
+    // 4. Per-item override detection and line-break precedence
+    expect(hasItemAttributeOverrides(sampleItem)).toBe(false);
+    const overriddenItem: QuotationLineItem = {
+      ...sampleItem,
+      attribute_order: ['Model', 'Brand', 'Flow Rate', 'Delivery'],
+      attribute_line_breaks_after: ['Model'],
+      attribute_full_width_keys: ['Flow Rate']
+    };
+    expect(hasItemAttributeOverrides(overriddenItem)).toBe(true);
+    const resolvedOverride = resolveLineItemAttributeLayout(overriddenItem, balanced2Col);
+    // Model (break after) -> Row 1: [Model], Row 2: [Brand], Row 3: [Flow Rate (100%)], Row 4: [Delivery, Origin], Row 5: [Head, Motor Power]
+    expect(resolvedOverride.rows[0].map((a) => a.key)).toEqual(['Model']);
+    expect(resolvedOverride.rows[1].map((a) => a.key)).toEqual(['Brand']);
+    expect(resolvedOverride.rows[2].map((a) => a.key)).toEqual(['Flow Rate']);
+    expect(resolvedOverride.rows[2][0].isFullWidth).toBe(true);
+  });
+
+  it('26c. Global core & technical spec order, 100% span, breaks, and visibility persist across preset serialization, hydration, and revision cloning', () => {
+    const customColumns: QuotationPresetColumns = {
+      brand: true,
+      model: true,
+      origin: false,
+      availability: true,
+      unit_price: true,
+      showUnitPrice: true,
+      showUom: true,
+      showLineTotal: true,
+      showItemAttributes: true,
+      attributeDisplayFormat: 'grid_2col_balanced',
+      hiddenAttributeKeys: ['Origin', 'Internal Ref'],
+      attributeLayoutOrder: ['Delivery', 'Brand', 'Model', 'Flow Rate', 'Motor Power'],
+      attributeLineBreaksAfter: ['Delivery'],
+      attributeFullWidthKeys: ['Flow Rate', 'Motor Power'],
+      balanceOrphanAttributeRow: false
+    };
+
+    // 1. Preset serialize + hydrate round-trip
+    const serialized = QuotationRepository.serializePresetSnapshot({
+      workspace_id: 'ws_26c',
+      preset_name: 'Engineering Spec Grid Preset',
+      document_type: 'quotation',
+      is_default: false,
+      default_tax_mode: 'taxes_extra',
+      default_validity_days: 30,
+      signatory_mode: 'single',
+      visible_columns: customColumns
+    });
+
+    expect(serialized.visible_columns.origin).toBe(false);
+    expect(serialized.visible_columns.hiddenAttributeKeys).toEqual(['Origin', 'Internal Ref']);
+    expect(serialized.visible_columns.attributeLayoutOrder).toEqual([
+      'Delivery',
+      'Brand',
+      'Model',
+      'Flow Rate',
+      'Motor Power'
+    ]);
+    expect(serialized.visible_columns.attributeLineBreaksAfter).toEqual(['Delivery']);
+    expect(serialized.visible_columns.attributeFullWidthKeys).toEqual(['Flow Rate', 'Motor Power']);
+    expect(serialized.visible_columns.balanceOrphanAttributeRow).toBe(false);
+
+    const hydratedPreset = QuotationRepository.hydrateFromPresetSnapshot({
+      ...serialized,
+      id: 'preset_26c'
+    });
+    expect(hydratedPreset.visibleColumns.origin).toBe(false);
+    expect(hydratedPreset.visibleColumns.attributeLayoutOrder).toEqual([
+      'Delivery',
+      'Brand',
+      'Model',
+      'Flow Rate',
+      'Motor Power'
+    ]);
+    expect(hydratedPreset.visibleColumns.attributeLineBreaksAfter).toEqual(['Delivery']);
+    expect(hydratedPreset.visibleColumns.attributeFullWidthKeys).toEqual(['Flow Rate', 'Motor Power']);
+    expect(hydratedPreset.visibleColumns.balanceOrphanAttributeRow).toBe(false);
+
+    // Mutating hydrated arrays must not mutate serialized preset arrays
+    hydratedPreset.visibleColumns.attributeLayoutOrder.push('Mutated');
+    expect(serialized.visible_columns.attributeLayoutOrder?.includes('Mutated')).toBe(false);
+
+    // 2. Revision cloning + Studio hydration round-trip
+    const sourceQuote: any = {
+      id: 'quote_26c_r1',
+      workspace_id: 'ws_26c',
+      enquiry_id: 'enq_26c',
+      quote_number: 'QT-26C',
+      formatted_quote_ref: 'QT-26C-R1',
+      revision_number: 1,
+      status: 'draft',
+      currency: 'AED',
+      subtotal: 5000,
+      vat_rate: 5,
+      vat_amount: 250,
+      total_amount: 5250,
+      items: [],
+      visible_columns: customColumns
+    };
+
+    const rev2 = QuotationRepository.cloneQuotationAsNextRevision(sourceQuote);
+    expect(rev2.visible_columns?.origin).toBe(false);
+    expect(rev2.visible_columns?.attributeLayoutOrder).toEqual([
+      'Delivery',
+      'Brand',
+      'Model',
+      'Flow Rate',
+      'Motor Power'
+    ]);
+    expect(rev2.visible_columns?.attributeLineBreaksAfter).toEqual(['Delivery']);
+    expect(rev2.visible_columns?.attributeFullWidthKeys).toEqual(['Flow Rate', 'Motor Power']);
+    expect(rev2.visible_columns?.balanceOrphanAttributeRow).toBe(false);
+
+    const hydratedStudio = QuotationRepository.hydrateStudioStateFromQuotation(rev2);
+    expect(hydratedStudio.visibleColumns.origin).toBe(false);
+    expect(hydratedStudio.visibleColumns.attributeLayoutOrder).toEqual([
+      'Delivery',
+      'Brand',
+      'Model',
+      'Flow Rate',
+      'Motor Power'
+    ]);
+    expect(hydratedStudio.visibleColumns.attributeLineBreaksAfter).toEqual(['Delivery']);
+    expect(hydratedStudio.visibleColumns.attributeFullWidthKeys).toEqual(['Flow Rate', 'Motor Power']);
+    expect(hydratedStudio.visibleColumns.balanceOrphanAttributeRow).toBe(false);
   });
 });
 

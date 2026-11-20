@@ -123,6 +123,19 @@ import {
   sanitizePresetDynamicTemplate
 } from '../../utils/quotationTokenResolver';
 import { formatSlashSeparatedDescription } from '../../utils/compositeBomUtils';
+import { SpecAttributeSortableList } from './SpecAttributeSortableList';
+import {
+  CORE_SPEC_ATTRIBUTES,
+  canonicalSpecAttributeKey,
+  isGlobalAttributeVisible,
+  setGlobalAttributeVisibility,
+  showAllGlobalAttributes,
+  hideAllGlobalAttributes,
+  buildQuickSpecLayoutPreset,
+  sortAttributeKeysByOrder,
+  hasItemAttributeOverrides,
+  type QuickSpecLayoutPresetId
+} from '../../utils/specAttributeLayout';
 import {
   X,
   FileText,
@@ -4091,6 +4104,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
   }, [activeProfile, selectedBankId, editingQuotation]);
 
   const [tableInspectorTab, setTableInspectorTab] = useState<'specs' | 'columns' | 'media' | 'pagination'>('specs');
+  const [expandedRowAttrItemKey, setExpandedRowAttrItemKey] = useState<string | null>(null);
 
   // Dedicated Signatory Presets State & Built-in Definitions (Decoupled from Document Layout Presets)
   const [customSignatoryPresets, setCustomSignatoryPresets] = useState<SignatoryPreset[]>(() => {
@@ -5119,8 +5133,13 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         ? resolveEffectiveCatalogProduct(rawMatchedCatalogProduct, workspaceProducts)
         : undefined;
 
-      const customVisible = itemVisibleAttributes[itemKey] ?? item.visible_attributes;
       const compOverride = itemCompositeOverrides[itemKey] || {};
+      const customVisible =
+        itemKey in itemVisibleAttributes
+          ? itemVisibleAttributes[itemKey]
+          : 'visible_attributes' in compOverride
+          ? compOverride.visible_attributes
+          : item.visible_attributes;
       const customPageBreak =
         compOverride.page_break_after !== undefined
           ? compOverride.page_break_after
@@ -5295,11 +5314,22 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         include_datasheet_in_quote: resolvedIncludeDatasheet,
         is_optional: resolvedOptional,
         visible_attributes: customVisible,
-        attribute_order: compOverride.attribute_order ?? item.attribute_order,
+        hidden_attributes:
+          'hidden_attributes' in compOverride
+            ? compOverride.hidden_attributes
+            : item.hidden_attributes,
+        attribute_order:
+          'attribute_order' in compOverride
+            ? compOverride.attribute_order
+            : item.attribute_order,
         attribute_line_breaks_after:
-          compOverride.attribute_line_breaks_after ?? item.attribute_line_breaks_after,
+          'attribute_line_breaks_after' in compOverride
+            ? compOverride.attribute_line_breaks_after
+            : item.attribute_line_breaks_after,
         attribute_full_width_keys:
-          compOverride.attribute_full_width_keys ?? item.attribute_full_width_keys,
+          'attribute_full_width_keys' in compOverride
+            ? compOverride.attribute_full_width_keys
+            : item.attribute_full_width_keys,
         page_break_after: customPageBreak,
         row_spacer_after_mm: compOverride.row_spacer_after_mm ?? item.row_spacer_after_mm,
         row_note: compOverride.row_note ?? item.row_note,
@@ -5421,7 +5451,8 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     return norm;
   }
 
-  // Dynamically extract all unique attribute keys present across active line items (canonical UK/US deduplication)
+  // Dynamically extract all unique attribute keys: Core metadata (Brand, Model, Origin, Delivery) first,
+  // followed by all custom technical specification keys across active line items (canonical UK/US deduplication)
   const availableAttributeKeys = useMemo(() => {
     const keysList: string[] = [];
     const seenCanonical = new Set<string>();
@@ -5434,6 +5465,8 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         keysList.push(trimmed);
       }
     };
+    // Promote Core Metadata attributes first so they are always globally configurable & orderable
+    CORE_SPEC_ATTRIBUTES.forEach((core) => addKey(core.label));
     quotationLineItems.forEach((item) => {
       const { extractedSpecsAttrs } = extractLineItemAttributesAndCleanDescription(item);
       extractedSpecsAttrs.forEach((a) => {
@@ -5450,39 +5483,151 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
           if (s && s.key) addKey(s.key);
         });
       }
+      if (itemAny.specifications && Array.isArray(itemAny.specifications)) {
+        itemAny.specifications.forEach((s: any) => {
+          if (s && s.key) addKey(s.key);
+        });
+      }
     });
     return keysList;
   }, [quotationLineItems, canonicalKey]);
 
   const toggleAttributeKeyVisibility = (key: string) => {
-    const targetCanonical = canonicalKey(key);
-    setVisibleColumns((prev) => {
-      const currentHidden = prev.hiddenAttributeKeys || [];
-      const isCurrentlyHidden = currentHidden.some(
-        (k) => k === key || canonicalKey(k) === targetCanonical
-      );
-      const updatedHidden = isCurrentlyHidden
-        ? currentHidden.filter((k) => k !== key && canonicalKey(k) !== targetCanonical)
-        : [...currentHidden, key];
-      return { ...prev, hiddenAttributeKeys: updatedHidden };
-    });
+    setVisibleColumns((prev) => setGlobalAttributeVisibility(prev, key));
   };
 
   const showAllAttributes = () => {
-    setVisibleColumns((prev) => ({
-      ...prev,
-      hiddenAttributeKeys: []
-    }));
+    setVisibleColumns((prev) => showAllGlobalAttributes(prev));
   };
 
   const hideAllAttributes = () => {
-    setVisibleColumns((prev) => ({
-      ...prev,
-      hiddenAttributeKeys: [...availableAttributeKeys]
-    }));
+    setVisibleColumns((prev) => hideAllGlobalAttributes(prev, availableAttributeKeys));
   };
 
-  // Helper to extract all specification attribute keys for a specific line item (canonical UK/US deduplicated)
+  const applyQuickGlobalSpecPreset = (presetId: QuickSpecLayoutPresetId) => {
+    const orderedGlobalKeys = sortAttributeKeysByOrder(
+      availableAttributeKeys,
+      visibleColumns.attributeLayoutOrder
+    );
+    setVisibleColumns((prev) =>
+      buildQuickSpecLayoutPreset(presetId, orderedGlobalKeys, prev)
+    );
+    const labelMap: Record<QuickSpecLayoutPresetId, string> = {
+      metadata_2up_tech_full: 'Metadata 2-Up + Tech Specs Full',
+      all_balanced_2col: 'All Balanced 2-Col',
+      all_full_width: 'All Full-Width Rows'
+    };
+    triggerToast?.(`Applied "${labelMap[presetId]}" spec layout globally.`, 'success');
+  };
+
+  // Count how many active line items currently have custom per-item attribute layout/visibility overrides
+  const overriddenAttributeItemCount = useMemo(() => {
+    return quotationLineItems.reduce((count, item, idx) => {
+      const key = item.id || `item_${idx}`;
+      return count + (hasItemAttributeOverrides(item, itemVisibleAttributes[key]) ? 1 : 0);
+    }, 0);
+  }, [quotationLineItems, itemVisibleAttributes]);
+
+  const resetSingleItemAttributesToGlobal = (itemKey: string, silent = false) => {
+    setItemVisibleAttributes((prev) => {
+      if (!(itemKey in prev)) return prev;
+      const next = { ...prev };
+      delete next[itemKey];
+      return next;
+    });
+    const clearPatch: Partial<QuotationLineItem> = {
+      visible_attributes: undefined,
+      hidden_attributes: undefined,
+      attribute_order: undefined,
+      attribute_line_breaks_after: undefined,
+      attribute_full_width_keys: undefined
+    };
+    setItemCompositeOverrides((prev) => ({
+      ...prev,
+      [itemKey]: {
+        ...(prev[itemKey] || {}),
+        ...clearPatch
+      }
+    }));
+    if (customStudioLineItems) {
+      setCustomStudioLineItems((prev) =>
+        prev
+          ? prev.map((it, i) => ((it.id || `item_${i}`) === itemKey ? { ...it, ...clearPatch } : it))
+          : prev
+      );
+    }
+    if (!silent) {
+      triggerToast?.('Item attributes reset to inherit global Specs & Grid layout.', 'success');
+    }
+  };
+
+  const resetAllItemsAttributesToGlobal = (silent = false) => {
+    setItemVisibleAttributes({});
+    const clearPatch: Partial<QuotationLineItem> = {
+      visible_attributes: undefined,
+      hidden_attributes: undefined,
+      attribute_order: undefined,
+      attribute_line_breaks_after: undefined,
+      attribute_full_width_keys: undefined
+    };
+    setItemCompositeOverrides((prev) => {
+      const next = { ...prev };
+      quotationLineItems.forEach((it, idx) => {
+        const key = it.id || `item_${idx}`;
+        next[key] = {
+          ...(next[key] || {}),
+          ...clearPatch
+        };
+      });
+      return next;
+    });
+    if (customStudioLineItems) {
+      setCustomStudioLineItems((prev) =>
+        prev ? prev.map((it) => ({ ...it, ...clearPatch })) : prev
+      );
+    }
+    if (!silent) {
+      triggerToast?.('All line items reset to inherit global Specs & Grid layout.', 'success');
+    }
+  };
+
+  const applyItemAttributeLayoutToAll = (
+    itemAttrs: string[],
+    currentVisible: string[],
+    rowBreaks: string[],
+    rowFullWidth: string[]
+  ) => {
+    const visibleCanonSet = new Set(currentVisible.map((k) => canonicalSpecAttributeKey(k)));
+    const itemCanonSet = new Set(itemAttrs.map((k) => canonicalSpecAttributeKey(k)));
+    const mergedGlobalOrder = [
+      ...itemAttrs,
+      ...availableAttributeKeys.filter((k) => !itemCanonSet.has(canonicalSpecAttributeKey(k)))
+    ];
+
+    setVisibleColumns((prev) => {
+      let nextCols: QuotationPresetColumns = {
+        ...prev,
+        attributeLayoutOrder: mergedGlobalOrder,
+        attributeLineBreaksAfter: [...rowBreaks],
+        attributeFullWidthKeys: [...rowFullWidth]
+      };
+      itemAttrs.forEach((attrKey) => {
+        const isVis = visibleCanonSet.has(canonicalSpecAttributeKey(attrKey));
+        nextCols = setGlobalAttributeVisibility(nextCols, attrKey, isVis);
+      });
+      return nextCols;
+    });
+
+    resetAllItemsAttributesToGlobal(true);
+    triggerToast?.(
+      `Applied item spec layout globally across all ${quotationLineItems.length} line item${
+        quotationLineItems.length === 1 ? '' : 's'
+      }.`,
+      'success'
+    );
+  };
+
+  // Helper to extract all specification attribute keys for a specific line item (Core first, canonical UK/US deduplicated)
   const getItemAttributeKeys = useCallback((item: QuotationLineItem): string[] => {
     const keys: string[] = [];
     const seenCanonical = new Set<string>();
@@ -5495,12 +5640,26 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         keys.push(trimmed);
       }
     };
+    const itemAny = item as any;
+    // Core metadata attributes first (matching QuotationDocument default order)
+    if (item.brand_make && item.brand_make.trim() && item.brand_make !== '—') {
+      addKey('Brand');
+    }
+    if (item.model_part_no && item.model_part_no.trim() && item.model_part_no !== '—') {
+      addKey('Model');
+    }
+    if (item.country_of_origin && item.country_of_origin.trim() && item.country_of_origin !== '—') {
+      addKey('Origin');
+    }
+    const effAvail = item.availability || itemAny.lead_time_note || itemAny.delivery_time;
+    if (effAvail && String(effAvail).trim()) {
+      addKey('Delivery');
+    }
     if (Array.isArray(item.attributes)) {
       item.attributes.forEach((a) => {
         if (a && a.key) addKey(a.key);
       });
     }
-    const itemAny = item as any;
     if (itemAny.attributes && typeof itemAny.attributes === 'object' && !Array.isArray(itemAny.attributes)) {
       Object.keys(itemAny.attributes).forEach((k) => {
         addKey(k);
@@ -5520,27 +5679,18 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     extractedSpecsAttrs.forEach((ea) => {
       if (ea && ea.key) addKey(ea.key);
     });
-    if (item.brand_make && item.brand_make.trim() && item.brand_make !== '—') {
-      addKey('Brand');
-    }
-    if (item.model_part_no && item.model_part_no.trim() && item.model_part_no !== '—') {
-      addKey('Model');
-    }
-    if (item.country_of_origin && item.country_of_origin.trim() && item.country_of_origin !== '—') {
-      addKey('Origin');
-    }
-    if (item.availability && item.availability.trim()) {
-      addKey('Delivery');
-    }
     return keys;
   }, [canonicalKey]);
 
-  const toggleItemAttribute = (itemKey: string, allItemKeys: string[], attrKey: string) => {
+  const toggleItemAttribute = (itemKey: string, baselineVisibleKeys: string[], attrKey: string) => {
+    const targetCanon = canonicalSpecAttributeKey(attrKey);
     setItemVisibleAttributes((prev) => {
-      const current = prev[itemKey] ?? allItemKeys;
-      const isVisible = current.includes(attrKey);
+      const current = prev[itemKey] ?? baselineVisibleKeys;
+      const isVisible = current.some(
+        (k) => k === attrKey || canonicalSpecAttributeKey(k) === targetCanon
+      );
       const updated = isVisible
-        ? current.filter((k) => k !== attrKey)
+        ? current.filter((k) => k !== attrKey && canonicalSpecAttributeKey(k) !== targetCanon)
         : [...current, attrKey];
       return {
         ...prev,
@@ -9152,13 +9302,21 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       header_profile_id: activeProfile?.id,
       visible_columns: {
         ...visibleColumns,
+        brand: visibleColumns.brand !== false,
+        model: visibleColumns.model !== false,
+        origin: visibleColumns.origin !== false,
+        availability: visibleColumns.availability !== false,
         unit_price: visibleColumns.showUnitPrice !== false,
         showUnitPrice: visibleColumns.showUnitPrice !== false,
         showUom: visibleColumns.showUom !== false,
         showLineTotal: visibleColumns.showLineTotal !== false,
         showItemAttributes: visibleColumns.showItemAttributes !== false,
         attributeDisplayFormat: visibleColumns.attributeDisplayFormat || 'grid_2col_balanced',
-        hiddenAttributeKeys: visibleColumns.hiddenAttributeKeys || [],
+        hiddenAttributeKeys: [...(visibleColumns.hiddenAttributeKeys || [])],
+        attributeLayoutOrder: [...(visibleColumns.attributeLayoutOrder || [])],
+        attributeLineBreaksAfter: [...(visibleColumns.attributeLineBreaksAfter || [])],
+        attributeFullWidthKeys: [...(visibleColumns.attributeFullWidthKeys || [])],
+        balanceOrphanAttributeRow: visibleColumns.balanceOrphanAttributeRow !== false,
         showAmountInWords: amountInWordsEnabled
       },
       default_tax_mode: taxMode,
@@ -9351,11 +9509,23 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       if ((pCols.showBomSubComponentAttributes !== false) !== (visibleColumns.showBomSubComponentAttributes !== false)) return true;
       if ((pCols.photoScheduleColumns || 3) !== (visibleColumns.photoScheduleColumns || 3)) return true;
       if (Boolean(pCols.photoScheduleNewPage) !== Boolean(visibleColumns.photoScheduleNewPage)) return true;
+      if ((pCols.brand !== false) !== (visibleColumns.brand !== false)) return true;
+      if ((pCols.model !== false) !== (visibleColumns.model !== false)) return true;
+      if ((pCols.origin !== false) !== (visibleColumns.origin !== false)) return true;
+      if ((pCols.availability !== false) !== (visibleColumns.availability !== false)) return true;
       if ((pCols.showUnitPrice !== false) !== (visibleColumns.showUnitPrice !== false)) return true;
       if ((pCols.showUom !== false) !== (visibleColumns.showUom !== false)) return true;
       if ((pCols.showLineTotal !== false) !== (visibleColumns.showLineTotal !== false)) return true;
       if ((pCols.showItemAttributes !== false) !== (visibleColumns.showItemAttributes !== false)) return true;
       if ((pCols.attributeDisplayFormat || 'grid_2col_balanced') !== (visibleColumns.attributeDisplayFormat || 'grid_2col_balanced')) return true;
+      if ((pCols.balanceOrphanAttributeRow !== false) !== (visibleColumns.balanceOrphanAttributeRow !== false)) return true;
+      const sameCanonicalList = (a?: string[], b?: string[]) =>
+        JSON.stringify((a || []).map((k) => canonicalSpecAttributeKey(k))) ===
+        JSON.stringify((b || []).map((k) => canonicalSpecAttributeKey(k)));
+      if (!sameCanonicalList(pCols.hiddenAttributeKeys, visibleColumns.hiddenAttributeKeys)) return true;
+      if (!sameCanonicalList(pCols.attributeLayoutOrder, visibleColumns.attributeLayoutOrder)) return true;
+      if (!sameCanonicalList(pCols.attributeLineBreaksAfter, visibleColumns.attributeLineBreaksAfter)) return true;
+      if (!sameCanonicalList(pCols.attributeFullWidthKeys, visibleColumns.attributeFullWidthKeys)) return true;
     }
 
     // Compare dynamic @tag templates on Client & Recipient Info (only @tag values persist to presets; literal deal strings never leak)
@@ -19652,47 +19822,95 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                         };
 
                         const rawItemAttrs = getItemAttributeKeys(curItem);
-                        const rowOrder = curItem.attribute_order || visibleColumns.attributeLayoutOrder || [];
-                        const itemAttrs = [
-                          ...rowOrder.filter((k) => rawItemAttrs.includes(k)),
-                          ...rawItemAttrs.filter((k) => !rowOrder.includes(k))
-                        ];
-                        const currentVisible = itemVisibleAttributes[itemKey] ?? curItem.visible_attributes ?? itemAttrs;
-                        const rowBreaks = curItem.attribute_line_breaks_after ?? visibleColumns.attributeLineBreaksAfter ?? [];
-                        const rowFullWidth = curItem.attribute_full_width_keys ?? visibleColumns.attributeFullWidthKeys ?? [];
+                        const rowOrder =
+                          Array.isArray(curItem.attribute_order) && curItem.attribute_order.length > 0
+                            ? curItem.attribute_order
+                            : visibleColumns.attributeLayoutOrder || [];
+                        const itemAttrs = sortAttributeKeysByOrder(rawItemAttrs, rowOrder);
+                        const isItemAttrOverridden = hasItemAttributeOverrides(
+                          curItem,
+                          itemVisibleAttributes[itemKey]
+                        );
+                        const explicitItemVisible =
+                          itemKey in itemVisibleAttributes
+                            ? itemVisibleAttributes[itemKey]
+                            : curItem.visible_attributes;
+                        const currentVisible =
+                          explicitItemVisible !== undefined
+                            ? itemAttrs.filter((k) =>
+                                explicitItemVisible.some(
+                                  (vk) =>
+                                    vk === k ||
+                                    canonicalSpecAttributeKey(vk) === canonicalSpecAttributeKey(k)
+                                )
+                              )
+                            : itemAttrs.filter((k) => {
+                                if (!isGlobalAttributeVisible(visibleColumns, k)) return false;
+                                if (Array.isArray(curItem.hidden_attributes)) {
+                                  const ck = canonicalSpecAttributeKey(k);
+                                  if (
+                                    curItem.hidden_attributes.some(
+                                      (hk) => hk === k || canonicalSpecAttributeKey(hk) === ck
+                                    )
+                                  ) {
+                                    return false;
+                                  }
+                                }
+                                return true;
+                              });
+                        const rowBreaks =
+                          curItem.attribute_line_breaks_after ??
+                          visibleColumns.attributeLineBreaksAfter ??
+                          [];
+                        const rowFullWidth =
+                          curItem.attribute_full_width_keys ??
+                          visibleColumns.attributeFullWidthKeys ??
+                          [];
 
-                        const moveRowAttr = (attrKey: string, dir: -1 | 1) => {
-                          const aIdx = itemAttrs.indexOf(attrKey);
-                          const nextIdx = aIdx + dir;
-                          if (aIdx < 0 || nextIdx < 0 || nextIdx >= itemAttrs.length) return;
-                          const next = [...itemAttrs];
-                          const [removed] = next.splice(aIdx, 1);
-                          next.splice(nextIdx, 0, removed);
-                          handleUpdateTopItemRowOption(itemKey, { attribute_order: next });
-                          updateCurItem({ attribute_order: next });
+                        const reorderRowAttrs = (nextOrder: string[]) => {
+                          updateCurItem({ attribute_order: nextOrder });
                         };
 
                         const toggleRowBreak = (attrKey: string) => {
-                          const next = rowBreaks.includes(attrKey)
-                            ? rowBreaks.filter((k) => k !== attrKey)
+                          const ck = canonicalSpecAttributeKey(attrKey);
+                          const has = rowBreaks.some(
+                            (k) => k === attrKey || canonicalSpecAttributeKey(k) === ck
+                          );
+                          const next = has
+                            ? rowBreaks.filter(
+                                (k) => k !== attrKey && canonicalSpecAttributeKey(k) !== ck
+                              )
                             : [...rowBreaks, attrKey];
-                          handleUpdateTopItemRowOption(itemKey, { attribute_line_breaks_after: next });
                           updateCurItem({ attribute_line_breaks_after: next });
                         };
 
                         const toggleRowFullWidth = (attrKey: string) => {
-                          const next = rowFullWidth.includes(attrKey)
-                            ? rowFullWidth.filter((k) => k !== attrKey)
+                          const ck = canonicalSpecAttributeKey(attrKey);
+                          const has = rowFullWidth.some(
+                            (k) => k === attrKey || canonicalSpecAttributeKey(k) === ck
+                          );
+                          const next = has
+                            ? rowFullWidth.filter(
+                                (k) => k !== attrKey && canonicalSpecAttributeKey(k) !== ck
+                              )
                             : [...rowFullWidth, attrKey];
-                          handleUpdateTopItemRowOption(itemKey, { attribute_full_width_keys: next });
                           updateCurItem({ attribute_full_width_keys: next });
                         };
 
                         const toggleVis = (attrKey: string) => {
-                          toggleItemAttribute(itemKey, itemAttrs, attrKey);
-                          const nextVis = currentVisible.includes(attrKey)
-                            ? currentVisible.filter((k) => k !== attrKey)
+                          const ck = canonicalSpecAttributeKey(attrKey);
+                          const isVis = currentVisible.some(
+                            (k) => k === attrKey || canonicalSpecAttributeKey(k) === ck
+                          );
+                          const nextVis = isVis
+                            ? currentVisible.filter(
+                                (k) => k !== attrKey && canonicalSpecAttributeKey(k) !== ck
+                              )
                             : [...currentVisible, attrKey];
+                          setItemVisibleAttributes((prev) => ({
+                            ...prev,
+                            [itemKey]: nextVis
+                          }));
                           updateCurItem({ visible_attributes: nextVis });
                         };
 
@@ -19967,137 +20185,122 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                               />
                             </div>
 
-                            {/* Card 3: Spec Attribute Pills for that item only */}
-                            <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/70 space-y-3">
-                              <div className="flex items-center justify-between">
-                                <span className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
-                                  <Sliders className="w-3.5 h-3.5 text-blue-600" />
-                                  Spec Attribute Pills
-                                </span>
-                                <div className="flex items-center gap-1.5">
-                                  <span className="text-[10px] font-mono text-slate-400">
-                                    {itemAttrs.filter((k) => currentVisible.includes(k)).length}/{itemAttrs.length} Active
+                            {/* Card 3: Spec & Core Attributes (Sortable Override Manager) */}
+                            <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/70 space-y-2.5">
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-1.5 min-w-0">
+                                  <Sliders className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                                  <span className="font-bold text-slate-800 text-xs truncate">
+                                    Spec &amp; Core Attributes
                                   </span>
-                                  {itemAttrs.length >= 2 && (
-                                    <div className="flex items-center gap-1 ml-1 pl-1.5 border-l border-slate-200">
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          showAllItemAttributes(itemKey, itemAttrs);
-                                          updateCurItem({ visible_attributes: [...itemAttrs] });
-                                        }}
-                                        className="text-[9.5px] font-semibold text-blue-600 hover:text-blue-800 transition cursor-pointer"
-                                        title="Show all attributes"
-                                      >
-                                        Show All
-                                      </button>
-                                      <span className="text-slate-300 text-[9px]">•</span>
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          hideAllItemAttributes(itemKey);
-                                          updateCurItem({ visible_attributes: [] });
-                                        }}
-                                        className="text-[9.5px] font-semibold text-slate-400 hover:text-slate-600 transition cursor-pointer"
-                                        title="Hide all attributes"
-                                      >
-                                        Hide All
-                                      </button>
-                                    </div>
-                                  )}
                                 </div>
+                                <span
+                                  className={`shrink-0 px-1.5 py-0.5 rounded text-[9.5px] font-bold border ${
+                                    isItemAttrOverridden
+                                      ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                      : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                  }`}
+                                >
+                                  {isItemAttrOverridden ? 'Custom Override' : 'Inheriting Global'}
+                                </span>
                               </div>
 
-                              {itemAttrs.length === 0 ? (
-                                <p className="text-[11px] text-slate-400 italic">No spec attribute pills yet on this item.</p>
-                              ) : (
-                                <div className="flex flex-wrap items-center gap-1.5">
-                                  {itemAttrs.map((attrKey, aIdx) => {
-                                    const isVisible = currentVisible.includes(attrKey);
-                                    const hasBreak = rowBreaks.includes(attrKey);
-                                    const isFull = rowFullWidth.includes(attrKey);
-
-                                    return (
-                                      <React.Fragment key={attrKey}>
-                                        <div
-                                          className={`inline-flex items-center rounded-md border text-[10px] font-medium overflow-hidden transition ${
-                                            isVisible
-                                              ? 'bg-white border-blue-300 shadow-2xs'
-                                              : 'bg-slate-100 border-dashed border-slate-300 opacity-60'
-                                          }`}
+                              {itemAttrs.length > 0 && (
+                                <div className="flex flex-wrap items-center justify-between gap-1.5 text-[10px]">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="font-mono text-slate-500">
+                                      {itemAttrs.filter((k) =>
+                                        currentVisible.includes(k) && isGlobalAttributeVisible(visibleColumns, k)
+                                      ).length}/{itemAttrs.length} visible
+                                    </span>
+                                    {itemAttrs.length >= 2 && (
+                                      <>
+                                        <span className="text-slate-300">•</span>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            showAllItemAttributes(itemKey, itemAttrs);
+                                            updateCurItem({ visible_attributes: [...itemAttrs] });
+                                          }}
+                                          className="font-semibold text-blue-600 hover:text-blue-800 transition cursor-pointer"
                                         >
-                                          <button
-                                            type="button"
-                                            onClick={() => toggleVis(attrKey)}
-                                            className={`px-1.5 py-0.5 flex items-center gap-1 cursor-pointer transition ${
-                                              isVisible
-                                                ? 'text-blue-800 hover:bg-blue-50'
-                                                : 'text-slate-400 line-through hover:bg-slate-200/60'
-                                            }`}
-                                            title={isVisible ? `Hide ${attrKey}` : `Show ${attrKey}`}
-                                          >
-                                            <span className="text-[9px] font-bold">{isVisible ? '✓' : '✕'}</span>
-                                            <span>{attrKey}</span>
-                                          </button>
+                                          Show All
+                                        </button>
+                                        <span className="text-slate-300">•</span>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            hideAllItemAttributes(itemKey);
+                                            updateCurItem({ visible_attributes: [] });
+                                          }}
+                                          className="font-semibold text-slate-500 hover:text-slate-700 transition cursor-pointer"
+                                        >
+                                          Hide All
+                                        </button>
+                                      </>
+                                    )}
+                                  </div>
 
-                                          {isVisible && (
-                                            <div className="flex items-center border-l border-slate-200 bg-slate-50 divide-x divide-slate-200/80">
-                                              <button
-                                                type="button"
-                                                onClick={() => toggleRowBreak(attrKey)}
-                                                className={`px-1 py-0.5 text-[9px] font-mono font-bold cursor-pointer transition ${
-                                                  hasBreak
-                                                    ? 'bg-amber-500 text-white'
-                                                    : 'text-slate-500 hover:bg-amber-50 hover:text-amber-700'
-                                                }`}
-                                                title="Insert line break (↵) after this attribute"
-                                              >
-                                                ↵
-                                              </button>
-                                              <button
-                                                type="button"
-                                                onClick={() => toggleRowFullWidth(attrKey)}
-                                                className={`px-1 py-0.5 text-[8.5px] font-mono font-bold cursor-pointer transition ${
-                                                  isFull
-                                                    ? 'bg-indigo-600 text-white'
-                                                    : 'text-slate-500 hover:bg-indigo-50 hover:text-indigo-700'
-                                                }`}
-                                                title="Force 100% full-width span across both columns"
-                                              >
-                                                100%
-                                              </button>
-                                              <button
-                                                type="button"
-                                                disabled={aIdx === 0}
-                                                onClick={() => moveRowAttr(attrKey, -1)}
-                                                className="px-1 py-0.5 text-[9px] font-mono text-slate-500 hover:bg-slate-200/70 disabled:opacity-30 cursor-pointer"
-                                                title="Move left"
-                                              >
-                                                ←
-                                              </button>
-                                              <button
-                                                type="button"
-                                                disabled={aIdx === itemAttrs.length - 1}
-                                                onClick={() => moveRowAttr(attrKey, 1)}
-                                                className="px-1 py-0.5 text-[9px] font-mono text-slate-500 hover:bg-slate-200/70 disabled:opacity-30 cursor-pointer"
-                                                title="Move right"
-                                              >
-                                                →
-                                              </button>
-                                            </div>
-                                          )}
-                                        </div>
-
-                                        {isVisible && hasBreak && (
-                                          <span className="px-1 py-0.5 rounded bg-amber-100 border border-amber-300 text-amber-800 text-[8.5px] font-mono font-bold">
-                                            ↵ Break
-                                          </span>
-                                        )}
-                                      </React.Fragment>
-                                    );
-                                  })}
+                                  <div className="flex items-center gap-1.5">
+                                    {isItemAttrOverridden && (
+                                      <button
+                                        type="button"
+                                        onClick={() => resetSingleItemAttributesToGlobal(itemKey)}
+                                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-slate-200 bg-white text-[9.5px] font-semibold text-slate-600 hover:text-slate-900 hover:border-slate-300 transition cursor-pointer"
+                                        title="Clear custom overrides on this item and inherit global Specs & Grid settings"
+                                      >
+                                        <RotateCcw className="w-2.5 h-2.5" />
+                                        Reset to Global
+                                      </button>
+                                    )}
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        applyItemAttributeLayoutToAll(
+                                          itemAttrs,
+                                          currentVisible,
+                                          rowBreaks,
+                                          rowFullWidth
+                                        )
+                                      }
+                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-indigo-200 bg-indigo-50 text-[9.5px] font-semibold text-indigo-700 hover:bg-indigo-100 transition cursor-pointer"
+                                      title="Push this item's order, width, breaks & visibility to global Specs & Grid and unify all line items"
+                                    >
+                                      <Layers className="w-2.5 h-2.5" />
+                                      Apply to All
+                                    </button>
+                                  </div>
                                 </div>
                               )}
+
+                              <SpecAttributeSortableList
+                                compact
+                                emptyLabel="No spec or metadata attributes on this item yet."
+                                items={itemAttrs.map((attrKey) => {
+                                  const ck = canonicalSpecAttributeKey(attrKey);
+                                  const isVisible = currentVisible.some(
+                                    (k) => k === attrKey || canonicalSpecAttributeKey(k) === ck
+                                  );
+                                  const hasBreak = rowBreaks.some(
+                                    (k) => k === attrKey || canonicalSpecAttributeKey(k) === ck
+                                  );
+                                  const isFull = rowFullWidth.some(
+                                    (k) => k === attrKey || canonicalSpecAttributeKey(k) === ck
+                                  );
+                                  const globallyHidden = !isGlobalAttributeVisible(visibleColumns, attrKey);
+                                  return {
+                                    key: attrKey,
+                                    isVisible,
+                                    isFullWidth: isFull,
+                                    hasBreakAfter: hasBreak,
+                                    globallyHidden
+                                  };
+                                })}
+                                onToggleVisibility={toggleVis}
+                                onToggleFullWidth={toggleRowFullWidth}
+                                onToggleBreakAfter={toggleRowBreak}
+                                onReorder={reorderRowAttrs}
+                              />
 
                               {Array.isArray(curItem.attributes) && curItem.attributes.length > 0 && (
                                 <div className="pt-2 border-t border-slate-200/80 space-y-1.5">
@@ -20814,55 +21017,27 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                     {/* TAB: COLUMNS & TABLE TYPOGRAPHY */}
                     {tableInspectorTab === 'columns' && (
                       <>
-                        {/* 1. Column Visibility Toggles */}
+                        {/* 1. Table Column Visibility Toggles */}
                         <div className="space-y-2">
                           <div className="flex items-center justify-between">
                             <span className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
                               <Columns className="w-3.5 h-3.5 text-blue-600" />
-                              Column Visibility
+                              Commercial Table Columns
                             </span>
                             <span className="text-[10px] font-mono text-slate-400">
-                              {Object.values(visibleColumns).filter(Boolean).length} Active
+                              {[
+                                visibleColumns.unit_price !== false && visibleColumns.showUnitPrice !== false,
+                                visibleColumns.showUom !== false,
+                                visibleColumns.showLineTotal !== false
+                              ].filter(Boolean).length}/3 Active
                             </span>
                           </div>
                           <p className="text-[10.5px] text-slate-500 leading-normal">
-                            Toggle optional technical specifications and commercial rate columns on the quotation document.
+                            Control which commercial pricing and quantity columns appear in the quotation table.
                           </p>
 
                           <div className="space-y-1.5 pt-1">
                             {[
-                              {
-                                key: 'brand' as const,
-                                label: 'Brand / Make',
-                                desc: 'Show equipment brand / manufacturer',
-                                checked: visibleColumns.brand !== false,
-                                onChange: (checked: boolean) =>
-                                  setVisibleColumns((prev) => ({ ...prev, brand: checked }))
-                              },
-                              {
-                                key: 'model' as const,
-                                label: 'Model / Part #',
-                                desc: 'Catalog item or part designation',
-                                checked: visibleColumns.model !== false,
-                                onChange: (checked: boolean) =>
-                                  setVisibleColumns((prev) => ({ ...prev, model: checked }))
-                              },
-                              {
-                                key: 'origin' as const,
-                                label: 'Origin / Country',
-                                desc: 'Manufacturing country of origin',
-                                checked: visibleColumns.origin !== false,
-                                onChange: (checked: boolean) =>
-                                  setVisibleColumns((prev) => ({ ...prev, origin: checked }))
-                              },
-                              {
-                                key: 'availability' as const,
-                                label: 'Delivery / Availability',
-                                desc: 'Dispatch lead time & stock timeline',
-                                checked: visibleColumns.availability !== false,
-                                onChange: (checked: boolean) =>
-                                  setVisibleColumns((prev) => ({ ...prev, availability: checked }))
-                              },
                               {
                                 key: 'unit_price' as const,
                                 label: 'Show Unit Price Column',
@@ -20882,6 +21057,14 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                 checked: visibleColumns.showUom !== false,
                                 onChange: (checked: boolean) =>
                                   setVisibleColumns((prev) => ({ ...prev, showUom: checked }))
+                              },
+                              {
+                                key: 'showLineTotal' as const,
+                                label: 'Show Line Total Column',
+                                desc: 'Show extended line amounts on each item row',
+                                checked: visibleColumns.showLineTotal !== false,
+                                onChange: (checked: boolean) =>
+                                  setVisibleColumns((prev) => ({ ...prev, showLineTotal: checked }))
                               }
                             ].map((col) => (
                               <div
@@ -20911,6 +21094,29 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                 </label>
                               </div>
                             ))}
+                          </div>
+
+                          {/* Quick Jump Pointer to Specs & Grid for Core Item Attributes */}
+                          <div className="mt-2 rounded-xl border border-indigo-100 bg-indigo-50/60 p-2.5 space-y-2">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <span className="text-[11px] font-bold text-indigo-950 block">
+                                  Brand, Model, Origin &amp; Delivery
+                                </span>
+                                <p className="text-[10px] text-indigo-800/80 leading-snug mt-0.5">
+                                  Item metadata attributes now live in <span className="font-semibold">Specs &amp; Grid</span> alongside technical specs — drag to reorder, toggle 50%/100% width, and apply presets globally.
+                                </p>
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setTableInspectorTab('specs')}
+                              className="w-full inline-flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white border border-indigo-200 text-[10.5px] font-semibold text-indigo-700 hover:bg-indigo-600 hover:text-white hover:border-indigo-600 transition cursor-pointer"
+                            >
+                              <Sliders className="w-3 h-3" />
+                              Manage Attributes in Specs &amp; Grid
+                              <ChevronRight className="w-3 h-3" />
+                            </button>
                           </div>
                         </div>
 
@@ -22482,64 +22688,62 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                           </div>
                         )}
 
-                        {/* Global Show / Hide & Arrange Specific Specs (Compound Pills) */}
+                        {/* Global Core Metadata & Technical Spec Attribute Manager */}
                         {visibleColumns.showItemAttributes !== false && availableAttributeKeys.length > 0 && (() => {
-                          const globalOrder = visibleColumns.attributeLayoutOrder || [];
-                          const orderedGlobalKeys = [
-                            ...globalOrder.filter((k) => availableAttributeKeys.includes(k)),
-                            ...availableAttributeKeys.filter((k) => !globalOrder.includes(k))
-                          ];
+                          const orderedGlobalKeys = sortAttributeKeysByOrder(
+                            availableAttributeKeys,
+                            visibleColumns.attributeLayoutOrder
+                          );
                           const globalBreaks = visibleColumns.attributeLineBreaksAfter || [];
                           const globalFullWidth = visibleColumns.attributeFullWidthKeys || [];
 
-                          const moveGlobalKey = (key: string, dir: -1 | 1) => {
-                            const idx = orderedGlobalKeys.indexOf(key);
-                            const nextIdx = idx + dir;
-                            if (idx < 0 || nextIdx < 0 || nextIdx >= orderedGlobalKeys.length) return;
-                            const next = [...orderedGlobalKeys];
-                            const [removed] = next.splice(idx, 1);
-                            next.splice(nextIdx, 0, removed);
-                            setVisibleColumns((prev) => ({
-                              ...prev,
-                              attributeLayoutOrder: next
-                            }));
-                          };
-
                           const toggleGlobalBreak = (key: string) => {
+                            const ck = canonicalSpecAttributeKey(key);
                             setVisibleColumns((prev) => {
                               const cur = prev.attributeLineBreaksAfter || [];
+                              const exists = cur.some(
+                                (k) => k === key || canonicalSpecAttributeKey(k) === ck
+                              );
                               return {
                                 ...prev,
-                                attributeLineBreaksAfter: cur.includes(key)
-                                  ? cur.filter((k) => k !== key)
+                                attributeLineBreaksAfter: exists
+                                  ? cur.filter(
+                                      (k) => k !== key && canonicalSpecAttributeKey(k) !== ck
+                                    )
                                   : [...cur, key]
                               };
                             });
                           };
 
                           const toggleGlobalFullWidth = (key: string) => {
+                            const ck = canonicalSpecAttributeKey(key);
                             setVisibleColumns((prev) => {
                               const cur = prev.attributeFullWidthKeys || [];
+                              const exists = cur.some(
+                                (k) => k === key || canonicalSpecAttributeKey(k) === ck
+                              );
                               return {
                                 ...prev,
-                                attributeFullWidthKeys: cur.includes(key)
-                                  ? cur.filter((k) => k !== key)
+                                attributeFullWidthKeys: exists
+                                  ? cur.filter(
+                                      (k) => k !== key && canonicalSpecAttributeKey(k) !== ck
+                                    )
                                   : [...cur, key]
                               };
                             });
                           };
 
                           return (
-                            <div className="space-y-2 pt-2 border-t border-slate-100">
-                              <div className="flex items-center justify-between">
-                                <label className="text-[11px] font-semibold text-slate-700">
-                                  Show / Hide &amp; Arrange Specific Specs
+                            <div className="space-y-2.5 pt-2.5 border-t border-slate-100">
+                              <div className="flex items-center justify-between gap-2">
+                                <label className="text-[11px] font-bold text-slate-800">
+                                  Core &amp; Technical Attributes
                                 </label>
                                 <div className="flex items-center gap-2">
                                   <button
                                     type="button"
                                     onClick={showAllAttributes}
-                                    className="text-[10px] font-medium text-blue-600 hover:text-blue-800 transition cursor-pointer"
+                                    className="text-[10px] font-semibold text-blue-600 hover:text-blue-800 transition cursor-pointer"
                                   >
                                     Show All
                                   </button>
@@ -22547,298 +22751,402 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                   <button
                                     type="button"
                                     onClick={hideAllAttributes}
-                                    className="text-[10px] font-medium text-slate-500 hover:text-slate-700 transition cursor-pointer"
+                                    className="text-[10px] font-semibold text-slate-500 hover:text-slate-700 transition cursor-pointer"
                                   >
                                     Hide All
                                   </button>
                                 </div>
                               </div>
-                              <p className="text-[10px] text-slate-400 leading-normal">
-                                Toggle visibility, insert a line break after (<span className="font-mono font-bold text-amber-700">↵</span>), force full-row width (<span className="font-mono font-bold text-indigo-700">100%</span>), or reorder (<span className="font-mono font-bold">←/→</span>):
-                              </p>
-                              <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                                {orderedGlobalKeys.map((key, kIdx) => {
-                                  const isHidden = visibleColumns.hiddenAttributeKeys?.includes(key);
-                                  const isVisible = !isHidden;
-                                  const hasBreak = globalBreaks.includes(key);
-                                  const isFull = globalFullWidth.includes(key);
 
-                                  return (
-                                    <React.Fragment key={key}>
-                                      <div
-                                        className={`inline-flex items-center rounded-lg border text-[10.5px] font-medium overflow-hidden transition ${
-                                          isVisible
-                                            ? 'bg-white border-blue-200 shadow-2xs'
-                                            : 'bg-slate-100 border-dashed border-slate-300 opacity-65'
-                                        }`}
-                                      >
-                                        <button
-                                          type="button"
-                                          onClick={() => toggleAttributeKeyVisibility(key)}
-                                          className={`px-2 py-1 flex items-center gap-1 cursor-pointer transition ${
-                                            isVisible
-                                              ? 'text-blue-900 hover:bg-blue-50'
-                                              : 'text-slate-400 line-through hover:bg-slate-200/60'
-                                          }`}
-                                          title={isVisible ? `Click to hide ${key}` : `Click to show ${key}`}
-                                        >
-                                          <span className="text-[9.5px] font-bold">{isVisible ? '✓' : '✕'}</span>
-                                          <span>{key}</span>
-                                        </button>
-
-                                        {isVisible && (
-                                          <div className="flex items-center border-l border-slate-200 bg-slate-50/80 divide-x divide-slate-200/80">
-                                            <button
-                                              type="button"
-                                              onClick={() => toggleGlobalBreak(key)}
-                                              className={`px-1.5 py-1 text-[9.5px] font-mono font-bold cursor-pointer transition ${
-                                                hasBreak
-                                                  ? 'bg-amber-500 text-white'
-                                                  : 'text-slate-500 hover:bg-amber-50 hover:text-amber-700'
-                                              }`}
-                                              title="Insert line break after this attribute (↵)"
-                                            >
-                                              ↵
-                                            </button>
-                                            <button
-                                              type="button"
-                                              onClick={() => toggleGlobalFullWidth(key)}
-                                              className={`px-1.5 py-1 text-[9px] font-mono font-bold cursor-pointer transition ${
-                                                isFull
-                                                  ? 'bg-indigo-600 text-white'
-                                                  : 'text-slate-500 hover:bg-indigo-50 hover:text-indigo-700'
-                                              }`}
-                                              title="Force 100% full-row width on this attribute"
-                                            >
-                                              100%
-                                            </button>
-                                            <button
-                                              type="button"
-                                              disabled={kIdx === 0}
-                                              onClick={() => moveGlobalKey(key, -1)}
-                                              className="px-1 py-1 text-[9.5px] font-mono text-slate-500 hover:bg-slate-200/70 disabled:opacity-30 cursor-pointer"
-                                              title="Move attribute left"
-                                            >
-                                              ←
-                                            </button>
-                                            <button
-                                              type="button"
-                                              disabled={kIdx === orderedGlobalKeys.length - 1}
-                                              onClick={() => moveGlobalKey(key, 1)}
-                                              className="px-1 py-1 text-[9.5px] font-mono text-slate-500 hover:bg-slate-200/70 disabled:opacity-30 cursor-pointer"
-                                              title="Move attribute right"
-                                            >
-                                              →
-                                            </button>
-                                          </div>
-                                        )}
-                                      </div>
-
-                                      {isVisible && hasBreak && (
-                                        <span className="px-1.5 py-0.5 rounded bg-amber-100 border border-amber-300 text-amber-800 text-[9px] font-mono font-bold">
-                                          ↵ Break
-                                        </span>
-                                      )}
-                                    </React.Fragment>
-                                  );
-                                })}
+                              {/* 1-Click Quick Layout Presets */}
+                              <div className="space-y-1">
+                                <span className="text-[9.5px] font-bold uppercase tracking-wider text-slate-400 block">
+                                  Quick Layout Presets
+                                </span>
+                                <div className="grid grid-cols-1 gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => applyQuickGlobalSpecPreset('metadata_2up_tech_full')}
+                                    className="flex items-center justify-between px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50/80 hover:bg-indigo-50 hover:border-indigo-300 text-left transition cursor-pointer group"
+                                  >
+                                    <span className="text-[10.5px] font-semibold text-slate-700 group-hover:text-indigo-800">
+                                      Metadata 2-Up + Tech Specs Full
+                                    </span>
+                                    <span className="text-[9px] font-mono text-slate-400 group-hover:text-indigo-600">
+                                      50% + 100%
+                                    </span>
+                                  </button>
+                                  <div className="grid grid-cols-2 gap-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => applyQuickGlobalSpecPreset('all_balanced_2col')}
+                                      className="px-2 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-indigo-50 hover:border-indigo-300 text-[10px] font-semibold text-slate-700 hover:text-indigo-800 transition cursor-pointer text-center"
+                                    >
+                                      All Balanced 2-Col
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => applyQuickGlobalSpecPreset('all_full_width')}
+                                      className="px-2 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-indigo-50 hover:border-indigo-300 text-[10px] font-semibold text-slate-700 hover:text-indigo-800 transition cursor-pointer text-center"
+                                    >
+                                      All Full-Width Rows
+                                    </button>
+                                  </div>
+                                </div>
                               </div>
+
+                              {/* Reset All Items to Global Control */}
+                              {overriddenAttributeItemCount > 0 ? (
+                                <div className="flex items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50/80 px-2.5 py-1.5">
+                                  <div className="min-w-0">
+                                    <span className="text-[10px] font-bold text-amber-900 block leading-tight">
+                                      {overriddenAttributeItemCount}{' '}
+                                      {overriddenAttributeItemCount === 1 ? 'item has' : 'items have'}{' '}
+                                      custom overrides
+                                    </span>
+                                    <span className="text-[9.5px] text-amber-700/90 block">
+                                      Overrides take precedence over global settings
+                                    </span>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => resetAllItemsAttributesToGlobal()}
+                                    className="shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-md bg-amber-600 hover:bg-amber-700 text-white text-[10px] font-semibold transition cursor-pointer"
+                                  >
+                                    <RotateCcw className="w-2.5 h-2.5" />
+                                    Reset All to Global
+                                  </button>
+                                </div>
+                              ) : (
+                                <div className="flex items-center justify-between text-[10px] text-slate-400 px-0.5">
+                                  <span>Drag rows or use ↑/↓ to reorder globally</span>
+                                  <span className="text-emerald-600 font-semibold">All items synced</span>
+                                </div>
+                              )}
+
+                              {/* Sortable Global Attribute List */}
+                              <SpecAttributeSortableList
+                                items={orderedGlobalKeys.map((key) => {
+                                  const ck = canonicalSpecAttributeKey(key);
+                                  const isVisible = isGlobalAttributeVisible(visibleColumns, key);
+                                  const hasBreak = globalBreaks.some(
+                                    (k) => k === key || canonicalSpecAttributeKey(k) === ck
+                                  );
+                                  const isFull = globalFullWidth.some(
+                                    (k) => k === key || canonicalSpecAttributeKey(k) === ck
+                                  );
+                                  return {
+                                    key,
+                                    isVisible,
+                                    isFullWidth: isFull,
+                                    hasBreakAfter: hasBreak
+                                  };
+                                })}
+                                onToggleVisibility={toggleAttributeKeyVisibility}
+                                onToggleFullWidth={toggleGlobalFullWidth}
+                                onToggleBreakAfter={toggleGlobalBreak}
+                                onReorder={(nextOrder) =>
+                                  setVisibleColumns((prev) => ({
+                                    ...prev,
+                                    attributeLayoutOrder: nextOrder
+                                  }))
+                                }
+                              />
                             </div>
                           );
                         })()}
 
-                        {/* Per-Item Specification Attributes (Row-Level Control — No Nested Scrollbar) */}
-                        {visibleColumns.showItemAttributes !== false && quotationLineItems.some((item) => getItemAttributeKeys(item).length > 0) && (
-                          <div className="space-y-2 pt-2 border-t border-slate-100">
-                            <div className="flex items-center justify-between">
-                              <label className="text-[11px] font-semibold text-slate-700 flex items-center gap-1.5">
-                                <CheckSquare className="w-3.5 h-3.5 text-blue-600" />
-                                Item Attributes (Row-Level)
-                              </label>
-                              <span className="text-[10px] text-slate-400 font-mono">
-                                Per-Row Order &amp; Breaks
-                              </span>
-                            </div>
-                            <p className="text-[10px] text-slate-400 leading-normal">
-                              Customize visibility, line breaks (↵), 100% span, and order for individual line items:
-                            </p>
+                        {/* Per-Item Specification Attributes (Row-Level Accordion Overrides) */}
+                        {visibleColumns.showItemAttributes !== false &&
+                          quotationLineItems.some((item) => getItemAttributeKeys(item).length > 0) && (
+                            <div className="space-y-2 pt-2.5 border-t border-slate-100">
+                              <div className="flex items-center justify-between gap-2">
+                                <label className="text-[11px] font-bold text-slate-800 flex items-center gap-1.5">
+                                  <CheckSquare className="w-3.5 h-3.5 text-blue-600" />
+                                  Item Overrides (Row-Level)
+                                </label>
+                                <span className="text-[10px] text-slate-400 font-mono">
+                                  {overriddenAttributeItemCount > 0
+                                    ? `${overriddenAttributeItemCount} Custom`
+                                    : 'All Inheriting'}
+                                </span>
+                              </div>
+                              <p className="text-[10px] text-slate-400 leading-normal">
+                                Expand any line item to override its order, 50%/100% span, breaks, or visibility independently:
+                              </p>
 
-                            <div className="space-y-2 pt-1">
-                              {quotationLineItems.map((item, idx) => {
-                                const itemKey = item.id || `item_${idx}`;
-                                const rawItemAttrs = getItemAttributeKeys(item);
-                                if (rawItemAttrs.length === 0) return null;
+                              <div className="space-y-1.5 pt-0.5">
+                                {quotationLineItems.map((item, idx) => {
+                                  const itemKey = item.id || `item_${idx}`;
+                                  const rawItemAttrs = getItemAttributeKeys(item);
+                                  if (rawItemAttrs.length === 0) return null;
 
-                                const rowOrder = item.attribute_order || visibleColumns.attributeLayoutOrder || [];
-                                const itemAttrs = [
-                                  ...rowOrder.filter((k) => rawItemAttrs.includes(k)),
-                                  ...rawItemAttrs.filter((k) => !rowOrder.includes(k))
-                                ];
+                                  const rowOrder =
+                                    Array.isArray(item.attribute_order) && item.attribute_order.length > 0
+                                      ? item.attribute_order
+                                      : visibleColumns.attributeLayoutOrder || [];
+                                  const itemAttrs = sortAttributeKeysByOrder(rawItemAttrs, rowOrder);
+                                  const isItemOverridden = hasItemAttributeOverrides(
+                                    item,
+                                    itemVisibleAttributes[itemKey]
+                                  );
 
-                                const currentVisible = itemVisibleAttributes[itemKey] ?? item.visible_attributes ?? itemAttrs;
-                                const visibleCount = itemAttrs.filter((k) => currentVisible.includes(k)).length;
-                                const rowBreaks = item.attribute_line_breaks_after ?? visibleColumns.attributeLineBreaksAfter ?? [];
-                                const rowFullWidth = item.attribute_full_width_keys ?? visibleColumns.attributeFullWidthKeys ?? [];
+                                  const explicitItemVisible =
+                                    itemKey in itemVisibleAttributes
+                                      ? itemVisibleAttributes[itemKey]
+                                      : item.visible_attributes;
+                                  const currentVisible =
+                                    explicitItemVisible !== undefined
+                                      ? itemAttrs.filter((k) =>
+                                          explicitItemVisible.some(
+                                            (vk) =>
+                                              vk === k ||
+                                              canonicalSpecAttributeKey(vk) ===
+                                                canonicalSpecAttributeKey(k)
+                                          )
+                                        )
+                                      : itemAttrs.filter((k) => {
+                                          if (!isGlobalAttributeVisible(visibleColumns, k)) return false;
+                                          if (Array.isArray(item.hidden_attributes)) {
+                                            const ck = canonicalSpecAttributeKey(k);
+                                            if (
+                                              item.hidden_attributes.some(
+                                                (hk) =>
+                                                  hk === k || canonicalSpecAttributeKey(hk) === ck
+                                              )
+                                            ) {
+                                              return false;
+                                            }
+                                          }
+                                          return true;
+                                        });
+                                  const visibleCount = itemAttrs.filter(
+                                    (k) =>
+                                      currentVisible.includes(k) &&
+                                      isGlobalAttributeVisible(visibleColumns, k)
+                                  ).length;
+                                  const rowBreaks =
+                                    item.attribute_line_breaks_after ??
+                                    visibleColumns.attributeLineBreaksAfter ??
+                                    [];
+                                  const rowFullWidth =
+                                    item.attribute_full_width_keys ??
+                                    visibleColumns.attributeFullWidthKeys ??
+                                    [];
 
-                                const moveRowAttr = (attrKey: string, dir: -1 | 1) => {
-                                  const aIdx = itemAttrs.indexOf(attrKey);
-                                  const nextIdx = aIdx + dir;
-                                  if (aIdx < 0 || nextIdx < 0 || nextIdx >= itemAttrs.length) return;
-                                  const next = [...itemAttrs];
-                                  const [removed] = next.splice(aIdx, 1);
-                                  next.splice(nextIdx, 0, removed);
-                                  handleUpdateTopItemRowOption(itemKey, { attribute_order: next });
-                                };
+                                  const isExpanded =
+                                    expandedRowAttrItemKey === itemKey ||
+                                    (expandedRowAttrItemKey === null &&
+                                      quotationLineItems.length === 1);
 
-                                const toggleRowBreak = (attrKey: string) => {
-                                  const next = rowBreaks.includes(attrKey)
-                                    ? rowBreaks.filter((k) => k !== attrKey)
-                                    : [...rowBreaks, attrKey];
-                                  handleUpdateTopItemRowOption(itemKey, { attribute_line_breaks_after: next });
-                                };
+                                  const toggleRowBreak = (attrKey: string) => {
+                                    const ck = canonicalSpecAttributeKey(attrKey);
+                                    const has = rowBreaks.some(
+                                      (k) => k === attrKey || canonicalSpecAttributeKey(k) === ck
+                                    );
+                                    const next = has
+                                      ? rowBreaks.filter(
+                                          (k) =>
+                                            k !== attrKey && canonicalSpecAttributeKey(k) !== ck
+                                        )
+                                      : [...rowBreaks, attrKey];
+                                    handleUpdateTopItemRowOption(itemKey, {
+                                      attribute_line_breaks_after: next
+                                    });
+                                  };
 
-                                const toggleRowFullWidth = (attrKey: string) => {
-                                  const next = rowFullWidth.includes(attrKey)
-                                    ? rowFullWidth.filter((k) => k !== attrKey)
-                                    : [...rowFullWidth, attrKey];
-                                  handleUpdateTopItemRowOption(itemKey, { attribute_full_width_keys: next });
-                                };
+                                  const toggleRowFullWidth = (attrKey: string) => {
+                                    const ck = canonicalSpecAttributeKey(attrKey);
+                                    const has = rowFullWidth.some(
+                                      (k) => k === attrKey || canonicalSpecAttributeKey(k) === ck
+                                    );
+                                    const next = has
+                                      ? rowFullWidth.filter(
+                                          (k) =>
+                                            k !== attrKey && canonicalSpecAttributeKey(k) !== ck
+                                        )
+                                      : [...rowFullWidth, attrKey];
+                                    handleUpdateTopItemRowOption(itemKey, {
+                                      attribute_full_width_keys: next
+                                    });
+                                  };
 
-                                return (
-                                  <div
-                                    key={itemKey}
-                                    className="p-2.5 rounded-xl border border-slate-200/90 bg-slate-50/70 space-y-2"
-                                  >
-                                    <div className="flex items-center justify-between gap-1.5">
-                                      <div className="min-w-0 flex items-center gap-1.5">
-                                        <span className="w-4 h-4 rounded-full bg-slate-200 text-slate-700 text-[9px] font-mono font-bold flex items-center justify-center shrink-0">
-                                          {idx + 1}
-                                        </span>
-                                        <span className="font-semibold text-slate-800 text-[11px] truncate" title={item.item_name}>
-                                          {item.item_name}
-                                        </span>
-                                      </div>
-                                      <div className="flex items-center gap-1.5 shrink-0">
-                                        <span className="text-[9.5px] font-mono text-slate-400">
-                                          {visibleCount}/{itemAttrs.length}
-                                        </span>
-                                        {itemAttrs.length >= 2 && (
-                                          <div className="flex items-center gap-1 ml-1 pl-1.5 border-l border-slate-200">
-                                            <button
-                                              type="button"
-                                              onClick={() => showAllItemAttributes(itemKey, itemAttrs)}
-                                              className="text-[9.5px] font-semibold text-blue-600 hover:text-blue-800 transition cursor-pointer"
-                                              title="Show all attributes on this item"
-                                            >
-                                              Show All
-                                            </button>
-                                            <span className="text-slate-300 text-[9px]">•</span>
-                                            <button
-                                              type="button"
-                                              onClick={() => hideAllItemAttributes(itemKey)}
-                                              className="text-[9.5px] font-semibold text-slate-400 hover:text-slate-600 transition cursor-pointer"
-                                              title="Hide all attributes on this item"
-                                            >
-                                              Hide All
-                                            </button>
-                                          </div>
-                                        )}
-                                      </div>
-                                    </div>
+                                  const toggleRowVis = (attrKey: string) => {
+                                    const ck = canonicalSpecAttributeKey(attrKey);
+                                    const isVis = currentVisible.some(
+                                      (k) => k === attrKey || canonicalSpecAttributeKey(k) === ck
+                                    );
+                                    const nextVis = isVis
+                                      ? currentVisible.filter(
+                                          (k) =>
+                                            k !== attrKey && canonicalSpecAttributeKey(k) !== ck
+                                        )
+                                      : [...currentVisible, attrKey];
+                                    setItemVisibleAttributes((prev) => ({
+                                      ...prev,
+                                      [itemKey]: nextVis
+                                    }));
+                                    handleUpdateTopItemRowOption(itemKey, {
+                                      visible_attributes: nextVis
+                                    });
+                                  };
 
-                                    {/* Interactive Row-Level Compound Attribute Pills */}
-                                    <div className="flex flex-wrap items-center gap-1.5">
-                                      {itemAttrs.map((attrKey, aIdx) => {
-                                        const isVisible = currentVisible.includes(attrKey);
-                                        const hasBreak = rowBreaks.includes(attrKey);
-                                        const isFull = rowFullWidth.includes(attrKey);
+                                  return (
+                                    <div
+                                      key={itemKey}
+                                      className={`rounded-xl border transition-colors ${
+                                        isItemOverridden
+                                          ? 'border-amber-200/90 bg-amber-50/30'
+                                          : 'border-slate-200/90 bg-slate-50/60'
+                                      }`}
+                                    >
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          setExpandedRowAttrItemKey(isExpanded ? '__none__' : itemKey)
+                                        }
+                                        className="w-full px-2.5 py-2 flex items-center justify-between gap-1.5 text-left cursor-pointer hover:bg-white/60 rounded-xl transition-colors"
+                                      >
+                                        <div className="min-w-0 flex items-center gap-1.5">
+                                          {isExpanded ? (
+                                            <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                          ) : (
+                                            <ChevronRight className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                          )}
+                                          <span className="w-4 h-4 rounded-full bg-slate-200 text-slate-700 text-[9px] font-mono font-bold flex items-center justify-center shrink-0">
+                                            {idx + 1}
+                                          </span>
+                                          <span
+                                            className="font-semibold text-slate-800 text-[11px] truncate"
+                                            title={item.item_name}
+                                          >
+                                            {item.item_name}
+                                          </span>
+                                        </div>
+                                        <div className="flex items-center gap-1.5 shrink-0">
+                                          <span
+                                            className={`px-1.5 py-0.5 rounded text-[9px] font-bold border ${
+                                              isItemOverridden
+                                                ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                                : 'bg-white text-slate-500 border-slate-200'
+                                            }`}
+                                          >
+                                            {isItemOverridden ? 'Custom' : 'Global'}
+                                          </span>
+                                          <span className="text-[9.5px] font-mono text-slate-400">
+                                            {visibleCount}/{itemAttrs.length}
+                                          </span>
+                                        </div>
+                                      </button>
 
-                                        return (
-                                          <React.Fragment key={attrKey}>
-                                            <div
-                                              className={`inline-flex items-center rounded-md border text-[10px] font-medium overflow-hidden transition ${
-                                                isVisible
-                                                  ? 'bg-white border-blue-300 shadow-2xs'
-                                                  : 'bg-slate-100 border-dashed border-slate-300 opacity-60'
-                                              }`}
-                                            >
+                                      {isExpanded && (
+                                        <div className="px-2.5 pb-2.5 pt-1 space-y-2 border-t border-slate-200/60">
+                                          <div className="flex flex-wrap items-center justify-between gap-1.5 text-[9.5px]">
+                                            <div className="flex items-center gap-1.5">
                                               <button
                                                 type="button"
-                                                onClick={() => toggleItemAttribute(itemKey, itemAttrs, attrKey)}
-                                                className={`px-1.5 py-0.5 flex items-center gap-1 cursor-pointer transition ${
-                                                  isVisible
-                                                    ? 'text-blue-800 hover:bg-blue-50'
-                                                    : 'text-slate-400 line-through hover:bg-slate-200/60'
-                                                }`}
-                                                title={isVisible ? `Hide ${attrKey} for item #${idx + 1}` : `Show ${attrKey} for item #${idx + 1}`}
+                                                onClick={() => {
+                                                  showAllItemAttributes(itemKey, itemAttrs);
+                                                  handleUpdateTopItemRowOption(itemKey, {
+                                                    visible_attributes: [...itemAttrs]
+                                                  });
+                                                }}
+                                                className="font-semibold text-blue-600 hover:text-blue-800 cursor-pointer"
                                               >
-                                                <span className="text-[9px] font-bold">{isVisible ? '✓' : '✕'}</span>
-                                                <span>{attrKey}</span>
+                                                Show All
                                               </button>
-
-                                              {isVisible && (
-                                                <div className="flex items-center border-l border-slate-200 bg-slate-50 divide-x divide-slate-200/80">
-                                                  <button
-                                                    type="button"
-                                                    onClick={() => toggleRowBreak(attrKey)}
-                                                    className={`px-1 py-0.5 text-[9px] font-mono font-bold cursor-pointer transition ${
-                                                      hasBreak
-                                                        ? 'bg-amber-500 text-white'
-                                                        : 'text-slate-500 hover:bg-amber-50 hover:text-amber-700'
-                                                    }`}
-                                                    title="Force line break after this attribute on this row"
-                                                  >
-                                                    ↵
-                                                  </button>
-                                                  <button
-                                                    type="button"
-                                                    onClick={() => toggleRowFullWidth(attrKey)}
-                                                    className={`px-1 py-0.5 text-[8.5px] font-mono font-bold cursor-pointer transition ${
-                                                      isFull
-                                                        ? 'bg-indigo-600 text-white'
-                                                        : 'text-slate-500 hover:bg-indigo-50 hover:text-indigo-700'
-                                                    }`}
-                                                    title="Force 100% full width for this attribute on this row"
-                                                  >
-                                                    100%
-                                                  </button>
-                                                  <button
-                                                    type="button"
-                                                    disabled={aIdx === 0}
-                                                    onClick={() => moveRowAttr(attrKey, -1)}
-                                                    className="px-1 py-0.5 text-[9px] font-mono text-slate-500 hover:bg-slate-200/70 disabled:opacity-30 cursor-pointer"
-                                                    title="Move attribute left on this row"
-                                                  >
-                                                    ←
-                                                  </button>
-                                                  <button
-                                                    type="button"
-                                                    disabled={aIdx === itemAttrs.length - 1}
-                                                    onClick={() => moveRowAttr(attrKey, 1)}
-                                                    className="px-1 py-0.5 text-[9px] font-mono text-slate-500 hover:bg-slate-200/70 disabled:opacity-30 cursor-pointer"
-                                                    title="Move attribute right on this row"
-                                                  >
-                                                    →
-                                                  </button>
-                                                </div>
-                                              )}
+                                              <span className="text-slate-300">•</span>
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  hideAllItemAttributes(itemKey);
+                                                  handleUpdateTopItemRowOption(itemKey, {
+                                                    visible_attributes: []
+                                                  });
+                                                }}
+                                                className="font-semibold text-slate-500 hover:text-slate-700 cursor-pointer"
+                                              >
+                                                Hide All
+                                              </button>
                                             </div>
+                                            <div className="flex items-center gap-1">
+                                              {isItemOverridden && (
+                                                <button
+                                                  type="button"
+                                                  onClick={() =>
+                                                    resetSingleItemAttributesToGlobal(itemKey)
+                                                  }
+                                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-slate-200 bg-white font-semibold text-slate-600 hover:text-slate-900 cursor-pointer"
+                                                >
+                                                  <RotateCcw className="w-2.5 h-2.5" />
+                                                  Reset
+                                                </button>
+                                              )}
+                                              <button
+                                                type="button"
+                                                onClick={() =>
+                                                  applyItemAttributeLayoutToAll(
+                                                    itemAttrs,
+                                                    currentVisible,
+                                                    rowBreaks,
+                                                    rowFullWidth
+                                                  )
+                                                }
+                                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-indigo-200 bg-indigo-50 font-semibold text-indigo-700 hover:bg-indigo-100 cursor-pointer"
+                                              >
+                                                <Layers className="w-2.5 h-2.5" />
+                                                Apply to All
+                                              </button>
+                                            </div>
+                                          </div>
 
-                                            {isVisible && hasBreak && (
-                                              <span className="px-1 py-0.5 rounded bg-amber-100 border border-amber-300 text-amber-800 text-[8.5px] font-mono font-bold">
-                                                ↵ Break
-                                              </span>
-                                            )}
-                                          </React.Fragment>
-                                        );
-                                      })}
+                                          <SpecAttributeSortableList
+                                            compact
+                                            items={itemAttrs.map((attrKey) => {
+                                              const ck = canonicalSpecAttributeKey(attrKey);
+                                              const isVisible = currentVisible.some(
+                                                (k) =>
+                                                  k === attrKey ||
+                                                  canonicalSpecAttributeKey(k) === ck
+                                              );
+                                              const hasBreak = rowBreaks.some(
+                                                (k) =>
+                                                  k === attrKey ||
+                                                  canonicalSpecAttributeKey(k) === ck
+                                              );
+                                              const isFull = rowFullWidth.some(
+                                                (k) =>
+                                                  k === attrKey ||
+                                                  canonicalSpecAttributeKey(k) === ck
+                                              );
+                                              return {
+                                                key: attrKey,
+                                                isVisible,
+                                                isFullWidth: isFull,
+                                                hasBreakAfter: hasBreak,
+                                                globallyHidden: !isGlobalAttributeVisible(
+                                                  visibleColumns,
+                                                  attrKey
+                                                )
+                                              };
+                                            })}
+                                            onToggleVisibility={toggleRowVis}
+                                            onToggleFullWidth={toggleRowFullWidth}
+                                            onToggleBreakAfter={toggleRowBreak}
+                                            onReorder={(nextOrder) =>
+                                              handleUpdateTopItemRowOption(itemKey, {
+                                                attribute_order: nextOrder
+                                              })
+                                            }
+                                          />
+                                        </div>
+                                      )}
                                     </div>
-                                  </div>
-                                );
-                              })}
+                                  );
+                                })}
+                              </div>
                             </div>
-                          </div>
-                        )}
+                          )}
                       </div>
                     )}
                   </>

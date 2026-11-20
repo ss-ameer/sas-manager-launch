@@ -1141,6 +1141,27 @@ export function splitLineItemsIntoChunks(
       });
 
       if (visibleAttrs.length > 0) {
+        const effectiveOrderRaw =
+          Array.isArray(item.attribute_order) && item.attribute_order.length > 0
+            ? item.attribute_order
+            : Array.isArray(colCfg.attributeLayoutOrder)
+            ? colCfg.attributeLayoutOrder
+            : [];
+        const effectiveOrderCanonical = effectiveOrderRaw.map((k) =>
+          canonicalEstimatorAttrKey(k)
+        );
+        const orderedVisibleAttrs =
+          effectiveOrderCanonical.length > 0
+            ? [...visibleAttrs].sort((a, b) => {
+                const idxA = effectiveOrderCanonical.indexOf(canonicalEstimatorAttrKey(a.key));
+                const idxB = effectiveOrderCanonical.indexOf(canonicalEstimatorAttrKey(b.key));
+                if (idxA === -1 && idxB === -1) return 0;
+                if (idxA === -1) return 1;
+                if (idxB === -1) return -1;
+                return idxA - idxB;
+              })
+            : visibleAttrs;
+
         const breakSet = new Set<string>(
           (
             Array.isArray(item.attribute_line_breaks_after)
@@ -1160,7 +1181,7 @@ export function splitLineItemsIntoChunks(
         const rows: Array<Array<{ key: string; value: string; isFullWidth: boolean }>> = [];
         let curRow: Array<{ key: string; value: string; isFullWidth: boolean }> = [];
 
-        visibleAttrs.forEach((attr) => {
+        orderedVisibleAttrs.forEach((attr) => {
           const cKey = canonicalEstimatorAttrKey(attr.key);
           const isFull = fullWidthSet.has(cKey);
           const hasBreak = breakSet.has(cKey);
@@ -13520,8 +13541,12 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                                               if (showOrigin && item.country_of_origin && item.country_of_origin.trim() && item.country_of_origin !== '—') {
                                                 allAttrs.push({ key: 'Origin', value: item.country_of_origin.trim() });
                                               }
-                                              if (showAvailability && item.availability && item.availability.trim()) {
-                                                allAttrs.push({ key: 'Delivery', value: item.availability.trim() });
+                                              const effAvail =
+                                                item.availability ||
+                                                (item as any).lead_time_note ||
+                                                (item as any).delivery_time;
+                                              if (showAvailability && effAvail && String(effAvail).trim()) {
+                                                allAttrs.push({ key: 'Delivery', value: String(effAvail).trim() });
                                               }
 
                                               const rawAttrs: Array<{ key: string; value: string }> = [];
