@@ -6671,10 +6671,10 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
             {/* Chapter 1: Core Client, Contact & Project Subject (80/20 Primary Surface) */}
             <div
               id="field-company"
-              className={`scroll-mt-4 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl p-5 space-y-4 shadow-2xs transition-all duration-300 ${getHighlightClasses('company')}`}
+              className={`scroll-mt-4 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl p-4 space-y-3 shadow-2xs transition-all duration-300 ${getHighlightClasses('company')}`}
             >
-              <div className="flex flex-wrap items-center justify-between gap-2.5 pb-3 border-b border-slate-100 dark:border-slate-800">
-                <div className="flex items-center gap-3 min-w-0">
+              <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-slate-100 dark:border-slate-800">
+                <div className="flex items-center gap-2.5 min-w-0">
                   <span className="w-6 h-6 rounded-lg bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 font-bold text-xs flex items-center justify-center shrink-0 border border-blue-200/60 dark:border-blue-800/60">
                     1
                   </span>
@@ -6737,7 +6737,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
               })()}
 
               {/* Subsection 1A: Account & Contact Pairing (Primary Task First) */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 relative">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 relative">
                 {/* Company search */}
                 <div className="relative min-w-0">
                   <div className="flex items-center justify-between gap-2 mb-1.5 min-h-[28px]">
@@ -9278,9 +9278,9 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
           </div>
 
           {/* Chapter 3: 3. Financial Summary, Terms & Source Files */}
-          <div id="field-value" className="scroll-mt-4 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl p-5 space-y-4 shadow-2xs">
-            <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-100 dark:border-slate-800">
-              <div className="flex items-center gap-3 min-w-0">
+          <div id="field-value" className="@container scroll-mt-4 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl p-4 space-y-3 shadow-2xs">
+            <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-2.5 min-w-0">
                 <span className="w-6 h-6 rounded-lg bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 font-bold text-xs flex items-center justify-center shrink-0 border border-blue-200/60 dark:border-blue-800/60">
                   3
                 </span>
@@ -9294,7 +9294,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 </div>
               </div>
               {isLumpSum && (
-                <span className="px-2 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800 text-[10px] font-mono font-bold text-amber-700 dark:text-amber-300">
+                <span className="px-2 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800 text-[10px] font-mono font-bold text-amber-700 dark:text-amber-300 shrink-0">
                   Lump-Sum Override Active
                 </span>
               )}
@@ -9357,9 +9357,9 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
               const marginPct = effectiveSubtotal > 0 && hasAnyCost ? (grossProfit / effectiveSubtotal) * 100 : null;
 
               return (
-                <div className="space-y-3">
+                <div className="space-y-2">
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex items-center gap-3 flex-wrap">
+                    <div className="flex items-center gap-2.5 flex-wrap">
                       <div className="flex items-center gap-1.5">
                         <DollarSign className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
                         <span className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300">
@@ -9372,7 +9372,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
                       <label
                         htmlFor="lump-sum-chk"
-                        className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-slate-50 dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700 text-[10px] text-slate-600 dark:text-slate-300 font-mono cursor-pointer uppercase select-none"
+                        className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-slate-50 dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700 text-[10px] text-slate-600 dark:text-slate-300 font-mono cursor-pointer uppercase select-none whitespace-nowrap"
                       >
                         <input
                           type="checkbox"
@@ -9391,7 +9391,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                           {Object.entries(optionBreakdown?.optionTotals || {}).map(([optName, optTotal]) => (
                             <span
                               key={optName}
-                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-medium bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200/80 dark:border-amber-800/60"
+                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200/80 dark:border-amber-800/60"
                               title={`${optName} Alternative Subtotal`}
                             >
                               <span className="font-semibold">{optName}:</span>
@@ -9400,7 +9400,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                           ))}
                           {Number(optionBreakdown?.optionalAddonsTotal || 0) > 0 && (
                             <span
-                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-medium bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200/80 dark:border-purple-800/60"
+                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200/80 dark:border-purple-800/60"
                               title="Optional / Add-On Electives Total"
                             >
                               <span className="font-semibold">Optionals:</span>
@@ -9411,15 +9411,15 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                       )}
 
                       {marginPct !== null && (
-                        <div className="flex items-center gap-2 text-xs font-mono tabular-nums">
-                          <span>
+                        <div className="flex items-center gap-1.5 text-[11px] font-mono tabular-nums">
+                          <span className="whitespace-nowrap">
                             <span className="text-slate-400 mr-1">Est. Profit:</span>
                             <span className={`font-bold ${grossProfit >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
                               {formCurrency} {grossProfit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                             </span>
                           </span>
                           <span
-                            className={`px-2 py-0.5 rounded-md font-bold text-[11px] ${
+                            className={`px-1.5 py-0.5 rounded font-bold text-[10px] whitespace-nowrap ${
                               marginPct >= 20
                                 ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60'
                                 : marginPct >= 0
@@ -9434,59 +9434,78 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     </div>
                   </div>
 
-                  <div
-                    className={`grid grid-cols-1 sm:grid-cols-2 ${
-                      isPreviewActive ? 'xl:grid-cols-2' : 'lg:grid-cols-4'
-                    } gap-2.5 text-xs font-mono tabular-nums`}
-                  >
-                    <div className="bg-slate-50/80 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700/80 rounded-xl px-3 py-2 flex flex-col justify-between">
-                      <span className="text-[10px] text-slate-400 uppercase block leading-tight">Total Cost</span>
-                      <span className="font-semibold text-slate-700 dark:text-slate-200 mt-0.5">
+                  {/* Unified Compact Financial KPI Strip (1px hairline grid dividers across 2x2 or 4x1) */}
+                  <div className="rounded-xl border border-slate-200/90 dark:border-slate-700/80 bg-slate-200/80 dark:bg-slate-700/80 overflow-hidden grid grid-cols-2 @[640px]:grid-cols-4 gap-px text-xs font-mono tabular-nums">
+                    {/* 1. Total Cost */}
+                    <div className="bg-slate-50/90 dark:bg-slate-900/70 px-3 py-2 flex flex-col justify-center min-w-0">
+                      <span className="text-[10px] font-sans font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider leading-tight truncate">
+                        Total Cost
+                      </span>
+                      <span className="text-xs font-bold text-slate-700 dark:text-slate-200 mt-0.5 truncate">
                         {hasAnyCost
                           ? `${formCurrency} ${totalCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
                           : `${formCurrency} 0.00`}
                       </span>
                     </div>
 
-                    <div className={`bg-slate-50/80 dark:bg-slate-800/50 border ${isLumpSum ? 'border-blue-400 dark:border-blue-600 ring-2 ring-blue-500/15' : 'border-slate-200/80 dark:border-slate-700/80'} rounded-xl px-3 py-2 flex flex-col justify-between ${getHighlightClasses('value')}`}>
-                      <span className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-semibold block leading-tight">
+                    {/* 2. Net Total (Excl. VAT) */}
+                    <div
+                      className={`${
+                        isLumpSum
+                          ? 'bg-blue-50/50 dark:bg-blue-950/30 ring-1 ring-inset ring-blue-400/80 dark:ring-blue-600/80'
+                          : 'bg-slate-50/90 dark:bg-slate-900/70'
+                      } px-3 py-2 flex flex-col justify-center min-w-0 ${getHighlightClasses('value')}`}
+                    >
+                      <span className="text-[10px] font-sans font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider leading-tight truncate">
                         Net Total (Excl. VAT)
                       </span>
                       {isLumpSum ? (
                         <div className="flex items-center gap-1 mt-0.5">
-                          <span className="text-xs font-bold text-blue-600 dark:text-blue-400 shrink-0">{formCurrency}</span>
+                          <span className="text-[11px] font-bold text-blue-600 dark:text-blue-400 shrink-0">{formCurrency}</span>
                           <FormattedNumberInput
                             value={manualValue}
                             onChange={(val: number) => setManualValue(val)}
-                            className="w-full bg-white dark:bg-slate-900 border border-blue-300 dark:border-blue-700 rounded px-1.5 py-0.5 text-xs font-bold text-blue-600 dark:text-blue-400 focus:outline-none font-mono"
+                            className="w-full min-w-0 bg-white dark:bg-slate-900 border border-blue-300 dark:border-blue-700 rounded px-1.5 py-0.5 text-xs font-bold text-blue-600 dark:text-blue-400 focus:outline-none font-mono"
                           />
                         </div>
                       ) : (
-                        <span className="font-bold text-slate-900 dark:text-white mt-0.5">
+                        <span className="text-xs font-bold text-slate-900 dark:text-white mt-0.5 truncate">
                           {formCurrency} {effectiveSubtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </span>
                       )}
                       {formCurrency !== 'AED' ? (
-                        <span className="text-blue-500 dark:text-blue-400 font-semibold text-[10px] whitespace-nowrap mt-0.5 block">
+                        <span className="text-blue-600/85 dark:text-blue-400 font-medium text-[10px] leading-tight truncate mt-0.5">
                           ≈ AED {Number(effectiveSubtotal * resolveToAedMultiplier(formCurrency || 'AED')).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </span>
                       ) : (
-                        <span className="text-blue-500 dark:text-blue-400 font-semibold text-[10px] whitespace-nowrap mt-0.5 block">
+                        <span className="text-blue-600/85 dark:text-blue-400 font-medium text-[10px] leading-tight truncate mt-0.5">
                           ≈ ${Number(effectiveSubtotal / 3.6725).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
                         </span>
                       )}
                     </div>
 
-                    <div className="bg-slate-50/80 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700/80 rounded-xl px-3 py-2 flex flex-col justify-between">
-                      <span className="text-[10px] text-slate-400 uppercase block leading-tight">{vatSummaryLabel}</span>
-                      <span className="font-semibold text-slate-700 dark:text-slate-200 mt-0.5">
-                        {formCurrency} {vatAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    {/* 3. VAT */}
+                    <div className="bg-slate-50/90 dark:bg-slate-900/70 px-3 py-2 flex flex-col justify-center min-w-0">
+                      <span className="text-[10px] font-sans font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider leading-tight truncate" title={vatSummaryLabel}>
+                        {vatSummaryLabel}
                       </span>
+                      {activeTaxMode === 'vat_hidden' ? (
+                        <span className="text-xs font-sans font-medium italic text-slate-400 dark:text-slate-500 mt-0.5 truncate">
+                          Hidden on quote
+                        </span>
+                      ) : (
+                        <span className="text-xs font-bold text-slate-700 dark:text-slate-200 mt-0.5 truncate">
+                          {formCurrency} {vatAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </span>
+                      )}
                     </div>
 
-                    <div className="bg-blue-50/70 dark:bg-blue-950/40 border border-blue-200/80 dark:border-blue-800 rounded-xl px-3 py-2 flex flex-col justify-between">
-                      <span className="text-[10px] text-blue-600 dark:text-blue-400 uppercase font-bold block leading-tight">{grandTotalSummaryLabel}</span>
-                      <span className="font-bold text-blue-700 dark:text-blue-300 mt-0.5">
+                    {/* 4. Grand Total */}
+                    <div className="bg-blue-50/85 dark:bg-blue-950/45 px-3 py-2 flex flex-col justify-center min-w-0">
+                      <span className="text-[10px] font-sans font-bold text-blue-700 dark:text-blue-400 uppercase tracking-wider leading-tight truncate" title={grandTotalSummaryLabel}>
+                        {grandTotalSummaryLabel}
+                      </span>
+                      <span className="text-[13px] font-extrabold text-blue-700 dark:text-blue-300 mt-0.5 truncate">
                         {formCurrency} {grandTotalInclVat.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </span>
                     </div>
@@ -9515,17 +9534,17 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
               return (
                 <>
-                  <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-slate-100 dark:border-slate-800/80">
+                  <div className="flex flex-wrap items-center gap-1.5 pt-2.5 border-t border-slate-100 dark:border-slate-800/80">
                     <button
                       type="button"
                       onClick={() => disclosure.toggleSection('pipelineDates')}
-                      className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer border ${
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition cursor-pointer border whitespace-nowrap ${
                         showPipelineDates
                           ? 'bg-blue-50/80 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800'
                           : 'bg-slate-50 dark:bg-slate-800/70 text-slate-600 dark:text-slate-300 border-slate-200/80 dark:border-slate-700 hover:border-blue-300 dark:hover:border-blue-700'
                       }`}
                     >
-                      {showPipelineDates ? <ChevronUp className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5 text-blue-500" />}
+                      {showPipelineDates ? <ChevronUp className="w-3 h-3 shrink-0" /> : <Plus className="w-3 h-3 text-blue-500 shrink-0" />}
                       <span>Pipeline Status &amp; Follow-up Dates</span>
                       <span className="px-1.5 py-0.2 rounded bg-white/80 dark:bg-slate-900/80 text-[10px] font-mono text-slate-600 dark:text-slate-300 border border-slate-200/60 dark:border-slate-700">
                         {normalizeEnquiryStatus(status)}
@@ -9535,13 +9554,13 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     <button
                       type="button"
                       onClick={() => disclosure.toggleSection('remarksTerms')}
-                      className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer border ${
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition cursor-pointer border whitespace-nowrap ${
                         showRemarksTerms
                           ? 'bg-blue-50/80 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800'
                           : 'bg-slate-50 dark:bg-slate-800/70 text-slate-600 dark:text-slate-300 border-slate-200/80 dark:border-slate-700 hover:border-blue-300 dark:hover:border-blue-700'
                       }`}
                     >
-                      {showRemarksTerms ? <ChevronUp className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5 text-blue-500" />}
+                      {showRemarksTerms ? <ChevronUp className="w-3 h-3 shrink-0" /> : <Plus className="w-3 h-3 text-blue-500 shrink-0" />}
                       <span>Commercial Terms, PO &amp; Remarks</span>
                       {hasRemarksTermsData && (
                         <span className="px-1.5 py-0.2 rounded bg-blue-100 dark:bg-blue-900/60 text-[10px] font-mono text-blue-700 dark:text-blue-300">
@@ -9553,13 +9572,13 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     <button
                       type="button"
                       onClick={() => disclosure.toggleSection('sourceFiles')}
-                      className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer border ${
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition cursor-pointer border whitespace-nowrap ${
                         showSourceFiles
                           ? 'bg-indigo-50/80 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800'
                           : 'bg-slate-50 dark:bg-slate-800/70 text-slate-600 dark:text-slate-300 border-slate-200/80 dark:border-slate-700 hover:border-indigo-300 dark:hover:border-indigo-700'
                       }`}
                     >
-                      {showSourceFiles ? <ChevronUp className="w-3.5 h-3.5" /> : <Sparkles className="w-3.5 h-3.5 text-indigo-500" />}
+                      {showSourceFiles ? <ChevronUp className="w-3 h-3 shrink-0" /> : <Sparkles className="w-3 h-3 text-indigo-500 shrink-0" />}
                       <span>Source PDF / Excel AI Autofill &amp; Files</span>
                       {attachments.length > 0 && (
                         <span className="px-1.5 py-0.2 rounded bg-indigo-100 dark:bg-indigo-900/60 text-[10px] font-mono text-indigo-700 dark:text-indigo-300">
@@ -9571,15 +9590,15 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
                   {/* Collapsible Subsection 4A: Pipeline Status & Follow-up Dates */}
                   {showPipelineDates && (
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-3 border-t border-slate-100 dark:border-slate-800/80 animate-in fade-in duration-150">
+                    <div className="grid grid-cols-1 @[520px]:grid-cols-3 gap-3 pt-2.5 border-t border-slate-100 dark:border-slate-800/80 animate-in fade-in duration-150">
                       <div className="min-w-0">
-                        <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 block truncate">
+                        <label className="text-[10.5px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1 block truncate">
                           Enquiry Status
                         </label>
                         <select
                           value={normalizeEnquiryStatus(status)}
                           onChange={(e) => setStatus(e.target.value as EnquiryStatus)}
-                          className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-2 px-3 text-sm text-slate-900 dark:text-white focus:outline-none font-sans"
+                          className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white focus:outline-none font-sans"
                         >
                           {PIPELINE_STATUS_GROUPS.map((group) => (
                             <optgroup
@@ -9609,7 +9628,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                       </div>
 
                       <div className="min-w-0">
-                        <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 block truncate">
+                        <label className="text-[10.5px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1 block truncate">
                           Estimated Order Date
                         </label>
                         <input
@@ -9617,12 +9636,12 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                           placeholder="YYYY-MM-DD"
                           value={projectedOrderDate}
                           onChange={(e) => setProjectedOrderDate(e.target.value)}
-                          className="dark:[color-scheme:dark] w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-2 px-3 text-sm text-slate-900 dark:text-white focus:outline-none font-mono"
+                          className="dark:[color-scheme:dark] w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white focus:outline-none font-mono"
                         />
                       </div>
 
                       <div className="min-w-0">
-                        <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 block truncate">
+                        <label className="text-[10.5px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1 block truncate">
                           Next Follow-up Date
                         </label>
                         <input
@@ -9630,7 +9649,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                           placeholder="YYYY-MM-DD"
                           value={nextFollowupDate}
                           onChange={(e) => setNextFollowupDate(e.target.value)}
-                          className="dark:[color-scheme:dark] w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-2 px-3 text-sm text-slate-900 dark:text-white focus:outline-none font-mono"
+                          className="dark:[color-scheme:dark] w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white focus:outline-none font-mono"
                         />
                       </div>
                     </div>
@@ -9638,34 +9657,30 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
                   {/* Collapsible Subsection 4C: Commercial Terms & Remarks */}
                   {showRemarksTerms && (
-                    <div className="border-t border-slate-100 dark:border-slate-800/80 pt-4 space-y-4 animate-in fade-in duration-150">
+                    <div className="border-t border-slate-100 dark:border-slate-800/80 pt-3 space-y-3 animate-in fade-in duration-150">
                       <div className="flex items-center justify-between gap-2 flex-wrap">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1.5">
                           <FileText className="w-3.5 h-3.5 text-blue-600 shrink-0" />
                           <span className="text-[11px] font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider">
                             Commercial Terms &amp; Remarks
                           </span>
                         </div>
-                        <span className="text-[10.5px] text-slate-500">
+                        <span className="text-[10.5px] text-slate-400 dark:text-slate-500">
                           Automatically flows into Quotation Studio &amp; Draft Proposals
                         </span>
                       </div>
 
                       {/* Structured Quotation Commercial Terms Grid */}
-                      <div className="p-3.5 rounded-xl bg-slate-50/80 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-700/80 space-y-3">
-                        <div
-                          className={`grid grid-cols-1 sm:grid-cols-2 ${
-                            isPreviewActive ? 'xl:grid-cols-2' : 'lg:grid-cols-4'
-                          } gap-3`}
-                        >
+                      <div className="p-3 rounded-xl bg-slate-50/70 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-700/80 space-y-2.5">
+                        <div className="grid grid-cols-1 @[480px]:grid-cols-2 @[820px]:grid-cols-4 gap-2.5">
                           {/* 1. Offer Validity (Days) + Valid Until Preview */}
-                          <div id="field-validity_days">
-                            <div className="flex items-center justify-between mb-1">
-                              <label className="text-[10.5px] font-bold uppercase text-slate-600 dark:text-slate-300">
-                                Offer Validity (Days)
+                          <div id="field-validity_days" className="min-w-0">
+                            <div className="flex items-center justify-between gap-1 mb-1">
+                              <label className="text-[10.5px] font-bold uppercase text-slate-600 dark:text-slate-300 truncate">
+                                Offer Validity
                               </label>
-                              <span className="text-[10px] font-mono font-semibold text-blue-600 dark:text-blue-400">
-                                Until:{' '}
+                              <span className="text-[10px] font-mono font-semibold text-blue-600 dark:text-blue-400 whitespace-nowrap">
+                                Until{' '}
                                 {(() => {
                                   const base = new Date(enquiryDate || Date.now());
                                   const d = !isNaN(base.getTime()) ? base : new Date();
@@ -9674,14 +9689,14 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                 })()}
                               </span>
                             </div>
-                            <div className="flex items-center gap-1.5">
+                            <div className="flex items-center gap-1">
                               <input
                                 type="number"
                                 min={1}
                                 max={365}
                                 value={validityDays}
                                 onChange={(e) => setValidityDays(Math.max(1, Number(e.target.value) || 30))}
-                                className={`w-20 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg py-1.5 px-2.5 text-xs font-mono font-bold text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 ${getHighlightClasses('validity_days')}`}
+                                className={`w-16 shrink-0 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg py-1.5 px-2 text-xs font-mono font-bold text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 ${getHighlightClasses('validity_days')}`}
                               />
                               <div className="flex items-center gap-1 flex-wrap">
                                 {[7, 15, 30, 60].map((dVal) => (
@@ -9689,10 +9704,10 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                     key={dVal}
                                     type="button"
                                     onClick={() => setValidityDays(dVal)}
-                                    className={`px-2 py-1 rounded text-[10px] font-mono font-bold border transition cursor-pointer ${
+                                    className={`px-1.5 py-1 rounded text-[10px] font-mono font-bold border transition cursor-pointer ${
                                       Number(validityDays) === dVal
                                         ? 'bg-blue-600 text-white border-blue-600'
-                                        : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100'
+                                        : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800'
                                     }`}
                                   >
                                     {dVal}d
@@ -9703,8 +9718,8 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                           </div>
 
                           {/* 2. Price Basis / Incoterms */}
-                          <div id="field-price_basis">
-                            <label className="block text-[10.5px] font-bold uppercase text-slate-600 dark:text-slate-300 mb-1">
+                          <div id="field-price_basis" className="min-w-0">
+                            <label className="block text-[10.5px] font-bold uppercase text-slate-600 dark:text-slate-300 mb-1 truncate">
                               Price Basis / Incoterms
                             </label>
                             <input
@@ -9724,8 +9739,8 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                           </div>
 
                           {/* 3. Delivery Period */}
-                          <div id="field-delivery_period">
-                            <label className="block text-[10.5px] font-bold uppercase text-slate-600 dark:text-slate-300 mb-1">
+                          <div id="field-delivery_period" className="min-w-0">
+                            <label className="block text-[10.5px] font-bold uppercase text-slate-600 dark:text-slate-300 mb-1 truncate">
                               Delivery Period
                             </label>
                             <input
@@ -9745,8 +9760,8 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                           </div>
 
                           {/* 4. VAT / Tax Mode */}
-                          <div id="field-tax_mode">
-                            <label className="block text-[10.5px] font-bold uppercase text-slate-600 dark:text-slate-300 mb-1">
+                          <div id="field-tax_mode" className="min-w-0">
+                            <label className="block text-[10.5px] font-bold uppercase text-slate-600 dark:text-slate-300 mb-1 truncate">
                               VAT / Tax Mode
                             </label>
                             <select
@@ -9770,7 +9785,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                         </div>
 
                         {/* 5. Payment Terms with Quick Preset Chips */}
-                        <div id="field-payment_terms">
+                        <div id="field-payment_terms" className="pt-0.5">
                           <div className="flex items-center justify-between gap-2 mb-1 flex-wrap">
                             <label className="text-[10.5px] font-bold uppercase text-slate-600 dark:text-slate-300">
                               Payment Terms (Quotation Commercial Clause)
@@ -9788,7 +9803,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                   className={`px-2 py-0.5 rounded text-[10px] font-medium border transition cursor-pointer ${
                                     paymentTerms === presetTerm
                                       ? 'bg-blue-600 text-white border-blue-600'
-                                      : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-blue-50'
+                                      : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-blue-50 dark:hover:bg-slate-800'
                                   }`}
                                 >
                                   {presetTerm}
@@ -9801,42 +9816,42 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                             value={paymentTerms}
                             onChange={(e) => setPaymentTerms(e.target.value)}
                             placeholder="e.g. 50% advance to reserve and 50% before collection / 30 days PDC from Invoice & Collection"
-                            className={`w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg py-1.5 px-3 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 ${getHighlightClasses('payment_terms')}`}
+                            className={`w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 ${getHighlightClasses('payment_terms')}`}
                           />
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <div id="field-remarks" className="md:col-span-2">
-                          <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">Remarks / Status Updates</MarqueeLabel>
+                      <div className="grid grid-cols-1 @[600px]:grid-cols-3 gap-3 items-stretch">
+                        <div id="field-remarks" className="@[600px]:col-span-2 flex flex-col min-w-0">
+                          <MarqueeLabel className="text-[10.5px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1">Remarks / Status Updates</MarqueeLabel>
                           <textarea
                             rows={3}
                             placeholder="e.g. Quotation sent. Customer requested 5% discount."
                             value={remarks}
                             onChange={(e) => setRemarks(e.target.value)}
-                            className={`w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-2 px-3 text-sm text-slate-900 dark:text-white focus:outline-none font-sans ${getHighlightClasses('remarks')}`}
+                            className={`w-full flex-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white focus:outline-none font-sans ${getHighlightClasses('remarks')}`}
                           />
                         </div>
 
-                        <div className="space-y-3">
+                        <div className="space-y-2.5 min-w-0">
                           <div>
-                            <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">Invoice PO #</MarqueeLabel>
+                            <MarqueeLabel className="text-[10.5px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1">Invoice PO #</MarqueeLabel>
                             <input
                               type="text"
                               placeholder="e.g. PO-4500989583"
                               value={invoicePoNo}
                               onChange={(e) => setInvoicePoNo(e.target.value)}
-                              className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-3 text-sm text-slate-900 dark:text-white focus:outline-none font-mono"
+                              className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white focus:outline-none font-mono"
                             />
                           </div>
                           <div>
-                            <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">Payment Status</MarqueeLabel>
+                            <MarqueeLabel className="text-[10.5px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1">Payment Status</MarqueeLabel>
                             <input
                               type="text"
                               placeholder="e.g. 50% Advance, 50% PDC"
                               value={paymentStatus}
                               onChange={(e) => setPaymentStatus(e.target.value)}
-                              className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-3 text-sm text-slate-900 dark:text-white focus:outline-none"
+                              className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white focus:outline-none"
                             />
                           </div>
                         </div>
@@ -9845,7 +9860,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   )}
 
                   {/* Collapsible Subsection 3C: Source PDF Proposal & Excel AI Data */}
-                  <div id="field-source_files" className={`scroll-mt-4 ${showSourceFiles ? 'border-t border-slate-100 dark:border-slate-800/80 pt-4 space-y-3 animate-in fade-in duration-150' : 'hidden'}`}>
+                  <div id="field-source_files" className={`scroll-mt-4 ${showSourceFiles ? 'border-t border-slate-100 dark:border-slate-800/80 pt-3 space-y-2.5 animate-in fade-in duration-150' : 'hidden'}`}>
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <span className="text-[11px] font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider flex items-center gap-2">
                         <Sparkles className="w-3.5 h-3.5 text-blue-500 shrink-0" />
