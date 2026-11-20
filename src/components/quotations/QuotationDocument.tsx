@@ -45,6 +45,10 @@ import {
 } from '../../utils/numberToWords';
 import { isTechnicalSectionHeaderLine } from '../../utils/compositeBomUtils';
 import {
+  buildInlineLineItemFieldKey,
+  resolveInlineEditSeedValue
+} from '../../utils/inlineQuickEdit';
+import {
   QuotationTokenContext,
   buildQuotationTokenMap,
   resolveQuotationTokens,
@@ -3975,6 +3979,8 @@ export interface QuotationDocumentProps {
   onSelectBlock?: (id: StudioSelectedSection) => void;
   onSelectSection?: (section: StudioSelectedSection, subTarget?: string) => void;
   onInlineFieldEdit?: (fieldKey: string, nextValue: string) => void;
+  inlineQuickEditEnabled?: boolean;
+  inlineRawFieldValues?: Record<string, string>;
   onToggleBodyPageNumbering?: (bodyPageNumber: number) => void;
   onEditPageHeader?: (sheetKey: string) => void;
   showPageBreakGuides?: boolean;
@@ -3985,8 +3991,12 @@ interface EditableCanvasTextProps {
   fieldKey: string;
   canEdit: boolean;
   onCommit?: (fieldKey: string, nextValue: string) => void;
+  rawFieldValues?: Record<string, string>;
   className?: string;
+  inputClassName?: string;
   multiline?: boolean;
+  numeric?: boolean;
+  align?: 'left' | 'center' | 'right';
   placeholder?: string;
   renderedDisplay?: React.ReactNode;
 }
@@ -3996,19 +4006,31 @@ const EditableCanvasText: React.FC<EditableCanvasTextProps> = ({
   fieldKey,
   canEdit,
   onCommit,
+  rawFieldValues,
   className = '',
-  multiline: _multiline = false,
+  inputClassName = '',
+  multiline = false,
+  numeric = false,
+  align,
   placeholder = 'Click to edit...',
   renderedDisplay
 }) => {
+  const seedValue = resolveInlineEditSeedValue(fieldKey, value || '', rawFieldValues);
   const [editing, setEditing] = React.useState(false);
-  const [draft, setDraft] = React.useState(value || '');
+  const [draft, setDraft] = React.useState(seedValue);
+  const cancelledRef = React.useRef(false);
 
   React.useEffect(() => {
     if (!editing) {
-      setDraft(value || '');
+      setDraft(seedValue);
     }
-  }, [value, editing]);
+  }, [seedValue, editing]);
+
+  React.useEffect(() => {
+    if (!canEdit && editing) {
+      setEditing(false);
+    }
+  }, [canEdit, editing]);
 
   const displayNode = renderedDisplay !== undefined ? renderedDisplay : value;
 
@@ -4016,51 +4038,109 @@ const EditableCanvasText: React.FC<EditableCanvasTextProps> = ({
     return <span className={`whitespace-pre-line ${className}`}>{displayNode}</span>;
   }
 
+  const alignClass =
+    align === 'right' ? 'text-right' : align === 'center' ? 'text-center' : '';
+
   if (editing) {
     const commit = () => {
+      if (cancelledRef.current) {
+        cancelledRef.current = false;
+        return;
+      }
       setEditing(false);
-      if (draft !== (value || '')) {
+      if (draft !== seedValue) {
         onCommit(fieldKey, draft);
       }
     };
-    const rowCount = Math.max(1, Math.min(6, (draft || '').split('\n').length));
+
+    const cancel = () => {
+      cancelledRef.current = true;
+      setDraft(seedValue);
+      setEditing(false);
+    };
+
+    if (multiline) {
+      const rowCount = Math.max(2, Math.min(8, (draft || '').split('\n').length));
+      return (
+        <textarea
+          autoFocus
+          value={draft}
+          rows={rowCount}
+          placeholder={placeholder}
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              e.preventDefault();
+              e.stopPropagation();
+              cancel();
+            } else if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              e.stopPropagation();
+              commit();
+            } else {
+              e.stopPropagation();
+            }
+          }}
+          className={`bg-white text-slate-900 border border-blue-500 rounded-xs px-1 py-0.5 outline-none ring-2 ring-blue-300/60 w-full max-w-full font-inherit resize-y leading-snug print:hidden ${alignClass} ${className} ${inputClassName}`}
+        />
+      );
+    }
+
     return (
-      <textarea
+      <input
+        type="text"
+        inputMode={numeric ? 'decimal' : undefined}
         autoFocus
         value={draft}
-        rows={rowCount}
         placeholder={placeholder}
+        onMouseDown={(e) => e.stopPropagation()}
         onClick={(e) => e.stopPropagation()}
         onChange={(e) => setDraft(e.target.value)}
         onBlur={commit}
         onKeyDown={(e) => {
           if (e.key === 'Escape') {
-            e.stopPropagation();
-            setDraft(value || '');
-            setEditing(false);
-          } else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
             e.preventDefault();
-            commit();
+            e.stopPropagation();
+            cancel();
           } else if (e.key === 'Enter') {
+            e.preventDefault();
+            e.stopPropagation();
+            commit();
+          } else {
             e.stopPropagation();
           }
         }}
-        className={`bg-white text-slate-900 border border-blue-500 rounded px-1.5 py-0.5 outline-none ring-2 ring-blue-300/60 min-w-[120px] w-full max-w-full font-sans resize-y leading-snug print:hidden ${className}`}
+        className={`bg-white text-slate-900 border border-blue-500 rounded-xs px-1 py-0 outline-none ring-2 ring-blue-300/60 max-w-full leading-tight print:hidden ${
+          numeric ? 'w-full min-w-[44px]' : 'w-full min-w-[72px]'
+        } ${alignClass} ${className} ${inputClassName}`}
       />
     );
   }
 
   return (
     <span
-      title="Click to edit text directly on page (Enter adds line break, Ctrl+Enter or click outside saves)"
+      title={
+        multiline
+          ? 'Click to edit directly (Enter saves · Shift+Enter newline · Esc cancels)'
+          : 'Click to edit directly (Enter saves · Esc cancels)'
+      }
+      onMouseDown={(e) => e.stopPropagation()}
       onClick={(e) => {
         e.stopPropagation();
-        setDraft(value || '');
+        cancelledRef.current = false;
+        setDraft(seedValue);
         setEditing(true);
       }}
-      className={`whitespace-pre-line cursor-text border-b border-dashed border-blue-400/70 hover:bg-blue-50/70 hover:border-blue-600 rounded-xs px-0.5 -mx-0.5 transition-colors print:border-none print:bg-transparent print:p-0 print:m-0 ${className}`}
+      className={`whitespace-pre-line cursor-text rounded-[2px] outline-1 outline-dashed outline-blue-400/55 hover:outline-blue-600 hover:bg-blue-50/75 transition-colors print:outline-none print:bg-transparent ${className}`}
     >
-      {value ? displayNode : <span className="text-slate-400 italic print:hidden">{placeholder}</span>}
+      {value || renderedDisplay ? (
+        displayNode
+      ) : (
+        <span className="text-slate-400 italic font-normal print:hidden">{placeholder}</span>
+      )}
     </span>
   );
 };
@@ -4103,6 +4183,8 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
   onSelectBlock,
   onSelectSection,
   onInlineFieldEdit,
+  inlineQuickEditEnabled = false,
+  inlineRawFieldValues,
   onToggleBodyPageNumbering,
   onEditPageHeader,
   showPageBreakGuides = false
@@ -4349,7 +4431,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
   const isTableSelected = activeSelectedSection === 'items_table';
   const isFooterSelected = activeSelectedSection === 'footer';
   const isInteractive = Boolean(onSelectSection || onSelectBlock);
-  const canEditCanvasInline = Boolean(isInteractive && onInlineFieldEdit);
+  const canEditCanvasInline = Boolean(isInteractive && inlineQuickEditEnabled && onInlineFieldEdit);
 
   const resolvedHeaderConfig: QuotationHeaderConfig = {
     ...DEFAULT_HEADER_CONFIG,
@@ -5482,8 +5564,10 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                   tokenContext
                 )}
                 fieldKey="footer_disclaimer"
-                canEdit={canEditCanvasInline && isFooterSelected}
+                canEdit={canEditCanvasInline}
                 onCommit={onInlineFieldEdit}
+                rawFieldValues={inlineRawFieldValues}
+                multiline
                 placeholder="Enter footer disclaimer..."
               />
             </span>
@@ -6378,8 +6462,9 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                     value={priceBasis}
                     renderedDisplay={renderResolvedQuotationText(priceBasis, tokenContext)}
                     fieldKey="price_basis"
-                    canEdit={canEditCanvasInline && isTermsBlockSelected}
+                    canEdit={canEditCanvasInline}
                     onCommit={onInlineFieldEdit}
+                    rawFieldValues={inlineRawFieldValues}
                   />
                 ),
                 breakAfter: rowOpts.price_basis?.breakAfter,
@@ -6401,8 +6486,9 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                     value={deliveryPeriod}
                     renderedDisplay={renderResolvedQuotationText(deliveryPeriod, tokenContext)}
                     fieldKey="delivery_period"
-                    canEdit={canEditCanvasInline && isTermsBlockSelected}
+                    canEdit={canEditCanvasInline}
                     onCommit={onInlineFieldEdit}
+                    rawFieldValues={inlineRawFieldValues}
                   />
                 ),
                 breakAfter: rowOpts.delivery_period?.breakAfter,
@@ -6423,8 +6509,9 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                     value={paymentTerms}
                     renderedDisplay={renderResolvedQuotationText(paymentTerms, tokenContext)}
                     fieldKey="payment_terms"
-                    canEdit={canEditCanvasInline && isTermsBlockSelected}
+                    canEdit={canEditCanvasInline}
                     onCommit={onInlineFieldEdit}
+                    rawFieldValues={inlineRawFieldValues}
                   />
                 ),
                 breakAfter: rowOpts.payment_terms?.breakAfter,
@@ -6440,7 +6527,17 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
             ? {
                 key: 'validity',
                 label: (labels.validity || 'Validity').replace(/:$/, ''),
-                value: validityText,
+                value: (
+                  <EditableCanvasText
+                    value={validityText}
+                    renderedDisplay={validityText}
+                    fieldKey="offer_validity"
+                    canEdit={canEditCanvasInline}
+                    onCommit={onInlineFieldEdit}
+                    rawFieldValues={inlineRawFieldValues}
+                    placeholder="e.g. 30 Days"
+                  />
+                ),
                 breakAfter: rowOpts.validity?.breakAfter,
                 fullWidth: rowOpts.validity?.fullWidth,
                 isBold: rowOpts.validity?.isBold,
@@ -6539,8 +6636,9 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
               value={customNotes}
               renderedDisplay={renderResolvedQuotationText(customNotes, tokenContext)}
               fieldKey="custom_notes"
-              canEdit={canEditCanvasInline && isTermsBlockSelected}
+              canEdit={canEditCanvasInline}
               onCommit={onInlineFieldEdit}
+              rawFieldValues={inlineRawFieldValues}
               multiline
             />
           </div>
@@ -7519,8 +7617,9 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                   value={sig.name}
                   renderedDisplay={renderResolvedQuotationText(sig.name, tokenContext)}
                   fieldKey={nameFieldKey}
-                  canEdit={canEditCanvasInline && isSignatoryBlockSelected}
+                  canEdit={canEditCanvasInline}
                   onCommit={onInlineFieldEdit}
+                  rawFieldValues={inlineRawFieldValues}
                 />
               </p>
             );
@@ -7537,8 +7636,9 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                   value={sig.title}
                   renderedDisplay={renderResolvedQuotationText(sig.title, tokenContext)}
                   fieldKey={titleFieldKey}
-                  canEdit={canEditCanvasInline && isSignatoryBlockSelected}
+                  canEdit={canEditCanvasInline}
                   onCommit={onInlineFieldEdit}
+                  rawFieldValues={inlineRawFieldValues}
                 />
               </p>
             );
@@ -10377,8 +10477,9 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
               value={field.resolvedValue}
               renderedDisplay={renderResolvedQuotationText(field.resolvedValue, tokenContext)}
               fieldKey={`header_field:${field.id}`}
-              canEdit={canEditCanvasInline && isHeaderSelected && !isContinuationRepeat}
+              canEdit={canEditCanvasInline && !isContinuationRepeat}
               onCommit={onInlineFieldEdit}
+              rawFieldValues={inlineRawFieldValues}
             />
           </span>
         </span>
@@ -10826,8 +10927,10 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
               value={rawSubj}
               renderedDisplay={renderResolvedQuotationText(rawSubj, tokenContext)}
               fieldKey="subject"
-              canEdit={canEditCanvasInline && isSubjectSelected}
+              canEdit={canEditCanvasInline}
               onCommit={onInlineFieldEdit}
+              rawFieldValues={inlineRawFieldValues}
+              multiline
               placeholder="Enter quotation subject..."
             />
           </span>
@@ -10901,8 +11004,9 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                       value={rawClientEntityName}
                       renderedDisplay={clientEntityName}
                       fieldKey="client_name"
-                      canEdit={canEditCanvasInline && isRecipientSelected}
+                      canEdit={canEditCanvasInline}
                       onCommit={onInlineFieldEdit}
+                      rawFieldValues={inlineRawFieldValues}
                     />
                   </span>
                 )}
@@ -10918,8 +11022,9 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                         value={rawClientContactPerson || clientContactPerson}
                         renderedDisplay={clientContactPerson}
                         fieldKey="client_contact_person"
-                        canEdit={canEditCanvasInline && isRecipientSelected}
+                        canEdit={canEditCanvasInline}
                         onCommit={onInlineFieldEdit}
+                        rawFieldValues={inlineRawFieldValues}
                       />
                     </span>
                   </span>
@@ -10934,8 +11039,10 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                       value={rawClientAddress || clientAddress}
                       renderedDisplay={clientAddress}
                       fieldKey="client_address"
-                      canEdit={canEditCanvasInline && isRecipientSelected}
+                      canEdit={canEditCanvasInline}
                       onCommit={onInlineFieldEdit}
+                      rawFieldValues={inlineRawFieldValues}
+                      multiline
                     />
                   </p>
                 )}
@@ -10965,8 +11072,9 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                           value={rawClientTrn || clientTrn}
                           renderedDisplay={clientTrn}
                           fieldKey="client_trn"
-                          canEdit={canEditCanvasInline && isRecipientSelected}
+                          canEdit={canEditCanvasInline}
                           onCommit={onInlineFieldEdit}
+                          rawFieldValues={inlineRawFieldValues}
                         />
                       </span>
                     </span>
@@ -11007,8 +11115,9 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                     value={rawClientEntityName}
                     renderedDisplay={clientEntityName}
                     fieldKey="client_name"
-                    canEdit={canEditCanvasInline && isRecipientSelected}
+                    canEdit={canEditCanvasInline}
                     onCommit={onInlineFieldEdit}
+                    rawFieldValues={inlineRawFieldValues}
                   />
                 </h3>
               )}
@@ -11024,8 +11133,9 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                       value={rawClientContactPerson || clientContactPerson}
                       renderedDisplay={clientContactPerson}
                       fieldKey="client_contact_person"
-                      canEdit={canEditCanvasInline && isRecipientSelected}
+                      canEdit={canEditCanvasInline}
                       onCommit={onInlineFieldEdit}
+                      rawFieldValues={inlineRawFieldValues}
                     />
                   </span>
                 </p>
@@ -11040,8 +11150,10 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                     value={rawClientAddress || clientAddress}
                     renderedDisplay={clientAddress}
                     fieldKey="client_address"
-                    canEdit={canEditCanvasInline && isRecipientSelected}
+                    canEdit={canEditCanvasInline}
                     onCommit={onInlineFieldEdit}
+                    rawFieldValues={inlineRawFieldValues}
+                    multiline
                   />
                 </p>
               )}
@@ -11072,8 +11184,9 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                           value={rawClientTrn || clientTrn}
                           renderedDisplay={clientTrn}
                           fieldKey="client_trn"
-                          canEdit={canEditCanvasInline && isRecipientSelected}
+                          canEdit={canEditCanvasInline}
                           onCommit={onInlineFieldEdit}
+                          rawFieldValues={inlineRawFieldValues}
                         />
                       </span>
                     </span>
@@ -11172,7 +11285,14 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                 className={`${typoScale.heading} uppercase tracking-wider font-extrabold ${offerHeadingFmt.className}`}
                 style={{ color: themePalette.textAccent, ...offerHeadingFmt.style }}
               >
-                {renderResolvedQuotationText(offerHeadingText, tokenContext)}
+                <EditableCanvasText
+                  value={offerHeadingText}
+                  renderedDisplay={renderResolvedQuotationText(offerHeadingText, tokenContext)}
+                  fieldKey="document_title"
+                  canEdit={canEditCanvasInline}
+                  onCommit={onInlineFieldEdit}
+                  rawFieldValues={inlineRawFieldValues}
+                />
               </span>
               <div className="flex items-center gap-2">
                 <span
@@ -11184,8 +11304,9 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                     value={rawOfferRefStr}
                     renderedDisplay={activeOfferRefStr}
                     fieldKey="quote_ref"
-                    canEdit={canEditCanvasInline && isQuoteMetaSelected}
+                    canEdit={canEditCanvasInline}
                     onCommit={onInlineFieldEdit}
+                    rawFieldValues={inlineRawFieldValues}
                   />
                 </span>
                 {showRevBadge && (
@@ -11221,8 +11342,9 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                       value={rawSalesRepCandidate}
                       renderedDisplay={resolvedSalesRep}
                       fieldKey="prepared_by"
-                      canEdit={canEditCanvasInline && isQuoteMetaSelected}
+                      canEdit={canEditCanvasInline}
                       onCommit={onInlineFieldEdit}
+                      rawFieldValues={inlineRawFieldValues}
                     />
                   </span>
                 </div>
@@ -11257,7 +11379,14 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                   className={`${typoScale.heading} uppercase tracking-wider font-extrabold ${offerHeadingFmt.className}`}
                   style={{ color: themePalette.textAccent, ...offerHeadingFmt.style }}
                 >
-                  {renderResolvedQuotationText(offerHeadingText, tokenContext)}
+                  <EditableCanvasText
+                    value={offerHeadingText}
+                    renderedDisplay={renderResolvedQuotationText(offerHeadingText, tokenContext)}
+                    fieldKey="document_title"
+                    canEdit={canEditCanvasInline}
+                    onCommit={onInlineFieldEdit}
+                    rawFieldValues={inlineRawFieldValues}
+                  />
                 </span>
                 {showRevBadge && (
                   <span className={`${typoScale.sub} font-mono font-bold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200/80`}>
@@ -11276,8 +11405,10 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                       value={rawOfferRefStr}
                       renderedDisplay={activeOfferRefStr}
                       fieldKey="quote_ref"
-                      canEdit={canEditCanvasInline && isQuoteMetaSelected}
+                      canEdit={canEditCanvasInline}
                       onCommit={onInlineFieldEdit}
+                      rawFieldValues={inlineRawFieldValues}
+                      align="center"
                     />
                   </div>
                 </div>
@@ -11306,8 +11437,9 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                         value={rawSalesRepCandidate}
                         renderedDisplay={resolvedSalesRep}
                         fieldKey="prepared_by"
-                        canEdit={canEditCanvasInline && isQuoteMetaSelected}
+                        canEdit={canEditCanvasInline}
                         onCommit={onInlineFieldEdit}
+                        rawFieldValues={inlineRawFieldValues}
                       />
                     </span>
                   </div>
@@ -11346,7 +11478,17 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                   <span>• <strong className="text-slate-500 uppercase">Valid:</strong> {formatDate(resolvedValidUntilIso)}</span>
                 )}
                 {showSalesRep && resolvedSalesRep && (
-                  <span>• <strong className="text-slate-500 uppercase">By:</strong> {resolvedSalesRep}</span>
+                  <span>
+                    • <strong className="text-slate-500 uppercase">By:</strong>{' '}
+                    <EditableCanvasText
+                      value={rawSalesRepCandidate}
+                      renderedDisplay={resolvedSalesRep}
+                      fieldKey="prepared_by"
+                      canEdit={canEditCanvasInline}
+                      onCommit={onInlineFieldEdit}
+                      rawFieldValues={inlineRawFieldValues}
+                    />
+                  </span>
                 )}
                 {showEnquiryRef && enquiryRef && (
                   <span>• <strong className="text-slate-500 uppercase">Ref:</strong> <span className="font-mono">{enquiryRef}</span></span>
@@ -11386,8 +11528,9 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                         value={rawSalesRepCandidate}
                         renderedDisplay={resolvedSalesRep}
                         fieldKey="prepared_by"
-                        canEdit={canEditCanvasInline && isQuoteMetaSelected}
+                        canEdit={canEditCanvasInline}
                         onCommit={onInlineFieldEdit}
+                        rawFieldValues={inlineRawFieldValues}
                       />
                     </span>
                   </div>
@@ -13412,7 +13555,18 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                                       renderItemVisualBlock(item, itemNumber, 'inline_right')}
                                     <div className="min-w-0 flex-1">
                                       <div className={`font-bold text-slate-900 flex flex-wrap items-center gap-1.5 leading-snug ${tableFontSize} break-words`}>
-                                        <span>{item.item_name || 'Standard Line Item'}</span>
+                                        <EditableCanvasText
+                                          value={item.item_name || ''}
+                                          renderedDisplay={renderResolvedQuotationText(
+                                            item.item_name || 'Standard Line Item',
+                                            tokenContext
+                                          )}
+                                          fieldKey={buildInlineLineItemFieldKey(absoluteItemIdx, 'item_name')}
+                                          canEdit={canEditCanvasInline}
+                                          onCommit={onInlineFieldEdit}
+                                          rawFieldValues={inlineRawFieldValues}
+                                          placeholder="Item name / heading..."
+                                        />
                                         {item.hs_code && !group.optionBannerTitle && (
                                           <span className={`px-1.5 py-0.5 ${typoScale.micro} font-mono bg-slate-100 text-slate-700 border border-slate-200 rounded shrink-0`}>
                                             HSN/SAC: {item.hs_code}
@@ -13443,32 +13597,47 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                                       {(() => {
                                         const { cleanDescription, extractedSpecsAttrs } =
                                           extractLineItemAttributesAndCleanDescription(item);
+                                        const formattedDescDisplay = cleanDescription ? (
+                                          <>
+                                            {cleanDescription.split('\n').map((descLine, dIdx) => {
+                                              const trimmedLine = descLine.trim();
+                                              if (!trimmedLine) {
+                                                return <div key={dIdx} className="h-1" />;
+                                              }
+                                              if (isTechnicalSectionHeaderLine(trimmedLine)) {
+                                                return (
+                                                  <span
+                                                    key={dIdx}
+                                                    className="font-bold text-slate-900 mt-1.5 first:mt-0 block tracking-tight"
+                                                  >
+                                                    {renderResolvedQuotationText(trimmedLine, tokenContext)}
+                                                  </span>
+                                                );
+                                              }
+                                              return (
+                                                <span key={dIdx} className="block">
+                                                  {renderResolvedQuotationText(descLine, tokenContext)}
+                                                </span>
+                                              );
+                                            })}
+                                          </>
+                                        ) : undefined;
 
                                         return (
                                           <>
-                                            {cleanDescription && (
-                                              <div className={`${tableFontSize} text-slate-600 mt-1 leading-snug break-words ${item.row_bold ? 'font-semibold text-slate-800' : 'font-normal'}`}>
-                                                {cleanDescription.split('\n').map((descLine, dIdx) => {
-                                                  const trimmedLine = descLine.trim();
-                                                  if (!trimmedLine) {
-                                                    return <div key={dIdx} className="h-1" />;
-                                                  }
-                                                  if (isTechnicalSectionHeaderLine(trimmedLine)) {
-                                                    return (
-                                                      <span
-                                                        key={dIdx}
-                                                        className="font-bold text-slate-900 mt-1.5 first:mt-0 block tracking-tight"
-                                                      >
-                                                        {renderResolvedQuotationText(trimmedLine, tokenContext)}
-                                                      </span>
-                                                    );
-                                                  }
-                                                  return (
-                                                    <span key={dIdx} className="block">
-                                                      {renderResolvedQuotationText(descLine, tokenContext)}
-                                                    </span>
-                                                  );
-                                                })}
+                                            {(cleanDescription || canEditCanvasInline) && (
+                                              <div className={`${tableFontSize} text-slate-600 mt-1 leading-snug break-words ${item.row_bold ? 'font-semibold text-slate-800' : 'font-normal'} ${!cleanDescription ? 'print:hidden' : ''}`}>
+                                                <EditableCanvasText
+                                                  value={item.description || ''}
+                                                  renderedDisplay={formattedDescDisplay}
+                                                  fieldKey={buildInlineLineItemFieldKey(absoluteItemIdx, 'description')}
+                                                  canEdit={canEditCanvasInline}
+                                                  onCommit={onInlineFieldEdit}
+                                                  rawFieldValues={inlineRawFieldValues}
+                                                  multiline
+                                                  placeholder="+ Add description / scope note..."
+                                                  className="block"
+                                                />
                                               </div>
                                             )}
                                             {item.row_note && item.row_note.trim() && (
@@ -13939,12 +14108,35 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                                 ) : (
                                   <>
                                     <td className={`${tdPad} px-1 text-center font-mono font-bold text-slate-800 align-top ${tableFontSize} whitespace-nowrap`}>
-                                      {isItemizedSet ? '' : item.quantity}
+                                      {isItemizedSet ? (
+                                        ''
+                                      ) : (
+                                        <EditableCanvasText
+                                          value={String(item.quantity ?? 0)}
+                                          renderedDisplay={String(item.quantity ?? 0)}
+                                          fieldKey={buildInlineLineItemFieldKey(absoluteItemIdx, 'quantity')}
+                                          canEdit={canEditCanvasInline}
+                                          onCommit={onInlineFieldEdit}
+                                          numeric
+                                          align="center"
+                                        />
+                                      )}
                                     </td>
                                     {showUom && (
                                       <td className={`${tableFontSize} font-mono text-center py-1.5 px-1 leading-tight text-slate-700 break-words align-top`}>
                                         <span className="block px-1 text-center uppercase" title={item.unit || 'pcs'}>
-                                          {isItemizedSet ? 'SET' : item.unit || 'pcs'}
+                                          {isItemizedSet ? (
+                                            'SET'
+                                          ) : (
+                                            <EditableCanvasText
+                                              value={item.unit || 'pcs'}
+                                              renderedDisplay={item.unit || 'pcs'}
+                                              fieldKey={buildInlineLineItemFieldKey(absoluteItemIdx, 'unit')}
+                                              canEdit={canEditCanvasInline}
+                                              onCommit={onInlineFieldEdit}
+                                              align="center"
+                                            />
+                                          )}
                                         </span>
                                       </td>
                                     )}
@@ -13960,10 +14152,18 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                                             Itemized Below
                                           </span>
                                         ) : (
-                                          Number(item.unit_price || 0).toLocaleString('en-US', {
-                                            minimumFractionDigits: 2,
-                                            maximumFractionDigits: 2
-                                          })
+                                          <EditableCanvasText
+                                            value={String(Number(item.unit_price || 0))}
+                                            renderedDisplay={Number(item.unit_price || 0).toLocaleString('en-US', {
+                                              minimumFractionDigits: 2,
+                                              maximumFractionDigits: 2
+                                            })}
+                                            fieldKey={buildInlineLineItemFieldKey(absoluteItemIdx, 'unit_price')}
+                                            canEdit={canEditCanvasInline}
+                                            onCommit={onInlineFieldEdit}
+                                            numeric
+                                            align="right"
+                                          />
                                         )}
                                       </td>
                                     )}

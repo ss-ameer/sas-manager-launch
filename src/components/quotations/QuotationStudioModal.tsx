@@ -137,6 +137,11 @@ import {
   type QuickSpecLayoutPresetId
 } from '../../utils/specAttributeLayout';
 import {
+  parseInlineLineItemFieldKey,
+  parseInlineNumericValue,
+  parseInlineValidityDays
+} from '../../utils/inlineQuickEdit';
+import {
   X,
   FileText,
   Sliders,
@@ -4121,6 +4126,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
   });
   const [showFocusedMediaAdvanced, setShowFocusedMediaAdvanced] = useState(false);
   const [showFocusedImageUrlInput, setShowFocusedImageUrlInput] = useState(false);
+  const [inlineQuickEditEnabled, setInlineQuickEditEnabled] = useState(false);
 
   // Dedicated Signatory Presets State & Built-in Definitions (Decoupled from Document Layout Presets)
   const [customSignatoryPresets, setCustomSignatoryPresets] = useState<SignatoryPreset[]>(() => {
@@ -8610,7 +8616,61 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     });
   }, []);
 
-  // Direct On-Canvas Click-to-Edit Handler for Focused Section / Block Text
+  // Raw (uninterpolated) template values map so Inline Canvas Quick-Edit preserves dynamic @tags
+  const inlineRawFieldValues = useMemo<Record<string, string>>(() => {
+    const rawMap: Record<string, string> = {
+      document_title: recipientConfig.offerHeadingOverride || '',
+      subject: quotationSubject || '',
+      quote_ref: formattedQuoteRefOverride || '',
+      client_name: clientNameOverride || '',
+      client_contact_person: clientContactPerson || '',
+      client_address: clientAddressOverride || '',
+      client_trn: clientTrnOverride || '',
+      prepared_by: preparedBy || '',
+      price_basis: priceBasis || '',
+      delivery_period: deliveryPeriod || '',
+      payment_terms: paymentTerms || '',
+      offer_validity: `${validityDays} Days`,
+      custom_notes: customNotes || '',
+      primary_signatory_name: signatoryName || '',
+      primary_signatory_title: signatoryTitle || '',
+      secondary_signatory_name: secondarySignatoryName || '',
+      secondary_signatory_title: secondarySignatoryTitle || '',
+      footer_disclaimer:
+        footerConfig.customDisclaimerText || footerConfig.customDisclaimer || ''
+    };
+    if (Array.isArray(headerConfig.headerFields)) {
+      headerConfig.headerFields.forEach((f) => {
+        if (f.id && typeof f.valueOverride === 'string' && f.valueOverride.length > 0) {
+          rawMap[`header_field:${f.id}`] = f.valueOverride;
+        }
+      });
+    }
+    return rawMap;
+  }, [
+    recipientConfig.offerHeadingOverride,
+    quotationSubject,
+    formattedQuoteRefOverride,
+    clientNameOverride,
+    clientContactPerson,
+    clientAddressOverride,
+    clientTrnOverride,
+    preparedBy,
+    priceBasis,
+    deliveryPeriod,
+    paymentTerms,
+    validityDays,
+    customNotes,
+    signatoryName,
+    signatoryTitle,
+    secondarySignatoryName,
+    secondarySignatoryTitle,
+    footerConfig.customDisclaimerText,
+    footerConfig.customDisclaimer,
+    headerConfig.headerFields
+  ]);
+
+  // Direct On-Canvas Click-to-Edit Handler for Quick-Edit Mode
   const handleInlineFieldEdit = useCallback(
     (fieldKey: string, nextValue: string) => {
       if (fieldKey.startsWith('header_field:')) {
@@ -8632,7 +8692,63 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         return;
       }
 
+      const parsedLineItem = parseInlineLineItemFieldKey(fieldKey);
+      if (parsedLineItem) {
+        const { index, field } = parsedLineItem;
+        const currentList = customStudioLineItems ?? quotationLineItems;
+        const targetRow = currentList[index];
+        if (!targetRow) return;
+        const itemKey = targetRow.id || `item_${index}`;
+        const isVendorCostDoc =
+          documentType === 'purchase_order' ||
+          documentType === 'material_return_note' ||
+          (documentType as string) === 'material_return' ||
+          documentType === 'debit_note';
+
+        let patch: Partial<QuotationLineItem> = {};
+        if (field === 'item_name') {
+          patch = { item_name: nextValue };
+        } else if (field === 'description') {
+          patch = { description: nextValue };
+        } else if (field === 'unit') {
+          patch = { unit: nextValue.trim() || 'Nos' };
+        } else if (field === 'quantity') {
+          const nextQty = parseInlineNumericValue(nextValue, Number(targetRow.quantity) || 0);
+          patch = {
+            quantity: nextQty,
+            qty_ordered: nextQty,
+            total_price: QuotationRepository.roundCurrency(
+              nextQty * (Number(targetRow.unit_price) || 0)
+            )
+          };
+        } else if (field === 'unit_price') {
+          const nextRate = parseInlineNumericValue(
+            nextValue,
+            Number(targetRow.unit_price) || 0
+          );
+          patch = {
+            unit_price: nextRate,
+            ...(isVendorCostDoc ? { cost_price: nextRate } : {}),
+            total_price: QuotationRepository.roundCurrency(
+              (Number(targetRow.quantity) || 0) * nextRate
+            )
+          };
+        }
+
+        setCustomStudioLineItems(
+          currentList.map((row, rIdx) => (rIdx === index ? { ...row, ...patch } : row))
+        );
+        handleUpdateTopItemRowOption(itemKey, patch);
+        return;
+      }
+
       switch (fieldKey) {
+        case 'document_title':
+          setRecipientConfig((prev) => ({
+            ...prev,
+            offerHeadingOverride: nextValue
+          }));
+          break;
         case 'quote_ref':
           setFormattedQuoteRefOverride(nextValue);
           setRecipientConfig((prev) => ({
@@ -8667,6 +8783,9 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         case 'payment_terms':
           setPaymentTerms(nextValue);
           break;
+        case 'offer_validity':
+          setValidityDays((prevDays) => parseInlineValidityDays(nextValue, prevDays));
+          break;
         case 'custom_notes':
           setCustomNotes(nextValue);
           break;
@@ -8685,6 +8804,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         case 'footer_disclaimer':
           setFooterConfig((prev) => ({
             ...prev,
+            customDisclaimer: nextValue,
             customDisclaimerText: nextValue
           }));
           break;
@@ -8692,7 +8812,14 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
           break;
       }
     },
-    [activeProfile, liveQuotation.sender_snapshot]
+    [
+      activeProfile,
+      liveQuotation.sender_snapshot,
+      customStudioLineItems,
+      quotationLineItems,
+      documentType,
+      handleUpdateTopItemRowOption
+    ]
   );
 
   // Unified Context-Aware Element Text & Style Bar helper for Sections, Cards, and Blocks
@@ -15256,6 +15383,26 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                 >
                   <span>Fit Page</span>
                 </button>
+
+                {/* Inline Canvas Quick-Edit Toggle */}
+                <button
+                  type="button"
+                  onClick={() => setInlineQuickEditEnabled((prev) => !prev)}
+                  aria-pressed={inlineQuickEditEnabled}
+                  className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border text-xs font-semibold transition cursor-pointer whitespace-nowrap shrink-0 ${
+                    inlineQuickEditEnabled
+                      ? 'bg-indigo-600 hover:bg-indigo-700 border-indigo-700 text-white shadow-2xs'
+                      : 'bg-white hover:bg-indigo-50/70 border-slate-300/80 text-slate-700 hover:text-indigo-700 hover:border-indigo-300'
+                  }`}
+                  title={
+                    inlineQuickEditEnabled
+                      ? 'Quick Edit is ON — click highlighted text or numbers on the A4 preview to edit directly (Esc to cancel)'
+                      : 'Turn on Quick Edit to click and edit text, quantities, and rates directly on the A4 preview'
+                  }
+                >
+                  <Edit3 className="w-3 h-3 shrink-0" />
+                  <span>Quick Edit: {inlineQuickEditEnabled ? 'On' : 'Off'}</span>
+                </button>
               </div>
 
               {/* Live PDF Filename Bar (guaranteed readable width even when both sidebars are open) */}
@@ -15421,6 +15568,26 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                 </div>
             </div>
 
+            {/* Non-intrusive Quick-Edit Hint Strip (Print-Hidden) */}
+            {inlineQuickEditEnabled && (
+              <div className="px-3 py-1 bg-indigo-50/95 border-b border-indigo-200 flex items-center justify-between gap-2 text-[11px] text-indigo-900 shrink-0 print:hidden">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <Edit3 className="w-3 h-3 text-indigo-600 shrink-0" />
+                  <span className="truncate">
+                    <strong>Quick Edit active</strong> — click highlighted text or numbers on the page to edit directly ·{' '}
+                    <span className="text-indigo-700">Enter saves · Shift+Enter newline · Esc cancels</span>
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setInlineQuickEditEnabled(false)}
+                  className="px-2 py-0.5 rounded bg-white hover:bg-indigo-100 border border-indigo-200 text-indigo-700 font-semibold text-[10px] shrink-0 cursor-pointer transition"
+                >
+                  Done
+                </button>
+              </div>
+            )}
+
             {/* Scaled Preview Canvas & Retractable Inspector Drawer */}
             <div className="flex-1 flex overflow-hidden relative print:block min-w-0">
               {/* Scaled Preview Canvas */}
@@ -15471,6 +15638,8 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                       onSelectSection={handleCanvasSelectSection}
                       onSelectBlock={(id) => handleCanvasSelectSection(id)}
                       onInlineFieldEdit={handleInlineFieldEdit}
+                      inlineQuickEditEnabled={inlineQuickEditEnabled && !isPrintPortalMounted}
+                      inlineRawFieldValues={inlineRawFieldValues}
                       onToggleBodyPageNumbering={handleToggleBodyPageNumbering}
                       onEditPageHeader={handleEditPageHeader}
                       showPageBreakGuides={showPageBreakGuides}

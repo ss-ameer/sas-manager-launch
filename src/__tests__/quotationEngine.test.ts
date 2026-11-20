@@ -58,6 +58,13 @@ import {
   hasItemAttributeOverrides,
   resolveLineItemAttributeLayout
 } from '../utils/specAttributeLayout';
+import {
+  buildInlineLineItemFieldKey,
+  parseInlineLineItemFieldKey,
+  resolveInlineEditSeedValue,
+  parseInlineNumericValue,
+  parseInlineValidityDays
+} from '../utils/inlineQuickEdit';
 
 // ==========================================
 // TEST UTILITY & ASSERTION HARNESS
@@ -4084,6 +4091,77 @@ describe('Suite 26: Global Core Attributes, Spec Layout Presets & Preset/Revisio
     expect(hydratedStudio.visibleColumns.attributeLineBreaksAfter).toEqual(['Delivery']);
     expect(hydratedStudio.visibleColumns.attributeFullWidthKeys).toEqual(['Flow Rate', 'Motor Power']);
     expect(hydratedStudio.visibleColumns.balanceOrphanAttributeRow).toBe(false);
+  });
+});
+
+// ==========================================
+// SUITE 27: INLINE CANVAS QUICK-EDIT HELPERS
+// ==========================================
+
+describe('Inline Canvas Quick-Edit Helpers (@tag Seed Safety, Line-Item Keys & Parsing)', () => {
+  it('resolveInlineEditSeedValue preserves raw @tag template strings instead of resolved plain text', () => {
+    const rawMap = {
+      client_contact_person: 'Mr. @contact_person (@contact_designation)',
+      subject: 'Quotation for @subject — Ref @quote_ref',
+      custom_notes: ''
+    };
+
+    expect(
+      resolveInlineEditSeedValue('client_contact_person', 'Mr. Rahul Sharma (Procurement Manager)', rawMap)
+    ).toBe('Mr. @contact_person (@contact_designation)');
+
+    expect(
+      resolveInlineEditSeedValue('subject', 'Quotation for Centrifugal Pumps — Ref Q-2026-101', rawMap)
+    ).toBe('Quotation for @subject — Ref @quote_ref');
+
+    // Empty raw override falls back cleanly to displayed fallback value
+    expect(
+      resolveInlineEditSeedValue('custom_notes', 'Fallback note text', rawMap)
+    ).toBe('Fallback note text');
+
+    // Missing key or undefined map falls back cleanly
+    expect(
+      resolveInlineEditSeedValue('client_trn', '100234567800003', rawMap)
+    ).toBe('100234567800003');
+    expect(
+      resolveInlineEditSeedValue('client_trn', '100234567800003', undefined)
+    ).toBe('100234567800003');
+  });
+
+  it('buildInlineLineItemFieldKey and parseInlineLineItemFieldKey round-trip all 5 line-item fields and reject invalid keys', () => {
+    const fields = ['item_name', 'quantity', 'unit', 'unit_price', 'description'] as const;
+    for (let i = 0; i < fields.length; i++) {
+      const key = buildInlineLineItemFieldKey(i, fields[i]);
+      expect(key).toBe(`line_item:${i}:${fields[i]}`);
+      expect(parseInlineLineItemFieldKey(key)).toEqual({ index: i, field: fields[i] });
+    }
+
+    expect(parseInlineLineItemFieldKey('')).toBe(null);
+    expect(parseInlineLineItemFieldKey('subject')).toBe(null);
+    expect(parseInlineLineItemFieldKey('line_item:-1:quantity')).toBe(null);
+    expect(parseInlineLineItemFieldKey('line_item:1.5:quantity')).toBe(null);
+    expect(parseInlineLineItemFieldKey('line_item:0:unknown_field')).toBe(null);
+    expect(parseInlineLineItemFieldKey('line_item:0:item_name:extra')).toBe(null);
+  });
+
+  it('parseInlineNumericValue safely parses currency/comma formatted numbers and preserves fallback on invalid/negative input', () => {
+    expect(parseInlineNumericValue('1,250.50', 10)).toBe(1250.5);
+    expect(parseInlineNumericValue('AED 99.95', 10)).toBe(99.95);
+    expect(parseInlineNumericValue('0', 10)).toBe(0);
+    expect(parseInlineNumericValue('   ', 10)).toBe(0);
+    expect(parseInlineNumericValue('-25', 42)).toBe(42);
+    expect(parseInlineNumericValue('abc', 42)).toBe(42);
+    expect(parseInlineNumericValue('-', 42)).toBe(42);
+    expect(parseInlineNumericValue('.', 42)).toBe(42);
+  });
+
+  it('parseInlineValidityDays extracts and clamps positive day counts to 1..365', () => {
+    expect(parseInlineValidityDays('45 Days', 30)).toBe(45);
+    expect(parseInlineValidityDays('15', 30)).toBe(15);
+    expect(parseInlineValidityDays('Valid for 60 calendar days', 30)).toBe(60);
+    expect(parseInlineValidityDays('999 Days', 30)).toBe(365);
+    expect(parseInlineValidityDays('0 Days', 30)).toBe(30);
+    expect(parseInlineValidityDays('No numeric value', 30)).toBe(30);
   });
 });
 
