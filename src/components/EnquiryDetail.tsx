@@ -5722,7 +5722,7 @@ export default function EnquiryDetail({
         </div>
 
         {/* Panel Content */}
-        <div className="flex-1 overflow-y-auto p-6 pb-16 space-y-6 relative z-10">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden min-w-0 p-6 pb-16 space-y-6 relative z-10">
           
           {revertSuccess && (
             <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 text-emerald-800 flex items-center space-x-3 font-sans text-sm animate-pulse">
@@ -6930,7 +6930,7 @@ export default function EnquiryDetail({
           )}
 
           {activeTab === 'items' && (
-            <div className="space-y-4">
+            <div className="@container min-w-0 space-y-4">
               {/* Interactive Quotation Sync Prompt Banner when Line Items were updated */}
               {showQuoteSyncPrompt && quotations.length > 0 && (
                 <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs animate-in fade-in duration-200">
@@ -7697,9 +7697,9 @@ export default function EnquiryDetail({
                     const isDrifted = matchedProduct ? hasCatalogDrift(item, matchedProduct, currentEnquiry.currency) : false;
 
                     return (
-                      <div key={item.id || idx} className="bg-white border border-blue-200/90 rounded-2xl p-4 space-y-3.5 shadow-xs overflow-visible relative">
-                        {/* Row 1: Thumbnail, Item Name / Heading, Legacy Split Helper, Catalog Sync & Move/Delete */}
-                        <div className="flex items-center justify-between gap-2.5 flex-wrap pb-2.5 border-b border-slate-100">
+                      <div key={item.id || idx} className="@container min-w-0 bg-white border border-blue-200/90 rounded-2xl p-4 space-y-3 shadow-xs overflow-visible relative">
+                        {/* Header Row A: Primary Identity (#N, Thumbnail, Full-Width Item Name) + Reorder & Delete */}
+                        <div className="flex items-center justify-between gap-2 min-w-0">
                           <div className="flex items-center gap-2 min-w-0 flex-1">
                             <span className="text-[11px] font-mono font-bold bg-slate-100 text-slate-600 px-2 py-1 rounded-md shrink-0">
                               #{idx + 1}
@@ -7717,7 +7717,7 @@ export default function EnquiryDetail({
                               value={item.item_name ?? ''}
                               onChange={(e) => handleDraftItemChange(idx, 'item_name', e.target.value)}
                               placeholder={canSplitLegacy ? `Suggested: ${parsedLegacy.title}` : 'Item Name / Heading (e.g. Industrial Control Unit)'}
-                              className="flex-1 min-w-[180px] bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-900 focus:outline-none focus:border-blue-500 focus:bg-white transition-all"
+                              className="flex-1 min-w-0 w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-900 focus:outline-none focus:border-blue-500 focus:bg-white transition-all"
                             />
                             {canSplitLegacy && (
                               <button
@@ -7734,7 +7734,41 @@ export default function EnquiryDetail({
                             )}
                           </div>
 
-                          <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <div className="flex items-center bg-slate-100 rounded-lg p-0.5 border border-slate-200">
+                              <button
+                                type="button"
+                                disabled={idx === 0}
+                                onClick={() => handleMoveDraftItem(idx, 'up')}
+                                className="p-1 text-slate-500 hover:text-slate-800 hover:bg-white rounded-md disabled:opacity-30 cursor-pointer transition"
+                                title="Move Up"
+                              >
+                                <ArrowUp className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                disabled={idx === draftLineItems.length - 1}
+                                onClick={() => handleMoveDraftItem(idx, 'down')}
+                                className="p-1 text-slate-500 hover:text-slate-800 hover:bg-white rounded-md disabled:opacity-30 cursor-pointer transition"
+                                title="Move Down"
+                              >
+                                <ArrowDown className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveDraftItem(idx)}
+                              className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer transition"
+                              title="Remove Line Item"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Header Row B: Dedicated Secondary Catalog & Package Action Toolbar */}
+                        <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-slate-100 min-w-0">
+                          <div className="flex flex-wrap items-center gap-1.5 min-w-0">
                             {!matchedProduct ? (
                               <>
                                 <select
@@ -7767,7 +7801,7 @@ export default function EnquiryDetail({
                                       }
                                     }
                                   }}
-                                  className="px-2 py-1 rounded-lg text-[11px] font-semibold bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 cursor-pointer max-w-[165px] truncate focus:outline-none"
+                                  className="px-2 py-1 rounded-lg text-[11px] font-semibold bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 cursor-pointer min-w-0 max-w-[190px] truncate focus:outline-none"
                                   title="Non-destructively link this item to an existing Catalog SKU (keeps your custom quote price & specs intact)"
                                 >
                                   <option value="">🔗 Link SKU...</option>
@@ -7809,20 +7843,6 @@ export default function EnquiryDetail({
                                     void persistLineItemsImmediately(nextItems, { silentToast: true });
                                   }}
                                 />
-                                <VariantFamilyBar
-                                  item={item}
-                                  matchedProduct={matchedProduct}
-                                  products={products}
-                                  currency={currentEnquiry.currency}
-                                  compact
-                                  triggerToast={triggerToast}
-                                  onSwitchVariant={(nextItem) => {
-                                    const nextItems = draftLineItems.map((li, i) =>
-                                      i === idx ? { ...li, ...nextItem } : li
-                                    );
-                                    void persistLineItemsImmediately(nextItems, { silentToast: true });
-                                  }}
-                                />
                                 <button
                                   type="button"
                                   onClick={() => {
@@ -7840,14 +7860,16 @@ export default function EnquiryDetail({
                                     );
                                     void persistLineItemsImmediately(nextItems, { silentToast: true });
                                   }}
-                                  className="text-[10px] text-slate-400 hover:text-rose-600 underline cursor-pointer px-1"
+                                  className="text-[10px] text-slate-400 hover:text-rose-600 underline cursor-pointer px-1 shrink-0"
                                   title="Unlink from Catalog SKU"
                                 >
                                   Unlink
                                 </button>
                               </>
                             )}
+                          </div>
 
+                          <div className="flex flex-wrap items-center gap-1.5 shrink-0">
                             {!(item.is_composite_set || (item.sub_components && item.sub_components.length > 0)) && (
                               <button
                                 type="button"
@@ -7919,40 +7941,29 @@ export default function EnquiryDetail({
                               <GitFork className="w-3 h-3 text-indigo-500 shrink-0" />
                               <span>Clone Option</span>
                             </button>
-
-                            <div className="flex items-center bg-slate-100 rounded-lg p-0.5 border border-slate-200">
-                              <button
-                                type="button"
-                                disabled={idx === 0}
-                                onClick={() => handleMoveDraftItem(idx, 'up')}
-                                className="p-1 text-slate-500 hover:text-slate-800 hover:bg-white rounded-md disabled:opacity-30 cursor-pointer transition"
-                                title="Move Up"
-                              >
-                                <ArrowUp className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                type="button"
-                                disabled={idx === draftLineItems.length - 1}
-                                onClick={() => handleMoveDraftItem(idx, 'down')}
-                                className="p-1 text-slate-500 hover:text-slate-800 hover:bg-white rounded-md disabled:opacity-30 cursor-pointer transition"
-                                title="Move Down"
-                              >
-                                <ArrowDown className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveDraftItem(idx)}
-                              className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer transition"
-                              title="Remove Line Item"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
                           </div>
                         </div>
 
-                        {/* Row 2: Commercial Pricing Grid (4 Balanced Columns with Aligned Labels) */}
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 items-start">
+                        {/* Header Row C: Dedicated Full-Width Variant Family Bar (only renders when part of a family) */}
+                        {matchedProduct && (
+                          <VariantFamilyBar
+                            item={item}
+                            matchedProduct={matchedProduct}
+                            products={products}
+                            currency={currentEnquiry.currency}
+                            fullWidth
+                            triggerToast={triggerToast}
+                            onSwitchVariant={(nextItem) => {
+                              const nextItems = draftLineItems.map((li, i) =>
+                                i === idx ? { ...li, ...nextItem } : li
+                              );
+                              void persistLineItemsImmediately(nextItems, { silentToast: true });
+                            }}
+                          />
+                        )}
+
+                        {/* Row 2: Commercial Pricing Grid (4 Balanced Columns with Container-Responsive Breakpoints) */}
+                        <div className="grid grid-cols-2 @[540px]:grid-cols-4 gap-2.5 items-start min-w-0">
                           <div className="min-w-0">
                             <div className="h-4 flex items-center mb-1">
                               <label className="text-[10px] font-mono uppercase font-semibold text-slate-500 whitespace-nowrap">Quantity</label>
@@ -7961,7 +7972,7 @@ export default function EnquiryDetail({
                               type="number"
                               value={item.quantity ?? ''}
                               onChange={(e) => handleDraftItemChange(idx, 'quantity', e.target.value)}
-                              className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs font-mono tabular-nums text-slate-900 focus:outline-none focus:border-blue-500"
+                              className="w-full min-w-0 bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs font-mono tabular-nums text-slate-900 focus:outline-none focus:border-blue-500"
                             />
                           </div>
                           <div className="min-w-0">
@@ -7973,7 +7984,7 @@ export default function EnquiryDetail({
                               value={item.unit ?? ''}
                               placeholder="Nos / Set"
                               onChange={(e) => handleDraftItemChange(idx, 'unit', e.target.value)}
-                              className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs font-sans text-slate-900 focus:outline-none focus:border-blue-500"
+                              className="w-full min-w-0 bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs font-sans text-slate-900 focus:outline-none focus:border-blue-500"
                             />
                           </div>
                           <div className="min-w-0">
@@ -7985,15 +7996,15 @@ export default function EnquiryDetail({
                               step="0.01"
                               value={item.unit_price ?? ''}
                               onChange={(e) => handleDraftItemChange(idx, 'unit_price', e.target.value)}
-                              className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs font-mono tabular-nums font-semibold text-slate-900 focus:outline-none focus:border-blue-500"
+                              className="w-full min-w-0 bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs font-mono tabular-nums font-semibold text-slate-900 focus:outline-none focus:border-blue-500"
                             />
                           </div>
                           <div className="min-w-0">
-                            <div className="h-4 flex items-center justify-between gap-1 mb-1">
+                            <div className="h-4 flex items-center justify-between gap-1 mb-1 min-w-0">
                               <label className="text-[10px] font-mono uppercase font-semibold text-slate-500 whitespace-nowrap">Unit Cost</label>
                               {marginPct !== null && (
                                 <span className={`text-[10px] font-mono font-bold px-1.5 py-0.2 rounded whitespace-nowrap shrink-0 ${marginPct >= 20 ? 'bg-emerald-50 text-emerald-700' : marginPct >= 0 ? 'bg-amber-50 text-amber-700' : 'bg-rose-50 text-rose-700'}`}>
-                                  {marginPct.toFixed(0)}% Margin
+                                  {marginPct.toFixed(0)}%
                                 </span>
                               )}
                             </div>
@@ -8003,28 +8014,28 @@ export default function EnquiryDetail({
                               value={item.cost_price ?? ''}
                               placeholder="0.00"
                               onChange={(e) => handleDraftItemChange(idx, 'cost_price', e.target.value)}
-                              className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs font-mono tabular-nums text-slate-700 focus:outline-none focus:border-blue-500"
+                              className="w-full min-w-0 bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs font-mono tabular-nums text-slate-700 focus:outline-none focus:border-blue-500"
                             />
                           </div>
                         </div>
 
                         {/* Row 3: Lead Time, Option Scope, Brand / Make, Model / Part #, Origin & HS Code */}
-                        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 items-start">
+                        <div className="grid grid-cols-2 @[520px]:grid-cols-3 @[860px]:grid-cols-6 gap-2.5 items-start min-w-0">
                           <div className="min-w-0">
-                            <div className="h-4 flex items-center mb-1">
-                              <label className="text-[10px] font-mono uppercase font-semibold text-slate-500 whitespace-nowrap">Lead Time</label>
+                            <div className="h-4 flex items-center mb-1 min-w-0">
+                              <label className="text-[10px] font-mono uppercase font-semibold text-slate-500 truncate">Lead Time</label>
                             </div>
                             <input
                               type="text"
                               value={item.lead_time_note ?? ''}
                               placeholder="Ex-Stock / 2-3 Wks"
                               onChange={(e) => handleDraftItemChange(idx, 'lead_time_note', e.target.value)}
-                              className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-sans text-slate-800 focus:outline-none focus:border-blue-500"
+                              className="w-full min-w-0 bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-sans text-slate-800 focus:outline-none focus:border-blue-500"
                             />
                           </div>
                           <div className="min-w-0">
-                            <div className="h-4 flex items-center justify-between mb-1">
-                              <label className="text-[10px] font-mono uppercase font-semibold text-slate-500 whitespace-nowrap">Option / Scope</label>
+                            <div className="h-4 flex items-center justify-between gap-1 mb-1 min-w-0">
+                              <label className="text-[10px] font-mono uppercase font-semibold text-slate-500 truncate">Option / Scope</label>
                               {Boolean(
                                 item.is_optional ||
                                   /optional|add-on/i.test(
@@ -8036,7 +8047,7 @@ export default function EnquiryDetail({
                                     )
                                   )
                               ) && (
-                                <span className="text-[9px] font-mono font-bold text-amber-700 bg-amber-50 px-1 rounded border border-amber-200">
+                                <span className="text-[9px] font-mono font-bold text-amber-700 bg-amber-50 px-1 rounded border border-amber-200 shrink-0">
                                   Excl. Base
                                 </span>
                               )}
@@ -8085,7 +8096,7 @@ export default function EnquiryDetail({
                               };
 
                               return (
-                                <div className="space-y-1">
+                                <div className="space-y-1 min-w-0">
                                   <select
                                     value={isCustomOpt ? '__custom__' : normalizedPreset}
                                     onChange={(e) => {
@@ -8095,7 +8106,7 @@ export default function EnquiryDetail({
                                         applyOptionValue(e.target.value);
                                       }
                                     }}
-                                    className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-sans text-slate-800 focus:outline-none focus:border-blue-500"
+                                    className="w-full min-w-0 bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-sans text-slate-800 focus:outline-none focus:border-blue-500 truncate"
                                   >
                                     <option value="Default / Included">Default / Included</option>
                                     <option value="Option A">Option A (Baseline)</option>
@@ -8112,7 +8123,7 @@ export default function EnquiryDetail({
                                       value={rawOpt}
                                       onChange={(e) => applyOptionValue(e.target.value)}
                                       placeholder="e.g. Option D / Phase 2"
-                                      className="w-full bg-indigo-50/50 border border-indigo-200 rounded-lg px-2 py-1 text-[11px] font-mono text-indigo-900 focus:outline-none focus:border-indigo-500"
+                                      className="w-full min-w-0 bg-indigo-50/50 border border-indigo-200 rounded-lg px-2 py-1 text-[11px] font-mono text-indigo-900 focus:outline-none focus:border-indigo-500"
                                     />
                                   )}
                                 </div>
@@ -8120,51 +8131,51 @@ export default function EnquiryDetail({
                             })()}
                           </div>
                           <div className="min-w-0">
-                            <div className="h-4 flex items-center mb-1">
-                              <label className="text-[10px] font-mono uppercase font-semibold text-slate-500 whitespace-nowrap">Brand / Make</label>
+                            <div className="h-4 flex items-center mb-1 min-w-0">
+                              <label className="text-[10px] font-mono uppercase font-semibold text-slate-500 truncate">Brand / Make</label>
                             </div>
                             <input
                               type="text"
                               value={item.brand_make ?? ''}
                               placeholder="Manufacturer / Brand"
                               onChange={(e) => handleDraftItemChange(idx, 'brand_make', e.target.value)}
-                              className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-sans text-slate-800 focus:outline-none focus:border-blue-500"
+                              className="w-full min-w-0 bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-sans text-slate-800 focus:outline-none focus:border-blue-500"
                             />
                           </div>
                           <div className="min-w-0">
-                            <div className="h-4 flex items-center mb-1">
-                              <label className="text-[10px] font-mono uppercase font-semibold text-slate-500 whitespace-nowrap">Model / Part #</label>
+                            <div className="h-4 flex items-center mb-1 min-w-0">
+                              <label className="text-[10px] font-mono uppercase font-semibold text-slate-500 truncate">Model / Part #</label>
                             </div>
                             <input
                               type="text"
                               value={item.model_part_no ?? ''}
                               placeholder="Model / Part No."
                               onChange={(e) => handleDraftItemChange(idx, 'model_part_no', e.target.value)}
-                              className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-mono text-slate-800 focus:outline-none focus:border-blue-500"
+                              className="w-full min-w-0 bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-mono text-slate-800 focus:outline-none focus:border-blue-500"
                             />
                           </div>
                           <div className="min-w-0">
-                            <div className="h-4 flex items-center mb-1">
-                              <label className="text-[10px] font-mono uppercase font-semibold text-slate-500 whitespace-nowrap">Country of Origin</label>
+                            <div className="h-4 flex items-center mb-1 min-w-0">
+                              <label className="text-[10px] font-mono uppercase font-semibold text-slate-500 truncate">Country of Origin</label>
                             </div>
                             <input
                               type="text"
                               value={item.country_of_origin ?? ''}
                               placeholder="e.g. Germany, UAE"
                               onChange={(e) => handleDraftItemChange(idx, 'country_of_origin', e.target.value)}
-                              className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-sans text-slate-800 focus:outline-none focus:border-blue-500"
+                              className="w-full min-w-0 bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-sans text-slate-800 focus:outline-none focus:border-blue-500"
                             />
                           </div>
                           <div className="min-w-0">
-                            <div className="h-4 flex items-center mb-1">
-                              <label className="text-[10px] font-mono uppercase font-semibold text-slate-500 whitespace-nowrap">HS Code</label>
+                            <div className="h-4 flex items-center mb-1 min-w-0">
+                              <label className="text-[10px] font-mono uppercase font-semibold text-slate-500 truncate">HS Code</label>
                             </div>
                             <input
                               type="text"
                               value={item.hs_code ?? ''}
                               placeholder="e.g. 8537.10.00"
                               onChange={(e) => handleDraftItemChange(idx, 'hs_code', e.target.value)}
-                              className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-mono text-slate-800 focus:outline-none focus:border-blue-500"
+                              className="w-full min-w-0 bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-mono text-slate-800 focus:outline-none focus:border-blue-500"
                             />
                           </div>
                         </div>
@@ -8184,8 +8195,8 @@ export default function EnquiryDetail({
                         </div>
 
                         {/* Row 4B: Progressive Image Options Popover, Annex Datasheet Toggle & Line Total Bar */}
-                        <div className="bg-slate-50/80 border border-slate-200/80 rounded-xl px-3 py-2 space-y-2">
-                          <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="bg-slate-50/80 border border-slate-200/80 rounded-xl px-3 py-2 space-y-2 min-w-0">
+                          <div className="flex flex-wrap items-center justify-between gap-2 min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
                               <label className="px-2.5 py-1 bg-white hover:bg-slate-100 text-slate-700 rounded-lg text-[11px] font-semibold cursor-pointer flex items-center gap-1.5 border border-slate-200 shadow-2xs transition">
                                 {uploadingInlineItemMedia?.idx === idx && uploadingInlineItemMedia?.type === 'datasheet' ? (
@@ -8264,9 +8275,9 @@ export default function EnquiryDetail({
                         </div>
 
                         {/* Row 5: Technical Specification Attributes (Key/Value Pills) */}
-                        <div className="pt-2 border-t border-slate-100 space-y-1.5">
-                          <div className="flex items-center justify-between">
-                            <span className="text-[10px] font-mono uppercase text-slate-400">
+                        <div className="pt-2 border-t border-slate-100 space-y-1.5 min-w-0">
+                          <div className="flex items-center justify-between gap-2 min-w-0">
+                            <span className="text-[10px] font-mono uppercase text-slate-400 truncate">
                               Technical Specification Attributes ({(item.attributes || []).length})
                             </span>
                             <button
@@ -8275,15 +8286,15 @@ export default function EnquiryDetail({
                                 const nextAttrs = [...(item.attributes || []), { key: '', value: '' }];
                                 handleDraftItemChange(idx, 'attributes', nextAttrs);
                               }}
-                              className="text-[10px] font-semibold text-blue-600 hover:text-blue-700 cursor-pointer"
+                              className="text-[10px] font-semibold text-blue-600 hover:text-blue-700 cursor-pointer shrink-0 whitespace-nowrap"
                             >
                               + Add Spec Attribute
                             </button>
                           </div>
                           {(item.attributes || []).length > 0 && (
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                            <div className="grid grid-cols-1 @[700px]:grid-cols-2 gap-1.5 min-w-0">
                               {(item.attributes || []).map((attr, attrIdx) => (
-                                <div key={attrIdx} className="flex items-center gap-1.5">
+                                <div key={attrIdx} className="flex items-center gap-1.5 min-w-0">
                                   <input
                                     type="text"
                                     value={attr.key ?? ''}
@@ -8293,7 +8304,7 @@ export default function EnquiryDetail({
                                       nextAttrs[attrIdx] = { ...nextAttrs[attrIdx], key: e.target.value };
                                       handleDraftItemChange(idx, 'attributes', nextAttrs);
                                     }}
-                                    className="w-2/5 bg-slate-50 border border-slate-200 rounded px-2 py-1 text-[11px] font-mono"
+                                    className="w-[40%] min-w-0 bg-slate-50 border border-slate-200 rounded px-2 py-1 text-[11px] font-mono focus:outline-none focus:border-blue-500 focus:bg-white"
                                   />
                                   <input
                                     type="text"
@@ -8304,7 +8315,7 @@ export default function EnquiryDetail({
                                       nextAttrs[attrIdx] = { ...nextAttrs[attrIdx], value: e.target.value };
                                       handleDraftItemChange(idx, 'attributes', nextAttrs);
                                     }}
-                                    className="flex-1 bg-slate-50 border border-slate-200 rounded px-2 py-1 text-[11px] font-sans"
+                                    className="flex-1 min-w-0 bg-slate-50 border border-slate-200 rounded px-2 py-1 text-[11px] font-sans focus:outline-none focus:border-blue-500 focus:bg-white"
                                   />
                                   <button
                                     type="button"
@@ -8312,7 +8323,8 @@ export default function EnquiryDetail({
                                       const nextAttrs = (item.attributes || []).filter((_, i) => i !== attrIdx);
                                       handleDraftItemChange(idx, 'attributes', nextAttrs);
                                     }}
-                                    className="p-1 text-slate-400 hover:text-rose-600 cursor-pointer"
+                                    className="p-1 text-slate-400 hover:text-rose-600 cursor-pointer shrink-0"
+                                    title="Remove Spec Attribute"
                                   >
                                     <X className="w-3 h-3" />
                                   </button>
@@ -8327,7 +8339,7 @@ export default function EnquiryDetail({
                           item.is_composite_set ||
                             (item.sub_components && item.sub_components.length > 0)
                         ) && (
-                          <div className="pt-2 border-t border-slate-100">
+                          <div className="pt-2 border-t border-slate-100 min-w-0 max-w-full">
                             <CompositePackageEditor
                               item={item}
                               isCompositeSet={true}
@@ -8432,283 +8444,304 @@ export default function EnquiryDetail({
                         )}
 
                         <div
-                          className={`bg-slate-50 border transition-all duration-200 rounded-xl overflow-visible relative ${
+                          className={`@container min-w-0 bg-slate-50 border transition-all duration-200 rounded-xl overflow-visible relative ${
                             isExpanded ? 'border-blue-300 shadow-xs bg-slate-50/90' : 'border-slate-200 hover:border-slate-300'
                           }`}
                         >
-                          {/* Collapsed Header Bar */}
+                          {/* Collapsed Header Bar (3-Row Hierarchy: Row 1 Title+Price, Row 2 Metadata+Sync, Row 3 Variant Family) */}
                           <div
                             onClick={() => toggleLineItem(origIdx >= 0 ? origIdx : idx)}
-                            className={`p-3.5 flex items-center justify-between cursor-pointer select-none hover:bg-slate-100/70 transition gap-3 ${
+                            className={`p-3.5 space-y-2 cursor-pointer select-none hover:bg-slate-100/70 transition min-w-0 ${
                               isExpanded ? 'rounded-t-xl' : 'rounded-xl'
                             }`}
                           >
-                            <div className="flex items-center space-x-2.5 min-w-0 flex-1">
-                              <div className="text-slate-400 hover:text-slate-600 shrink-0">
-                                {isExpanded ? (
-                                  <ChevronDown className="w-4 h-4 text-blue-600" />
+                            {/* Row 1: Identity (Left) + Anchored Commercial Pricing (Right) */}
+                            <div className="flex items-start justify-between gap-4 min-w-0">
+                              <div className="flex items-start gap-2.5 min-w-0 flex-1">
+                                <div className="text-slate-400 hover:text-slate-600 shrink-0 mt-1">
+                                  {isExpanded ? (
+                                    <ChevronDown className="w-4 h-4 text-blue-600" />
+                                  ) : (
+                                    <ChevronRight className="w-4 h-4" />
+                                  )}
+                                </div>
+
+                                {thumbUrl ? (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setLightboxItemState({
+                                        origIdx: origIdx >= 0 ? origIdx : idx,
+                                        item,
+                                        matchedProduct
+                                      });
+                                    }}
+                                    className="relative group/thumb shrink-0 cursor-pointer"
+                                    title="Click to zoom & inspect item photo / diagram"
+                                  >
+                                    <img
+                                      src={thumbUrl}
+                                      alt={parsedDisplay.title || 'Product'}
+                                      className="w-9 h-9 rounded-lg object-contain bg-white border border-slate-200 group-hover/thumb:border-blue-400 p-0.5 shrink-0 transition"
+                                      style={{
+                                        transform: `rotate(${(item.image_adjustments || matchedProduct?.image_adjustments)?.rotation || 0}deg) scale(${(item.image_adjustments || matchedProduct?.image_adjustments)?.scale || 1})`
+                                      }}
+                                      referrerPolicy="no-referrer"
+                                    />
+                                    {(item.secondary_image_url || matchedProduct?.secondary_image_url) && (
+                                      <span className="absolute -top-1 -right-1 px-1 py-0.2 rounded-full bg-indigo-600 text-white text-[8px] font-mono font-bold shadow-xs">
+                                        2
+                                      </span>
+                                    )}
+                                  </button>
                                 ) : (
-                                  <ChevronRight className="w-4 h-4" />
+                                  <span className="text-xs bg-white border border-slate-200 text-slate-500 px-2 py-0.5 rounded font-mono font-bold shrink-0 mt-0.5">
+                                    #{origIdx >= 0 ? origIdx + 1 : idx + 1}
+                                  </span>
+                                )}
+
+                                {item.item_type === 'charge' || item.item_type === 'discount' || item.product_type === 'Service / Charge' ? (
+                                  <div className="min-w-0 flex-1 pt-0.5">
+                                    <span className="inline-flex items-center gap-1 text-xs bg-amber-50 border border-amber-200 text-amber-800 font-bold px-2 py-0.5 rounded font-mono max-w-full truncate">
+                                      <span>Charge:</span> {item.charge_type || item.product_type}
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <div className="min-w-0 flex-1 pt-0.5">
+                                    <div className="font-semibold text-slate-900 text-sm leading-snug line-clamp-2 break-words">
+                                      {parsedDisplay.title || item.product_type || 'Line Item'}
+                                    </div>
+                                  </div>
                                 )}
                               </div>
 
-                              {thumbUrl ? (
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setLightboxItemState({
-                                      origIdx: origIdx >= 0 ? origIdx : idx,
-                                      item,
-                                      matchedProduct
-                                    });
-                                  }}
-                                  className="relative group/thumb shrink-0 cursor-pointer"
-                                  title="Click to zoom & inspect item photo / diagram"
-                                >
-                                  <img
-                                    src={thumbUrl}
-                                    alt={parsedDisplay.title || 'Product'}
-                                    className="w-9 h-9 rounded-lg object-contain bg-white border border-slate-200 group-hover/thumb:border-blue-400 p-0.5 shrink-0 transition"
-                                    style={{
-                                      transform: `rotate(${(item.image_adjustments || matchedProduct?.image_adjustments)?.rotation || 0}deg) scale(${(item.image_adjustments || matchedProduct?.image_adjustments)?.scale || 1})`
-                                    }}
-                                    referrerPolicy="no-referrer"
-                                  />
-                                  {(item.secondary_image_url || matchedProduct?.secondary_image_url) && (
-                                    <span className="absolute -top-1 -right-1 px-1 py-0.2 rounded-full bg-indigo-600 text-white text-[8px] font-mono font-bold shadow-xs">
-                                      2
+                              <div className="shrink-0 text-right font-mono tabular-nums whitespace-nowrap flex flex-col items-end gap-0.5">
+                                <span className="text-sm font-bold text-blue-600 leading-tight">
+                                  {formatCurrency(item.total_price)}
+                                </span>
+                                <div className="flex items-center justify-end gap-1.5 text-[11px] text-slate-500">
+                                  <span>
+                                    {item.quantity} {item.unit} × {formatCurrency(item.unit_price)}
+                                  </span>
+                                  {lineMarginPct !== null && (
+                                    <span
+                                      className={`text-[10px] font-bold px-1.5 py-0.2 rounded ${
+                                        lineMarginPct >= 20
+                                          ? 'bg-emerald-50 text-emerald-700'
+                                          : lineMarginPct >= 0
+                                          ? 'bg-amber-50 text-amber-700'
+                                          : 'bg-rose-50 text-rose-700'
+                                      }`}
+                                      title={`Unit Cost: ${formatCurrency(cost)}`}
+                                    >
+                                      {lineMarginPct.toFixed(0)}%
                                     </span>
                                   )}
-                                </button>
-                              ) : (
-                                <span className="text-xs bg-white border border-slate-200 text-slate-500 px-2 py-0.5 rounded font-mono font-bold shrink-0">
-                                  #{origIdx >= 0 ? origIdx + 1 : idx + 1}
-                                </span>
-                              )}
-
-                              {item.item_type === 'charge' || item.item_type === 'discount' || item.product_type === 'Service / Charge' ? (
-                                <span className="text-xs bg-amber-50 border border-amber-200 text-amber-800 font-bold px-2 py-0.5 rounded font-mono flex items-center gap-1 shrink-0">
-                                  <span>Charge:</span> {item.charge_type || item.product_type}
-                                </span>
-                              ) : (
-                                <div className="min-w-0 flex-1">
-                                  <div className="flex items-center gap-1.5 flex-wrap">
-                                    <span className="font-semibold text-slate-900 text-sm truncate">
-                                      {parsedDisplay.title || item.product_type || 'Line Item'}
-                                    </span>
-                                    {matchedProduct?.is_inventoried && availStock !== null && (
-                                      <span
-                                        className={`text-[10px] font-mono tabular-nums font-bold px-1.5 py-0.2 rounded shrink-0 ${
-                                          isLowStock
-                                            ? 'bg-amber-50 text-amber-700 border border-amber-200'
-                                            : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                                        }`}
-                                      >
-                                        Avail: {availStock} {matchedProduct.unit}
-                                      </span>
-                                    )}
-                                    {(item.datasheet_attachment?.url || matchedProduct?.datasheet_attachment?.url) && (
-                                      <span className="text-[10px] font-mono font-semibold px-1.5 py-0.2 rounded bg-indigo-50 text-indigo-700 border border-indigo-200 shrink-0">
-                                        Datasheet
-                                      </span>
-                                    )}
-                                    {canEditEnquiry(user, activeWorkspace, currentEnquiry) && !matchedProduct && (
-                                      <button
-                                        type="button"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          setSaveToCatalogState({
-                                            isOpen: true,
-                                            item,
-                                            itemIndex: origIdx >= 0 ? origIdx : idx,
-                                            isFromDraft: false
-                                          });
-                                        }}
-                                        className="text-[10px] font-sans font-semibold px-1.5 py-0.5 rounded bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 flex items-center gap-0.5 cursor-pointer shrink-0"
-                                        title="Register this custom line item in the Products Catalog"
-                                      >
-                                        <Plus className="w-2.5 h-2.5" />
-                                        <span>Save to Catalog</span>
-                                      </button>
-                                    )}
-                                    {canEditEnquiry(user, activeWorkspace, currentEnquiry) && matchedProduct && (
-                                      <div onClick={(e) => e.stopPropagation()} className="flex items-center gap-1.5 flex-wrap shrink-0">
-                                        <CatalogSyncMenu
-                                          item={item}
-                                          matchedProduct={matchedProduct}
-                                          products={products}
-                                          setProducts={setProducts}
-                                          currency={currentEnquiry.currency}
-                                          activeWorkspaceId={activeWorkspace?.id}
-                                          triggerToast={triggerToast}
-                                          compact
-                                          onUpdateLineItem={async (patch) => {
-                                            const targetIdx = origIdx >= 0 ? origIdx : idx;
-                                            const nextItems = [...(currentEnquiry.line_items || [])];
-                                            if (!nextItems[targetIdx]) return;
-                                            nextItems[targetIdx] = { ...nextItems[targetIdx], ...patch };
-                                            await persistLineItemsImmediately(nextItems, { silentToast: true });
-                                          }}
-                                        />
-                                        <VariantFamilyBar
-                                          item={item}
-                                          matchedProduct={matchedProduct}
-                                          products={products}
-                                          currency={currentEnquiry.currency}
-                                          compact
-                                          triggerToast={triggerToast}
-                                          onSwitchVariant={async (nextItem) => {
-                                            const targetIdx = origIdx >= 0 ? origIdx : idx;
-                                            const nextItems = [...(currentEnquiry.line_items || [])];
-                                            if (!nextItems[targetIdx]) return;
-                                            nextItems[targetIdx] = { ...nextItems[targetIdx], ...nextItem };
-                                            await persistLineItemsImmediately(nextItems, { silentToast: true });
-                                          }}
-                                        />
-                                      </div>
-                                    )}
-                                  </div>
-                                  <div className="text-xs text-slate-500 flex flex-wrap items-center gap-1.5 mt-0.5">
-                                    {(item.brand_make || matchedProduct?.brand_make) && (
-                                      <span className="font-medium text-slate-600">{item.brand_make || matchedProduct?.brand_make}</span>
-                                    )}
-                                    {(() => {
-                                      const modelVal = (item.model_part_no || matchedProduct?.model_part_no || '').trim();
-                                      let specSub = (parsedDisplay.spec && parsedDisplay.spec !== parsedDisplay.title ? parsedDisplay.spec : '').trim();
-                                      if (modelVal && specSub.toLowerCase().startsWith(modelVal.toLowerCase())) {
-                                        specSub = specSub.slice(modelVal.length).replace(/^[\s·,\-–—:]+/, '').trim();
-                                      }
-                                      return (
-                                        <>
-                                          {modelVal && <span>· {modelVal}</span>}
-                                          {specSub && (
-                                            <span className="truncate max-w-[260px]">· {specSub}</span>
-                                          )}
-                                        </>
-                                      );
-                                    })()}
-                                    {(() => {
-                                      const specCount = (item.attributes || []).filter((a) => a && (a.key?.trim() || a.value?.trim())).length;
-                                      const rawLeadTime = (
-                                        item.lead_time_note ||
-                                        item.availability ||
-                                        (item as any).delivery_time ||
-                                        matchedProduct?.default_availability ||
-                                        effectiveCommercialTerms.deliveryPeriod ||
-                                        ''
-                                      ).trim();
-                                      const showLeadTime =
-                                        rawLeadTime.length > 0 &&
-                                        !/^as mentioned against each item$/i.test(rawLeadTime);
-                                      const originVal = (
-                                        item.country_of_origin ||
-                                        matchedProduct?.country_of_origin ||
-                                        ''
-                                      ).trim();
-
-                                      return (
-                                        <>
-                                          {specCount > 0 && (
-                                            <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200/80 text-[10px] font-semibold leading-none shrink-0">
-                                              {specCount} {specCount === 1 ? 'Spec' : 'Specs'}
-                                            </span>
-                                          )}
-                                          {showLeadTime && (
-                                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-50/80 text-amber-800 border border-amber-200/70 text-[10px] font-semibold leading-none shrink-0">
-                                              <Clock className="w-2.5 h-2.5 text-amber-600 shrink-0" />
-                                              <span className="truncate max-w-[160px]">{rawLeadTime}</span>
-                                            </span>
-                                          )}
-                                          {originVal && (
-                                            <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-blue-50/70 text-blue-700 border border-blue-200/70 text-[10px] font-semibold leading-none shrink-0">
-                                              Origin: {originVal}
-                                            </span>
-                                          )}
-                                        </>
-                                      );
-                                    })()}
-                                  </div>
                                 </div>
-                              )}
+                              </div>
                             </div>
 
-                            <div className="flex items-center gap-3 shrink-0 font-mono tabular-nums">
-                              {lineMarginPct !== null && (
-                                <span
-                                  className={`text-[10px] font-bold px-1.5 py-0.5 rounded hidden sm:inline-block ${
-                                    lineMarginPct >= 20
-                                      ? 'bg-emerald-50 text-emerald-700'
-                                      : lineMarginPct >= 0
-                                      ? 'bg-amber-50 text-amber-700'
-                                      : 'bg-rose-50 text-rose-700'
-                                  }`}
-                                  title={`Unit Cost: ${formatCurrency(cost)}`}
-                                >
-                                  {lineMarginPct.toFixed(0)}% Margin
-                                </span>
+                            {/* Row 2: Metadata, Specs, Stock & Catalog Sync Strip */}
+                            {!(item.item_type === 'charge' || item.item_type === 'discount' || item.product_type === 'Service / Charge') && (
+                              <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 pl-6 min-w-0 text-xs text-slate-500">
+                                {canEditEnquiry(user, activeWorkspace, currentEnquiry) && !matchedProduct && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setSaveToCatalogState({
+                                        isOpen: true,
+                                        item,
+                                        itemIndex: origIdx >= 0 ? origIdx : idx,
+                                        isFromDraft: false
+                                      });
+                                    }}
+                                    className="text-[10px] font-sans font-semibold px-1.5 py-0.5 rounded bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 flex items-center gap-0.5 cursor-pointer shrink-0"
+                                    title="Register this custom line item in the Products Catalog"
+                                  >
+                                    <Plus className="w-2.5 h-2.5" />
+                                    <span>Save to Catalog</span>
+                                  </button>
+                                )}
+
+                                {canEditEnquiry(user, activeWorkspace, currentEnquiry) && matchedProduct && (
+                                  <div onClick={(e) => e.stopPropagation()} className="shrink-0">
+                                    <CatalogSyncMenu
+                                      item={item}
+                                      matchedProduct={matchedProduct}
+                                      products={products}
+                                      setProducts={setProducts}
+                                      currency={currentEnquiry.currency}
+                                      activeWorkspaceId={activeWorkspace?.id}
+                                      triggerToast={triggerToast}
+                                      compact
+                                      onUpdateLineItem={async (patch) => {
+                                        const targetIdx = origIdx >= 0 ? origIdx : idx;
+                                        const nextItems = [...(currentEnquiry.line_items || [])];
+                                        if (!nextItems[targetIdx]) return;
+                                        nextItems[targetIdx] = { ...nextItems[targetIdx], ...patch };
+                                        await persistLineItemsImmediately(nextItems, { silentToast: true });
+                                      }}
+                                    />
+                                  </div>
+                                )}
+
+                                {matchedProduct?.is_inventoried && availStock !== null && (
+                                  <span
+                                    className={`text-[10px] font-mono tabular-nums font-bold px-1.5 py-0.2 rounded shrink-0 ${
+                                      isLowStock
+                                        ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                                        : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                    }`}
+                                  >
+                                    Avail: {availStock} {matchedProduct.unit}
+                                  </span>
+                                )}
+
+                                {(item.datasheet_attachment?.url || matchedProduct?.datasheet_attachment?.url) && (
+                                  <span className="text-[10px] font-mono font-semibold px-1.5 py-0.2 rounded bg-indigo-50 text-indigo-700 border border-indigo-200 shrink-0">
+                                    Datasheet
+                                  </span>
+                                )}
+
+                                {(item.brand_make || matchedProduct?.brand_make) && (
+                                  <span className="font-medium text-slate-600">{item.brand_make || matchedProduct?.brand_make}</span>
+                                )}
+
+                                {(() => {
+                                  const modelVal = (item.model_part_no || matchedProduct?.model_part_no || '').trim();
+                                  let specSub = (parsedDisplay.spec && parsedDisplay.spec !== parsedDisplay.title ? parsedDisplay.spec : '').trim();
+                                  if (modelVal && specSub.toLowerCase().startsWith(modelVal.toLowerCase())) {
+                                    specSub = specSub.slice(modelVal.length).replace(/^[\s·,\-–—:]+/, '').trim();
+                                  }
+                                  return (
+                                    <>
+                                      {modelVal && <span className="truncate max-w-[200px]">· {modelVal}</span>}
+                                      {specSub && (
+                                        <span className="truncate max-w-[240px]">· {specSub}</span>
+                                      )}
+                                    </>
+                                  );
+                                })()}
+
+                                {(() => {
+                                  const specCount = (item.attributes || []).filter((a) => a && (a.key?.trim() || a.value?.trim())).length;
+                                  const rawLeadTime = (
+                                    item.lead_time_note ||
+                                    item.availability ||
+                                    (item as any).delivery_time ||
+                                    matchedProduct?.default_availability ||
+                                    effectiveCommercialTerms.deliveryPeriod ||
+                                    ''
+                                  ).trim();
+                                  const showLeadTime =
+                                    rawLeadTime.length > 0 &&
+                                    !/^as mentioned against each item$/i.test(rawLeadTime);
+                                  const originVal = (
+                                    item.country_of_origin ||
+                                    matchedProduct?.country_of_origin ||
+                                    ''
+                                  ).trim();
+
+                                  return (
+                                    <>
+                                      {specCount > 0 && (
+                                        <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200/80 text-[10px] font-semibold leading-none shrink-0">
+                                          {specCount} {specCount === 1 ? 'Spec' : 'Specs'}
+                                        </span>
+                                      )}
+                                      {showLeadTime && (
+                                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-50/80 text-amber-800 border border-amber-200/70 text-[10px] font-semibold leading-none shrink-0 max-w-full">
+                                          <Clock className="w-2.5 h-2.5 text-amber-600 shrink-0" />
+                                          <span className="truncate max-w-[160px]">{rawLeadTime}</span>
+                                        </span>
+                                      )}
+                                      {originVal && (
+                                        <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-blue-50/70 text-blue-700 border border-blue-200/70 text-[10px] font-semibold leading-none shrink-0">
+                                          Origin: {originVal}
+                                        </span>
+                                      )}
+                                    </>
+                                  );
+                                })()}
+                              </div>
+                            )}
+
+                            {/* Row 3: Dedicated Full-Width Variant Family Bar (renders only when item belongs to a variant family) */}
+                            {!(item.item_type === 'charge' || item.item_type === 'discount' || item.product_type === 'Service / Charge') &&
+                              canEditEnquiry(user, activeWorkspace, currentEnquiry) &&
+                              matchedProduct && (
+                                <VariantFamilyBar
+                                  item={item}
+                                  matchedProduct={matchedProduct}
+                                  products={products}
+                                  currency={currentEnquiry.currency}
+                                  fullWidth
+                                  triggerToast={triggerToast}
+                                  onSwitchVariant={async (nextItem) => {
+                                    const targetIdx = origIdx >= 0 ? origIdx : idx;
+                                    const nextItems = [...(currentEnquiry.line_items || [])];
+                                    if (!nextItems[targetIdx]) return;
+                                    nextItems[targetIdx] = { ...nextItems[targetIdx], ...nextItem };
+                                    await persistLineItemsImmediately(nextItems, { silentToast: true });
+                                  }}
+                                />
                               )}
-                              <span className="text-xs text-slate-500 hidden sm:inline-block">
-                                {item.quantity} {item.unit} × {formatCurrency(item.unit_price)}
-                              </span>
-                              <span className="text-sm font-bold text-blue-600">
-                                {formatCurrency(item.total_price)}
-                              </span>
-                            </div>
                           </div>
 
                           {/* Inline Expanded View */}
                           {isExpanded && (
-                            <div className="px-4 pb-4 pt-2 space-y-3 border-t border-slate-200/80 bg-white rounded-b-xl">
-                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs font-sans pt-1">
-                                <div>
+                            <div className="px-4 pb-4 pt-2.5 space-y-3 border-t border-slate-200/80 bg-white rounded-b-xl min-w-0 overflow-hidden">
+                              <div className="grid grid-cols-1 @[520px]:grid-cols-3 gap-2.5 text-xs font-sans pt-1 min-w-0">
+                                <div className="min-w-0">
                                   <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider block">Quantity & Pricing</span>
-                                  <span className="font-semibold text-slate-800 font-mono tabular-nums">
+                                  <span className="font-semibold text-slate-800 font-mono tabular-nums break-words">
                                     {item.quantity} {item.unit} @ {formatCurrency(item.unit_price)} = {formatCurrency(item.total_price)}
                                   </span>
                                 </div>
                                 {!isMaskedForBasic && cost > 0 && (
-                                  <div>
+                                  <div className="min-w-0">
                                     <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider block">Cost & Line Margin</span>
-                                    <span className="font-semibold text-slate-700 font-mono tabular-nums">
+                                    <span className="font-semibold text-slate-700 font-mono tabular-nums break-words">
                                       Cost: {formatCurrency(cost)} ({lineMarginPct !== null ? `${lineMarginPct.toFixed(1)}%` : '—'})
                                     </span>
                                   </div>
                                 )}
-                                <div>
+                                <div className="min-w-0">
                                   <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider block">Delivery / Lead Time</span>
-                                  <span className="font-semibold text-slate-700 font-mono">
+                                  <span className="font-semibold text-slate-700 font-mono break-words">
                                     {item.lead_time_note || matchedProduct?.default_availability || 'Immediate / Stock'}
                                   </span>
                                 </div>
                               </div>
 
                               {(item.brand_make || item.model_part_no || item.country_of_origin || item.hs_code) && (
-                                <div className="flex flex-wrap items-center gap-2 text-[11px] font-mono text-slate-600 pt-1">
-                                  {item.brand_make && <span><strong>Brand:</strong> {item.brand_make}</span>}
-                                  {item.model_part_no && <span>· <strong>Model:</strong> {item.model_part_no}</span>}
-                                  {item.country_of_origin && <span>· <strong>Origin:</strong> {item.country_of_origin}</span>}
-                                  {item.hs_code && <span>· <strong>HS:</strong> {item.hs_code}</span>}
+                                <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] font-mono text-slate-600 pt-1 min-w-0">
+                                  {item.brand_make && <span className="break-words"><strong>Brand:</strong> {item.brand_make}</span>}
+                                  {item.model_part_no && <span className="break-words">· <strong>Model:</strong> {item.model_part_no}</span>}
+                                  {item.country_of_origin && <span className="break-words">· <strong>Origin:</strong> {item.country_of_origin}</span>}
+                                  {item.hs_code && <span className="break-words">· <strong>HS:</strong> {item.hs_code}</span>}
                                 </div>
                               )}
 
                               {(parsedDisplay.spec || item.description) && (
-                                <div>
+                                <div className="min-w-0">
                                   <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider block mb-1">Description / Spec Notes</span>
-                                  <p className="text-xs text-slate-700 leading-relaxed font-sans font-medium whitespace-pre-line bg-slate-50 p-3 rounded-lg border border-slate-150">
+                                  <p className="text-xs text-slate-700 leading-relaxed font-sans font-medium whitespace-pre-line break-words bg-slate-50 p-3 rounded-lg border border-slate-150">
                                     {parsedDisplay.spec || item.description}
                                   </p>
                                 </div>
                               )}
 
                               {hasAttrs && (
-                                <div>
+                                <div className="min-w-0">
                                   <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider block mb-1">Specification Attributes</span>
-                                  <div className="flex flex-wrap gap-1.5">
+                                  <div className="flex flex-wrap gap-1.5 min-w-0">
                                     {item.attributes!.map((attr, attrIdx) => {
                                       const cleanVal = String(attr.value || '').replace(/^[•▪▸\-*]\s*/, '').trim();
                                       return (
-                                        <span key={attrIdx} className="text-[11px] font-mono bg-slate-50 border border-slate-200 text-slate-700 px-2.5 py-1 rounded-md shadow-2xs">
+                                        <span key={attrIdx} className="max-w-full break-words text-[11px] font-mono bg-slate-50 border border-slate-200 text-slate-700 px-2.5 py-1 rounded-md shadow-2xs">
                                           <span className="font-semibold text-slate-900">{attr.key}:</span> {cleanVal || '—'}
                                         </span>
                                       );
@@ -8718,13 +8751,13 @@ export default function EnquiryDetail({
                               )}
 
                               {Array.isArray(item.sub_components) && item.sub_components.length > 0 && (
-                                <div className="pt-2 border-t border-slate-200/80 space-y-2">
+                                <div className="pt-2 border-t border-slate-200/80 space-y-2 min-w-0">
                                   <div className="flex items-center justify-between gap-2 flex-wrap">
                                     <span className="text-[10px] font-mono font-bold text-indigo-700 uppercase tracking-wider">
                                       Included Items &amp; Package Contents ({item.sub_components.length} {item.sub_components.length === 1 ? 'item' : 'items'})
                                     </span>
                                   </div>
-                                  <div className="overflow-x-auto rounded-lg border border-slate-200">
+                                  <div className="w-full max-w-full overflow-x-auto rounded-lg border border-slate-200">
                                     <table className="w-full text-left border-collapse text-xs">
                                       <thead>
                                         <tr className="bg-slate-50 border-b border-slate-200 text-[10px] font-mono uppercase text-slate-500">
@@ -8745,9 +8778,9 @@ export default function EnquiryDetail({
                                                 {idx + 1}.{sIdx + 1}
                                               </td>
                                               <td className="py-1.5 px-2">
-                                                <div className="font-medium text-slate-800">{sub.item_name}</div>
+                                                <div className="font-medium text-slate-800 break-words">{sub.item_name}</div>
                                                 {sub.remark && (
-                                                  <div className="text-[11px] font-bold text-slate-600">
+                                                  <div className="text-[11px] font-bold text-slate-600 break-words">
                                                     Remark: {sub.remark}
                                                   </div>
                                                 )}
@@ -8758,10 +8791,10 @@ export default function EnquiryDetail({
                                               <td className="py-1.5 px-2 text-center font-mono text-slate-600 uppercase">
                                                 {sub.unit || 'NOS'}
                                               </td>
-                                              <td className="py-1.5 px-2 text-right font-mono text-slate-700">
+                                              <td className="py-1.5 px-2 text-right font-mono text-slate-700 whitespace-nowrap">
                                                 {isIncludedSub ? '—' : formatCurrency(sub.unit_price)}
                                               </td>
-                                              <td className="py-1.5 px-2 text-right font-mono font-bold text-slate-900">
+                                              <td className="py-1.5 px-2 text-right font-mono font-bold text-slate-900 whitespace-nowrap">
                                                 {isIncludedSub ? (
                                                   <span className="text-[10px] font-semibold text-emerald-700">Included</span>
                                                 ) : (
@@ -8775,7 +8808,7 @@ export default function EnquiryDetail({
                                     </table>
                                   </div>
                                   {item.option_scope_notes && (
-                                    <div className="p-2.5 rounded-lg bg-indigo-50/50 border border-indigo-100 text-xs text-slate-700 whitespace-pre-line">
+                                    <div className="p-2.5 rounded-lg bg-indigo-50/50 border border-indigo-100 text-xs text-slate-700 whitespace-pre-line break-words">
                                       <span className="font-bold text-indigo-950 block mb-0.5">Package / Scope Note:</span>
                                       {item.option_scope_notes}
                                     </div>
