@@ -80,13 +80,18 @@ import {
 import {
   ParentSyncFieldKey,
   ALL_PARENT_SYNC_FIELDS,
+  BulkVariantMatrixRow,
+  COMMON_DIFFERENTIATING_SPEC_KEYS,
   suggestParentBaseSku,
   buildSmartVariantSku,
   deduplicateSku,
   detectProtectedVariantSpecKeys,
   isProtectedVariantSpecKey,
   getDefaultSelectedParentSyncFields,
-  buildParentToVariantSyncPatch
+  buildParentToVariantSyncPatch,
+  detectDefaultDifferentiatingSpecKey,
+  recomputeBulkVariantMatrixSkus,
+  parseBulkVariantPasteLines
 } from '../utils/catalogVariantUtils';
 import {
   compileDescriptionWithSpecs,
@@ -318,6 +323,14 @@ export default function ProductManager({
   const [showParentSyncModal, setShowParentSyncModal] = useState<boolean>(false);
   const [selectedParentSyncFields, setSelectedParentSyncFields] = useState<ParentSyncFieldKey[]>([]);
   const [isSyncingVariants, setIsSyncingVariants] = useState<boolean>(false);
+
+  // Bulk Variant Matrix (Quick-Add Multiple Sizes / Models) State
+  const [showBulkVariantMatrixModal, setShowBulkVariantMatrixModal] = useState<boolean>(false);
+  const [bulkVariantSpecKey, setBulkVariantSpecKey] = useState<string>('Dimensions');
+  const [bulkVariantRows, setBulkVariantRows] = useState<BulkVariantMatrixRow[]>([]);
+  const [showBulkPastePanel, setShowBulkPastePanel] = useState<boolean>(false);
+  const [bulkPasteText, setBulkPasteText] = useState<string>('');
+  const [isSavingBulkVariants, setIsSavingBulkVariants] = useState<boolean>(false);
 
   // AI Bulk Catalog Importer Modal State
   const [showAiCatalogModal, setShowAiCatalogModal] = useState<boolean>(false);
@@ -1546,6 +1559,294 @@ export default function ProductManager({
       }
     } finally {
       setIsSyncingVariants(false);
+    }
+  };
+
+  // Bulk Variant Matrix helpers (Quick-Add Multiple Sizes / Models under a Master Parent)
+  const createBlankBulkVariantRow = (seedIdx: number): BulkVariantMatrixRow => ({
+    id: `bvr_${Date.now()}_${seedIdx}_${Math.random().toString(36).slice(2, 6)}`,
+    variantLabel: '',
+    modelPartNo: '',
+    sku: '',
+    isSkuManual: false,
+    costPrice: '',
+    sellingPrice: ''
+  });
+
+  const getActiveCatalogSkus = (): string[] =>
+    activeCatalogProducts
+      .map((p) => p.sku)
+      .filter((s): s is string => Boolean(s && s.trim()));
+
+  const recomputeBulkRows = (
+    nextRows: BulkVariantMatrixRow[],
+    specKeyOverride?: string
+  ): BulkVariantMatrixRow[] => {
+    const liveParent = buildLiveParentSyncSnapshot();
+    const effectiveParentSku = (formSku.trim() || editingProduct?.sku || '').trim();
+    return recomputeBulkVariantMatrixSkus(
+      nextRows,
+      effectiveParentSku,
+      liveParent,
+      getActiveCatalogSkus(),
+      specKeyOverride ?? bulkVariantSpecKey
+    );
+  };
+
+  const openBulkVariantMatrixModal = () => {
+    if (!editingProduct?.id || formVariantParentId) return;
+    const linkedChildren = getEditingLinkedVariants();
+    const liveParent = buildLiveParentSyncSnapshot();
+    const suggestedKey = detectDefaultDifferentiatingSpecKey(liveParent, linkedChildren);
+    setBulkVariantSpecKey(suggestedKey);
+    setBulkVariantRows([
+      createBlankBulkVariantRow(0),
+      createBlankBulkVariantRow(1),
+      createBlankBulkVariantRow(2)
+    ]);
+    setShowBulkPastePanel(false);
+    setBulkPasteText('');
+    setShowBulkVariantMatrixModal(true);
+  };
+
+  const handleBulkRowFieldChange = (
+    rowId: string,
+    field: 'variantLabel' | 'modelPartNo' | 'sku' | 'costPrice' | 'sellingPrice',
+    value: string
+  ) => {
+    const updated = bulkVariantRows.map((row) => {
+      if (row.id !== rowId) return row;
+      if (field === 'sku') {
+        return {
+          ...row,
+          sku: value.toUpperCase(),
+          isSkuManual: value.trim().length > 0
+        };
+      }
+      return { ...row, [field]: value };
+    });
+    setBulkVariantRows(recomputeBulkRows(updated));
+  };
+
+  const handleResetBulkRowAutoSku = (rowId: string) => {
+    const updated = bulkVariantRows.map((row) =>
+      row.id === rowId ? { ...row, isSkuManual: false, sku: '' } : row
+    );
+    setBulkVariantRows(recomputeBulkRows(updated));
+  };
+
+  const handleApplyBulkPasteLines = () => {
+    const parsed = parseBulkVariantPasteLines(bulkPasteText);
+    if (parsed.length === 0) {
+      triggerToast?.('Paste at least one line (e.g. 30" × 72" | 2850).', 'info');
+      return;
+    }
+    const populatedExisting = bulkVariantRows.filter(
+      (r) =>
+        r.variantLabel.trim() !== '' ||
+        r.modelPartNo.trim() !== '' ||
+        r.sellingPrice.trim() !== '' ||
+        r.costPrice.trim() !== ''
+    );
+    const merged = [...populatedExisting, ...parsed];
+    setBulkVariantRows(recomputeBulkRows(merged));
+    setBulkPasteText('');
+    setShowBulkPastePanel(false);
+    triggerToast?.(
+      `Added ${parsed.length} variant row${parsed.length === 1 ? '' : 's'} with live smart Auto-SKUs.`,
+      'success'
+    );
+  };
+
+  const handleSaveBulkVariantMatrix = async () => {
+    if (isSavingBulkVariants || !editingProduct?.id || !activeWorkspace?.id) return;
+    const validRows = bulkVariantRows.filter(
+      (r) => r.variantLabel.trim() !== '' || r.modelPartNo.trim() !== ''
+    );
+    if (validRows.length === 0) {
+      triggerToast?.('Enter at least one Variant Label or Model / Part # before saving.', 'error');
+      return;
+    }
+
+    setIsSavingBulkVariants(true);
+    try {
+      const liveParent = buildLiveParentSyncSnapshot();
+      const parentId = editingProduct.id;
+      const parentName = (liveParent.name || editingProduct.name || 'Product').trim();
+      const familyName = (editingProduct.product_family || formProductFamily || parentName).trim();
+      const cleanSpecKey = bulkVariantSpecKey.trim() || 'Dimensions';
+      const cleanSpecKeyLower = cleanSpecKey.toLowerCase();
+
+      // Shared non-blank baseline specs from parent (excluding the differentiating spec key being populated per row)
+      const sharedParentAttrs: ProductAttribute[] = (liveParent.attributes || [])
+        .map((a) => ({ key: String(a?.key || '').trim(), value: String(a?.value || '').trim() }))
+        .filter(
+          (a) =>
+            a.key !== '' &&
+            a.value !== '' &&
+            a.key.toLowerCase() !== cleanSpecKeyLower
+        );
+
+      const takenSkus: string[] = [...getActiveCatalogSkus()];
+      const effectiveParentSku = (formSku.trim() || editingProduct.sku || '').trim();
+      const createdChildren: Product[] = [];
+      const nowIso = new Date().toISOString();
+
+      for (let i = 0; i < validRows.length; i += 1) {
+        const row = validRows[i];
+        const rawLabel = row.variantLabel.trim();
+        const rawModel = row.modelPartNo.trim();
+        const formattedDiffVal = rawLabel
+          ? formatSiTechnicalValue(rawLabel) || rawLabel
+          : '';
+        const variantLabel = formattedDiffVal || rawModel;
+
+        const childAttrs: ProductAttribute[] = [
+          ...(formattedDiffVal ? [{ key: cleanSpecKey, value: formattedDiffVal }] : []),
+          ...sharedParentAttrs.map((a) => ({ ...a }))
+        ];
+
+        const rawCandidateSku =
+          row.sku.trim() ||
+          buildSmartVariantSku(
+            effectiveParentSku,
+            liveParent,
+            {
+              variant_label: variantLabel,
+              model_part_no: rawModel || undefined,
+              attributes: childAttrs
+            },
+            takenSkus
+          );
+        const finalSku = deduplicateSku(rawCandidateSku, takenSkus) || undefined;
+        if (finalSku) {
+          takenSkus.push(finalSku);
+        }
+
+        const parsedCost = row.costPrice.trim() !== '' ? Number(row.costPrice) : undefined;
+        const finalCost =
+          parsedCost !== undefined && !isNaN(parsedCost) && parsedCost >= 0 ? parsedCost : undefined;
+        const parsedSell = row.sellingPrice.trim() !== '' ? Number(row.sellingPrice) : 0;
+        const finalSell = !isNaN(parsedSell) && parsedSell > 0 ? parsedSell : 0;
+
+        const clonedSubComponents =
+          liveParent.is_composite_set && Array.isArray(liveParent.sub_components)
+            ? liveParent.sub_components.map((c, cIdx) => ({
+                ...c,
+                id: `comp_${Date.now()}_${i}_${cIdx}`,
+                attributes: Array.isArray(c.attributes)
+                  ? c.attributes.map((a) => ({ ...a }))
+                  : undefined
+              }))
+            : undefined;
+
+        const compiledDesc =
+          compileDescriptionWithSpecs(parentName, liveParent.description || '', childAttrs) ||
+          liveParent.description ||
+          parentName;
+
+        const childPayload: Partial<Product> & Record<string, any> = {
+          workspace_id: activeWorkspace.id,
+          name: parentName,
+          product_type: liveParent.product_type || editingProduct.product_type || 'General',
+          description: compiledDesc,
+          unit:
+            formUnit ||
+            editingProduct.unit ||
+            (liveParent.is_composite_set ? 'SET' : 'Nos'),
+          currency: editingProduct.currency || 'AED',
+          unit_price: finalSell,
+          cost_price: finalCost,
+          sku: finalSku,
+          variant_parent_id: parentId,
+          parent_product_id: parentId,
+          variant_label: variantLabel,
+          product_family: familyName,
+          brand_make: liveParent.brand_make || undefined,
+          brand: liveParent.brand_make || undefined,
+          model_part_no: rawModel || undefined,
+          default_availability: liveParent.default_availability || undefined,
+          country_of_origin: liveParent.country_of_origin || undefined,
+          hs_code: formHsCode.trim() || editingProduct.hs_code || undefined,
+          image_url: liveParent.image_url || (null as any),
+          secondary_image_url: liveParent.secondary_image_url || (null as any),
+          image_caption: liveParent.image_caption || undefined,
+          secondary_image_caption: liveParent.secondary_image_caption || undefined,
+          image_adjustments: liveParent.image_adjustments
+            ? { ...liveParent.image_adjustments }
+            : undefined,
+          datasheet_attachment: liveParent.datasheet_attachment
+            ? { ...liveParent.datasheet_attachment }
+            : (null as any),
+          datasheet_url: liveParent.datasheet_url || liveParent.datasheet_attachment?.url || undefined,
+          attributes: childAttrs,
+          is_composite_set: Boolean(liveParent.is_composite_set),
+          sub_components: clonedSubComponents,
+          package_pricing_mode: liveParent.is_composite_set
+            ? liveParent.package_pricing_mode || 'itemized'
+            : undefined,
+          option_scope_notes: liveParent.is_composite_set
+            ? liveParent.option_scope_notes || undefined
+            : undefined,
+          is_inventoried: Boolean(formIsInventoried),
+          stock_on_hand: formIsInventoried ? 0 : undefined,
+          stock_reserved: 0,
+          reorder_level: formIsInventoried ? Number(formReorderLevel || 0) : undefined,
+          storage_location:
+            formIsInventoried && formStorageLocation.trim()
+              ? formStorageLocation.trim()
+              : undefined,
+          search_terms: generateProductSearchTerms(
+            `${parentName} ${variantLabel}`.trim(),
+            String(liveParent.product_type || editingProduct.product_type || 'General'),
+            finalSku || '',
+            liveParent.brand_make || rawModel || variantLabel || undefined
+          ),
+          createdAt: nowIso,
+          updatedAt: nowIso
+        };
+
+        const sanitized = sanitizeFirestorePayload(childPayload);
+        const res = await safeAddDoc('products', sanitized);
+        const newId = res?.id || `prod_${Date.now()}_${i}`;
+        const savedChild: Product = { ...childPayload, id: newId } as Product;
+        await MetadataRepository.upsertLocalProduct(savedChild).catch(() => {});
+        createdChildren.push(savedChild);
+      }
+
+      // Ensure parent record is marked as Master Parent with has_variants: true
+      const updatedParent: Product = {
+        ...editingProduct,
+        has_variants: true,
+        product_family: familyName,
+        updatedAt: new Date().toISOString()
+      } as Product;
+      await safeUpdateDoc('products', parentId, sanitizeFirestorePayload(updatedParent)).catch(() => {});
+      await MetadataRepository.upsertLocalProduct(updatedParent).catch(() => {});
+
+      if (setProducts) {
+        const createdIds = new Set(createdChildren.map((c) => c.id));
+        setProducts([
+          ...createdChildren,
+          ...products
+            .filter((p) => !createdIds.has(p.id))
+            .map((p) => (p.id === parentId ? updatedParent : p))
+        ]);
+      }
+
+      setShowBulkVariantMatrixModal(false);
+      triggerToast?.(
+        `Created ${createdChildren.length} variant${createdChildren.length === 1 ? '' : 's'} under "${parentName}" with smart Auto-SKUs.`,
+        'success'
+      );
+    } catch (err: any) {
+      console.error('Bulk variant creation failed:', err);
+      triggerToast?.(
+        `Failed to create bulk variants: ${err?.message || 'Unexpected error.'}`,
+        'error'
+      );
+    } finally {
+      setIsSavingBulkVariants(false);
     }
   };
 
@@ -4049,6 +4350,17 @@ export default function ProductManager({
                           )}
                         </div>
                         <div className="flex items-center gap-2 flex-wrap">
+                          {editingProduct?.id && (
+                            <button
+                              type="button"
+                              onClick={openBulkVariantMatrixModal}
+                              className="px-2.5 py-1 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-[11px] font-bold inline-flex items-center gap-1.5 transition cursor-pointer shadow-2xs"
+                              title="Quick-add multiple size, capacity, or model variants in a single spreadsheet matrix with live smart Auto-SKUs"
+                            >
+                              <Layers className="w-3 h-3" />
+                              <span>Bulk Add Variants</span>
+                            </button>
+                          )}
                           {isEditingAlreadyParent && (
                             <button
                               type="button"
@@ -5334,7 +5646,7 @@ export default function ProductManager({
           };
 
           return (
-            <div className="fixed inset-0 z-[60] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+            <div className="fixed inset-0 z-[110] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
               <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in-95 duration-150">
                 <div className="px-5 py-3.5 border-b border-slate-200/80 dark:border-slate-800 flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2.5 min-w-0">
@@ -5448,6 +5760,327 @@ export default function ProductManager({
                         : `Push to ${linkedChildren.length} Variant${linkedChildren.length === 1 ? '' : 's'}`}
                     </span>
                   </button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* Bulk Variant Matrix Modal (Quick-Add Multiple Sizes / Models under Master Parent) */}
+        {showBulkVariantMatrixModal && editingProduct && (() => {
+          const validCount = bulkVariantRows.filter(
+            (r) => r.variantLabel.trim() !== '' || r.modelPartNo.trim() !== ''
+          ).length;
+          const effectiveParentSku =
+            (formSku.trim() || editingProduct.sku || '').trim() ||
+            suggestParentBaseSku(formBrandMake, formName || editingProduct.name, formProductType);
+          const isCustomSpecKey = !COMMON_DIFFERENTIATING_SPEC_KEYS.some(
+            (k) => k.toLowerCase() === bulkVariantSpecKey.trim().toLowerCase()
+          );
+
+          return (
+            <div className="fixed inset-0 z-[110] bg-slate-950/65 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+                {/* Modal Header */}
+                <div className="px-5 py-3.5 border-b border-slate-200/80 dark:border-slate-800 flex items-center justify-between gap-3 shrink-0">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="p-2 rounded-xl bg-violet-50 dark:bg-violet-950/60 text-violet-600 dark:text-violet-400 border border-violet-200/80 dark:border-violet-800/60 shrink-0">
+                      <Layers className="w-4 h-4" />
+                    </div>
+                    <div className="min-w-0">
+                      <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">
+                        Bulk Add Variants
+                      </h4>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                        Master Parent: <span className="font-semibold text-slate-700 dark:text-slate-200">{formName || editingProduct.name}</span>
+                        {' • '}
+                        Base SKU: <span className="font-mono font-semibold text-violet-700 dark:text-violet-300">{effectiveParentSku}</span>
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => !isSavingBulkVariants && setShowBulkVariantMatrixModal(false)}
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {/* Matrix Controls Toolbar */}
+                <div className="px-5 py-3 border-b border-slate-200/80 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/80 flex flex-wrap items-center justify-between gap-2.5 shrink-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300 whitespace-nowrap">
+                      Differentiating Spec:
+                    </label>
+                    <select
+                      value={isCustomSpecKey ? '__custom__' : bulkVariantSpecKey}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val === '__custom__') {
+                          setBulkVariantSpecKey('');
+                          return;
+                        }
+                        setBulkVariantSpecKey(val);
+                        setBulkVariantRows(recomputeBulkRows(bulkVariantRows, val));
+                      }}
+                      className="h-8 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-2 text-xs font-semibold text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-violet-500"
+                    >
+                      {COMMON_DIFFERENTIATING_SPEC_KEYS.map((k) => (
+                        <option key={k} value={k}>
+                          {k}
+                        </option>
+                      ))}
+                      <option value="__custom__">Custom Spec Key...</option>
+                    </select>
+                    {isCustomSpecKey && (
+                      <input
+                        type="text"
+                        value={bulkVariantSpecKey}
+                        onChange={(e) => {
+                          setBulkVariantSpecKey(e.target.value);
+                          setBulkVariantRows(recomputeBulkRows(bulkVariantRows, e.target.value));
+                        }}
+                        placeholder="e.g. Vessel Size, Pore Rating..."
+                        className="h-8 w-44 rounded-lg border border-violet-300 dark:border-violet-700 bg-white dark:bg-slate-800 px-2.5 text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-violet-500"
+                      />
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowBulkPastePanel((prev) => !prev)}
+                      className={`h-8 px-2.5 rounded-lg border text-xs font-semibold inline-flex items-center gap-1.5 transition cursor-pointer ${
+                        showBulkPastePanel
+                          ? 'bg-violet-50 dark:bg-violet-950/60 border-violet-300 dark:border-violet-700 text-violet-700 dark:text-violet-300'
+                          : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700'
+                      }`}
+                    >
+                      <FileText className="w-3.5 h-3.5" />
+                      <span>+ Paste Lines</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setBulkVariantRows((prev) => [
+                          ...prev,
+                          createBlankBulkVariantRow(prev.length)
+                        ])
+                      }
+                      className="h-8 px-2.5 rounded-lg bg-white dark:bg-slate-800 hover:bg-violet-50 dark:hover:bg-violet-950/50 border border-violet-300 dark:border-violet-700 text-violet-700 dark:text-violet-300 text-xs font-bold inline-flex items-center gap-1 transition cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Add Row</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Collapsible Paste Lines Quick Importer */}
+                {showBulkPastePanel && (
+                  <div className="px-5 py-3 border-b border-violet-200/80 dark:border-violet-800/60 bg-violet-50/50 dark:bg-violet-950/25 space-y-2 shrink-0">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-bold text-violet-900 dark:text-violet-200">
+                        Paste one variant per line (supports `Size`, `Size | Selling Price`, `Size | Cost | Selling`, or Excel tab-separated columns)
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setShowBulkPastePanel(false)}
+                        className="text-slate-400 hover:text-slate-600 cursor-pointer"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                    <textarea
+                      rows={4}
+                      value={bulkPasteText}
+                      onChange={(e) => setBulkPasteText(e.target.value)}
+                      placeholder={'24" × 72" | 2400\n30" × 72" | 2850\n36" × 72" | 3750\n42" × 72" | 4950'}
+                      className="w-full rounded-xl border border-violet-200 dark:border-violet-800 bg-white dark:bg-slate-900 p-2.5 text-xs font-mono text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-violet-500"
+                    />
+                    <div className="flex items-center justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setBulkPasteText('')}
+                        className="px-2.5 py-1 rounded-lg text-[11px] font-semibold text-slate-500 hover:text-slate-700 cursor-pointer"
+                      >
+                        Clear
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleApplyBulkPasteLines}
+                        className="px-3 py-1 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer shadow-2xs"
+                      >
+                        <Sparkles className="w-3 h-3" />
+                        <span>Apply Pasted Lines</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Editable Spreadsheet Matrix Table */}
+                <div className="flex-1 overflow-auto p-4 sm:p-5">
+                  <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="bg-slate-100/90 dark:bg-slate-800/90 border-b border-slate-200 dark:border-slate-700 text-[10.5px] font-mono uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                          <th className="py-2 px-2.5 w-8 text-center">#</th>
+                          <th className="py-2 px-2.5 min-w-[160px]">
+                            {bulkVariantSpecKey.trim() || 'Variant Label'} *
+                          </th>
+                          <th className="py-2 px-2.5 min-w-[130px]">Model / Part #</th>
+                          <th className="py-2 px-2.5 min-w-[165px]">Auto-SKU</th>
+                          <th className="py-2 px-2.5 w-28">Cost ({editingProduct.currency || 'AED'})</th>
+                          <th className="py-2 px-2.5 w-32">Selling ({editingProduct.currency || 'AED'})</th>
+                          <th className="py-2 px-2 w-9 text-center"></th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs bg-white dark:bg-slate-900">
+                        {bulkVariantRows.map((row, idx) => (
+                          <tr
+                            key={row.id}
+                            className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors"
+                          >
+                            <td className="py-1.5 px-2 text-center font-mono text-[11px] text-slate-400">
+                              {idx + 1}
+                            </td>
+                            <td className="py-1.5 px-2">
+                              <input
+                                type="text"
+                                value={row.variantLabel}
+                                onChange={(e) =>
+                                  handleBulkRowFieldChange(row.id, 'variantLabel', e.target.value)
+                                }
+                                placeholder='e.g. 30" × 72"'
+                                className="w-full h-8 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 px-2.5 text-xs font-medium text-slate-900 dark:text-slate-100 focus:outline-none focus:border-violet-500"
+                              />
+                            </td>
+                            <td className="py-1.5 px-2">
+                              <input
+                                type="text"
+                                value={row.modelPartNo}
+                                onChange={(e) =>
+                                  handleBulkRowFieldChange(row.id, 'modelPartNo', e.target.value)
+                                }
+                                placeholder="Optional model"
+                                className="w-full h-8 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 px-2.5 text-xs font-mono text-slate-800 dark:text-slate-200 focus:outline-none focus:border-violet-500"
+                              />
+                            </td>
+                            <td className="py-1.5 px-2">
+                              <div className="relative flex items-center">
+                                <input
+                                  type="text"
+                                  value={row.sku}
+                                  onChange={(e) =>
+                                    handleBulkRowFieldChange(row.id, 'sku', e.target.value)
+                                  }
+                                  placeholder="Auto-generated"
+                                  className={`w-full h-8 rounded-lg border px-2.5 pr-7 text-xs font-mono font-semibold focus:outline-none focus:border-violet-500 ${
+                                    row.isSkuManual
+                                      ? 'border-amber-300 dark:border-amber-700 bg-amber-50/40 dark:bg-amber-950/30 text-amber-950 dark:text-amber-200'
+                                      : 'border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-950 text-violet-800 dark:text-violet-300'
+                                  }`}
+                                />
+                                {row.isSkuManual && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleResetBulkRowAutoSku(row.id)}
+                                    title="Re-enable live Smart Auto-SKU for this row"
+                                    className="absolute right-1.5 p-0.5 text-amber-600 hover:text-violet-600 cursor-pointer"
+                                  >
+                                    <RotateCcw className="w-3 h-3" />
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                            <td className="py-1.5 px-2">
+                              <input
+                                type="number"
+                                step="any"
+                                min="0"
+                                value={row.costPrice}
+                                onChange={(e) =>
+                                  handleBulkRowFieldChange(row.id, 'costPrice', e.target.value)
+                                }
+                                placeholder="Optional"
+                                className="w-full h-8 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 px-2 text-xs font-mono tabular-nums text-slate-800 dark:text-slate-200 focus:outline-none focus:border-violet-500"
+                              />
+                            </td>
+                            <td className="py-1.5 px-2">
+                              <input
+                                type="number"
+                                step="any"
+                                min="0"
+                                value={row.sellingPrice}
+                                onChange={(e) =>
+                                  handleBulkRowFieldChange(row.id, 'sellingPrice', e.target.value)
+                                }
+                                placeholder="0 = POR"
+                                className="w-full h-8 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 px-2 text-xs font-mono tabular-nums font-semibold text-slate-900 dark:text-slate-100 focus:outline-none focus:border-violet-500"
+                              />
+                            </td>
+                            <td className="py-1.5 px-1.5 text-center">
+                              <button
+                                type="button"
+                                disabled={bulkVariantRows.length <= 1}
+                                onClick={() =>
+                                  setBulkVariantRows((prev) =>
+                                    recomputeBulkRows(prev.filter((r) => r.id !== row.id))
+                                  )
+                                }
+                                title="Remove row"
+                                className="p-1 rounded-md text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/50 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <p className="mt-2.5 text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                    <span>
+                      Each variant automatically inherits this Master Parent&apos;s category, brand, origin, lead time, photos, datasheet, and shared specs. Blank or 0 selling price saves as Price on Request (POR).
+                    </span>
+                  </p>
+                </div>
+
+                {/* Footer */}
+                <div className="px-5 py-3 border-t border-slate-200/80 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/80 flex items-center justify-between gap-3 shrink-0">
+                  <span className="text-[11px] font-medium text-slate-600 dark:text-slate-400">
+                    <strong className="text-slate-900 dark:text-slate-100">{validCount}</strong>{' '}
+                    variant{validCount === 1 ? '' : 's'} ready to create
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={isSavingBulkVariants}
+                      onClick={() => setShowBulkVariantMatrixModal(false)}
+                      className="h-9 px-3.5 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer disabled:opacity-50"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isSavingBulkVariants || validCount === 0}
+                      onClick={() => void handleSaveBulkVariantMatrix()}
+                      className="h-9 px-4 rounded-lg bg-violet-600 hover:bg-violet-700 disabled:bg-violet-400 text-white text-xs font-bold inline-flex items-center gap-1.5 transition cursor-pointer disabled:cursor-not-allowed shadow-2xs"
+                    >
+                      {isSavingBulkVariants ? (
+                        <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      ) : (
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                      )}
+                      <span>
+                        {isSavingBulkVariants
+                          ? 'Creating Variants...'
+                          : `Create ${validCount} Variant${validCount === 1 ? '' : 's'}`}
+                      </span>
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>

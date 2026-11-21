@@ -15,7 +15,15 @@ import {
   detectProtectedVariantSpecKeys,
   getDefaultSelectedParentSyncFields,
   buildParentToVariantSyncPatch,
-  ALL_PARENT_SYNC_FIELDS
+  ALL_PARENT_SYNC_FIELDS,
+  detectDefaultDifferentiatingSpecKey,
+  recomputeBulkVariantMatrixSkus,
+  parseBulkVariantPasteLines,
+  resolveSelectedVariantId,
+  formatCustomLineItemVariantSummary,
+  VARIANT_SELECT_PARENT,
+  VARIANT_SELECT_CUSTOM,
+  BulkVariantMatrixRow
 } from '../utils/catalogVariantUtils';
 
 interface TestResult {
@@ -337,6 +345,246 @@ describe('Controlled Parent -> Variant Field Sync', () => {
     expect(defaults.includes('shared_specs')).toBe(true);
     expect(defaults.includes('sub_components')).toBe(true);
     expect(defaults.includes('description')).toBe(false);
+  });
+});
+
+// ==========================================
+// SUITE 3: BULK VARIANT MATRIX (BATCH AUTO-SKU & PASTE)
+// ==========================================
+
+describe('Bulk Variant Matrix (Batch Auto-SKU & Paste Lines)', () => {
+  const parentMMF = {
+    sku: 'AVE-MMF',
+    brand_make: 'Aventura',
+    name: 'Multimedia Filter Vessel',
+    product_type: 'Filtration Vessels' as const
+  };
+
+  it('recomputeBulkVariantMatrixSkus generates live unique Auto-SKUs across a batch, deduplicates collisions, and preserves manual edits', () => {
+    const initialRows: BulkVariantMatrixRow[] = [
+      { id: 'r1', variantLabel: '24" × 72"', modelPartNo: '', sku: '', isSkuManual: false, costPrice: '', sellingPrice: '2400' },
+      { id: 'r2', variantLabel: '30" × 72"', modelPartNo: '', sku: '', isSkuManual: false, costPrice: '', sellingPrice: '2850' },
+      { id: 'r3', variantLabel: '30" × 72"', modelPartNo: '', sku: '', isSkuManual: false, costPrice: '', sellingPrice: '2950' },
+      { id: 'r4', variantLabel: '36" × 72"', modelPartNo: '', sku: 'CUSTOM-3672', isSkuManual: true, costPrice: '', sellingPrice: '3750' },
+      { id: 'r5', variantLabel: '42" × 72"', modelPartNo: '', sku: '', isSkuManual: false, costPrice: '', sellingPrice: '4950' },
+      { id: 'r6', variantLabel: '', modelPartNo: '', sku: '', isSkuManual: false, costPrice: '', sellingPrice: '' }
+    ];
+
+    const computed = recomputeBulkVariantMatrixSkus(
+      initialRows,
+      'AVE-MMF',
+      parentMMF,
+      ['AVE-MMF-2472'], // pre-existing catalog SKU collision
+      'Dimensions'
+    );
+
+    expect(computed[0].sku).toBe('AVE-MMF-2472-2'); // collides with existing catalog SKU -> -2
+    expect(computed[1].sku).toBe('AVE-MMF-3072'); // clean first occurrence
+    expect(computed[2].sku).toBe('AVE-MMF-3072-2'); // collides with earlier row in same batch -> -2
+    expect(computed[3].sku).toBe('CUSTOM-3672'); // manual SKU strictly preserved!
+    expect(computed[4].sku).toBe('AVE-MMF-4272'); // clean smart SKU
+    expect(computed[5].sku).toBe(''); // blank row stays clean empty
+  });
+
+  it('parseBulkVariantPasteLines parses 1-col, 2-col (price or model), 3-col, and 4-col pipe/tab rows', () => {
+    const raw = [
+      '24" × 72"',
+      '30" × 72" | 2850',
+      '36" × 72"\tMMF-3672',
+      '42" × 72" | 3200 | 4950',
+      '48" × 72" | MMF-4872 | AED 4,100 | AED 6,250'
+    ].join('\n');
+
+    const rows = parseBulkVariantPasteLines(raw, 'test');
+    expect(rows.length).toBe(5);
+    expect(rows[0].variantLabel).toBe('24" × 72"');
+    expect(rows[0].sellingPrice).toBe('');
+
+    expect(rows[1].variantLabel).toBe('30" × 72"');
+    expect(rows[1].sellingPrice).toBe('2850');
+    expect(rows[1].modelPartNo).toBe('');
+
+    expect(rows[2].variantLabel).toBe('36" × 72"');
+    expect(rows[2].modelPartNo).toBe('MMF-3672');
+    expect(rows[2].sellingPrice).toBe('');
+
+    expect(rows[3].variantLabel).toBe('42" × 72"');
+    expect(rows[3].costPrice).toBe('3200');
+    expect(rows[3].sellingPrice).toBe('4950');
+
+    expect(rows[4].variantLabel).toBe('48" × 72"');
+    expect(rows[4].modelPartNo).toBe('MMF-4872');
+    expect(rows[4].costPrice).toBe('4100');
+    expect(rows[4].sellingPrice).toBe('6250');
+  });
+
+  it('detectDefaultDifferentiatingSpecKey prioritizes blank parent keys, then varying sibling keys, falling back to Dimensions', () => {
+    expect(
+      detectDefaultDifferentiatingSpecKey(
+        { attributes: [{ key: 'In/Out Size', value: '' }, { key: 'Brand', value: 'Clack' }] },
+        []
+      )
+    ).toBe('In/Out Size');
+
+    expect(
+      detectDefaultDifferentiatingSpecKey(
+        { attributes: [{ key: 'Standard', value: 'ASME' }] },
+        [
+          { attributes: [{ key: 'Flow Rate', value: '10 m³/h' }, { key: 'Standard', value: 'ASME' }] },
+          { attributes: [{ key: 'Flow Rate', value: '20 m³/h' }, { key: 'Standard', value: 'ASME' }] }
+        ]
+      )
+    ).toBe('Flow Rate');
+
+    expect(detectDefaultDifferentiatingSpecKey({ attributes: [] }, [])).toBe('Dimensions');
+  });
+});
+
+// ==========================================
+// SUITE 4: VARIANT FAMILY BAR EXACT-MATCH RESOLUTION
+// ==========================================
+
+describe('VariantFamilyBar Exact-Match Resolution', () => {
+  const rootParent = {
+    id: 'parent_mmf',
+    name: 'Multimedia Filter Vessel',
+    sku: 'AVE-MMF',
+    unit_price: 0,
+    product_type: 'Filtration Vessels',
+    unit: 'Nos',
+    description: 'FRP Vessel',
+    attributes: [{ key: 'Design Pressure', value: '10.5 bar' }]
+  } as unknown as Product;
+
+  const child30 = {
+    id: 'child_3072',
+    name: 'Multimedia Filter Vessel',
+    sku: 'AVE-MMF-3072',
+    variant_label: '30" × 72"',
+    parent_product_id: 'parent_mmf',
+    variant_parent_id: 'parent_mmf',
+    unit_price: 2850,
+    product_type: 'Filtration Vessels',
+    unit: 'Nos',
+    description: 'FRP Vessel 30x72',
+    attributes: [
+      { key: 'Dimensions', value: '30" × 72"' },
+      { key: 'Design Pressure', value: '10.5 bar' }
+    ]
+  } as unknown as Product;
+
+  const child36 = {
+    id: 'child_3672',
+    name: 'Multimedia Filter Vessel',
+    sku: 'AVE-MMF-3672',
+    variant_label: '36" × 72"',
+    parent_product_id: 'parent_mmf',
+    variant_parent_id: 'parent_mmf',
+    unit_price: 3750,
+    product_type: 'Filtration Vessels',
+    unit: 'Nos',
+    description: 'FRP Vessel 36x72',
+    attributes: [
+      { key: 'Dimensions', value: '36" × 72"' },
+      { key: 'Design Pressure', value: '10.5 bar' }
+    ]
+  } as unknown as Product;
+
+  it('matches exact linked child variant even when quote price is locally discounted', () => {
+    const resolved = resolveSelectedVariantId({
+      item: {
+        product_id: 'child_3072',
+        sku: 'AVE-MMF-3072',
+        item_name: 'Multimedia Filter Vessel 30" x 72"',
+        unit_price: 2700, // negotiated discount on 30"x72"
+        attributes: [{ key: 'Dimensions', value: '30" x 72"' }]
+      },
+      matchedProduct: child30,
+      rootParent,
+      childProducts: [child30, child36]
+    });
+    expect(resolved).toBe('prod_child_3072');
+  });
+
+  it('never displays mismatched sibling 36"×72" when line item was locally edited to 30"×72" at AED 2,850', () => {
+    const item = {
+      product_id: 'child_3672', // linked to 36"×72" sibling
+      item_name: 'Multimedia Filter Vessel 30" x 72"',
+      unit_price: 2850,
+      attributes: [{ key: 'Dimensions', value: '30" × 72"' }]
+    };
+    const resolved = resolveSelectedVariantId({
+      item,
+      matchedProduct: child36,
+      rootParent,
+      childProducts: [child30, child36]
+    });
+    expect(resolved).toBe(VARIANT_SELECT_CUSTOM);
+    expect(formatCustomLineItemVariantSummary(item, 'AED')).toBe('30" × 72" · AED 2,850');
+  });
+
+  it('returns __parent__ sentinel when linked to unspecialized Master Parent with variants', () => {
+    const resolved = resolveSelectedVariantId({
+      item: {
+        product_id: 'parent_mmf',
+        item_name: 'Multimedia Filter Vessel',
+        unit_price: 0,
+        attributes: [{ key: 'Design Pressure', value: '10.5 bar' }]
+      },
+      matchedProduct: rootParent,
+      rootParent,
+      childProducts: [child30, child36]
+    });
+    expect(resolved).toBe(VARIANT_SELECT_PARENT);
+  });
+
+  it('returns __custom__ when linked to Master Parent but customized with local size & price', () => {
+    const resolved = resolveSelectedVariantId({
+      item: {
+        product_id: 'parent_mmf',
+        item_name: 'Multimedia Filter Vessel 30" × 72"',
+        unit_price: 2850,
+        attributes: [
+          { key: 'Dimensions', value: '30" × 72"' },
+          { key: 'Design Pressure', value: '10.5 bar' }
+        ]
+      },
+      matchedProduct: rootParent,
+      rootParent,
+      childProducts: [child30, child36]
+    });
+    expect(resolved).toBe(VARIANT_SELECT_CUSTOM);
+  });
+
+  it('never falls back to options[0] on stale/deleted inline variant_id', () => {
+    const resolved = resolveSelectedVariantId({
+      item: {
+        product_id: 'parent_mmf',
+        variant_id: 'ivar_deleted_999',
+        item_name: 'Multimedia Filter Vessel',
+        unit_price: 2850
+      },
+      matchedProduct: rootParent,
+      rootParent,
+      childProducts: [child30, child36],
+      inlineVariants: [{ id: 'ivar_active_1', variant_name: '36" × 72"', sku: 'AVE-MMF-3672', unit_price: 3750 }]
+    });
+    expect(resolved).toBe(VARIANT_SELECT_CUSTOM);
+  });
+
+  it('resolves exact child by unique SKU if product_id remained on Master Parent', () => {
+    const resolved = resolveSelectedVariantId({
+      item: {
+        product_id: 'parent_mmf',
+        sku: 'AVE-MMF-3072',
+        unit_price: 2850,
+        attributes: [{ key: 'Dimensions', value: '30" × 72"' }]
+      },
+      matchedProduct: rootParent,
+      rootParent,
+      childProducts: [child30, child36]
+    });
+    expect(resolved).toBe('prod_child_3072');
   });
 });
 

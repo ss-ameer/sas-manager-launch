@@ -16,6 +16,12 @@ import { uploadWorkspaceMediaAsset } from '../services/attachmentStorage';
 import { MetadataRepository } from '../services/repositories/MetadataRepository';
 import LineItemImageOptionsPopover from './common/LineItemImageOptionsPopover';
 import {
+  resolveSelectedVariantId,
+  formatCustomLineItemVariantSummary,
+  VARIANT_SELECT_PARENT,
+  VARIANT_SELECT_CUSTOM
+} from '../utils/catalogVariantUtils';
+import {
   Package,
   Plus,
   X,
@@ -2221,31 +2227,40 @@ export const VariantFamilyBar: React.FC<VariantFamilyBarProps> = ({
     }> = [];
 
     const seenSkus = new Set<string>();
+    const hasConcreteChildren = childProducts.length > 0 || inlineVars.length > 0;
 
-    // Add root parent option if it's currently selected or has its own price/SKU
-    const rootLabel =
-      (rootParent as any).variant_label ||
-      deriveSuggestedVariantLabel(
-        {
-          item_name: rootParent.name,
-          model_part_no: rootParent.model_part_no,
-          attributes: rootParent.attributes
-        },
-        null
-      ) ||
-      'Base / Parent Master';
-    options.push({
-      key: `prod_${rootParent.id}`,
-      label:
-        rootParent.id === matchedProduct.id && !item?.variant_id
-          ? `${rootLabel} (Parent)`
-          : `${rootLabel} (Parent)`,
-      sku: rootParent.sku || '',
-      priceLabel: formatOptionPrice(rootParent.unit_price, rootParent.currency),
-      targetProduct: rootParent,
-      isCurrent: matchedProduct.id === rootParent.id && !item?.variant_id
+    // Resolve exact active variant key strictly without ever silently falling back to options[0]
+    const resolvedActiveKey = resolveSelectedVariantId({
+      item,
+      matchedProduct,
+      rootParent,
+      childProducts,
+      inlineVariants: inlineVars
     });
-    if (rootParent.sku) seenSkus.add(rootParent.sku.trim().toLowerCase());
+
+    // Include root parent as a selectable option only if it has its own concrete price or there are no child variants
+    if (!hasConcreteChildren || Number(rootParent.unit_price || 0) > 0) {
+      const rootLabel =
+        (rootParent as any).variant_label ||
+        deriveSuggestedVariantLabel(
+          {
+            item_name: rootParent.name,
+            model_part_no: rootParent.model_part_no,
+            attributes: rootParent.attributes
+          },
+          null
+        ) ||
+        'Base / Parent Master';
+      options.push({
+        key: `prod_${rootParent.id}`,
+        label: `${rootLabel} (Parent)`,
+        sku: rootParent.sku || '',
+        priceLabel: formatOptionPrice(rootParent.unit_price, rootParent.currency),
+        targetProduct: rootParent,
+        isCurrent: resolvedActiveKey === `prod_${rootParent.id}`
+      });
+      if (rootParent.sku) seenSkus.add(rootParent.sku.trim().toLowerCase());
+    }
 
     // Add child variant product records
     for (const cp of childProducts) {
@@ -2266,7 +2281,7 @@ export const VariantFamilyBar: React.FC<VariantFamilyBarProps> = ({
         sku: cp.sku || '',
         priceLabel: formatOptionPrice(cp.unit_price, cp.currency),
         targetProduct: cp,
-        isCurrent: matchedProduct.id === cp.id
+        isCurrent: resolvedActiveKey === `prod_${cp.id}`
       });
     }
 
@@ -2281,24 +2296,34 @@ export const VariantFamilyBar: React.FC<VariantFamilyBarProps> = ({
         priceLabel: formatOptionPrice(iv.unit_price, rootParent.currency),
         targetProduct: rootParent,
         targetInlineVariant: iv,
-        isCurrent: item?.variant_id === iv.id
+        isCurrent: resolvedActiveKey === `ivar_${iv.id}`
       });
     }
 
-    const activeOption = options.find((o) => o.isCurrent) || options[0];
+    const isSentinelSelection =
+      resolvedActiveKey === VARIANT_SELECT_PARENT || resolvedActiveKey === VARIANT_SELECT_CUSTOM;
+    const customSummary =
+      resolvedActiveKey === VARIANT_SELECT_CUSTOM
+        ? formatCustomLineItemVariantSummary(item, effectiveCurr)
+        : '';
+
     const currentVariantBadge =
-      item?.variant_name ||
-      (matchedProduct as any).variant_label ||
-      (isChildVariant
-        ? deriveSuggestedVariantLabel(
-            {
-              item_name: matchedProduct.name,
-              model_part_no: matchedProduct.model_part_no,
-              attributes: matchedProduct.attributes
-            },
-            rootParent
-          )
-        : 'Parent Master');
+      resolvedActiveKey === VARIANT_SELECT_PARENT
+        ? 'Master Parent'
+        : resolvedActiveKey === VARIANT_SELECT_CUSTOM
+        ? `Custom (${customSummary})`
+        : item?.variant_name ||
+          (matchedProduct as any).variant_label ||
+          (isChildVariant
+            ? deriveSuggestedVariantLabel(
+                {
+                  item_name: matchedProduct.name,
+                  model_part_no: matchedProduct.model_part_no,
+                  attributes: matchedProduct.attributes
+                },
+                rootParent
+              )
+            : 'Parent Master');
 
     return {
       familyName,
@@ -2306,13 +2331,16 @@ export const VariantFamilyBar: React.FC<VariantFamilyBarProps> = ({
       isChildVariant,
       currentVariantBadge,
       options,
-      activeKey: activeOption?.key || ''
+      activeKey: resolvedActiveKey,
+      isSentinelSelection,
+      customSummary
     };
   }, [matchedProduct, products, currency, item]);
 
   if (!familyContext) return null;
 
   const handleVariantChange = (nextKey: string) => {
+    if (nextKey === VARIANT_SELECT_PARENT || nextKey === VARIANT_SELECT_CUSTOM) return;
     const chosen = familyContext.options.find((o) => o.key === nextKey);
     if (!chosen) return;
     const nextItem = pullCatalogDefaultsToLineItem(
@@ -2331,6 +2359,30 @@ export const VariantFamilyBar: React.FC<VariantFamilyBarProps> = ({
       );
     }
   };
+
+  const renderSelectOptions = () => (
+    <>
+      {familyContext.activeKey === VARIANT_SELECT_PARENT && (
+        <option value={VARIANT_SELECT_PARENT}>
+          Master Parent (Select a variant...)
+        </option>
+      )}
+      {familyContext.activeKey === VARIANT_SELECT_CUSTOM && (
+        <option value={VARIANT_SELECT_CUSTOM}>
+          Custom / Modified ({familyContext.customSummary})
+        </option>
+      )}
+      {familyContext.options.map((opt) => (
+        <option key={opt.key} value={opt.key}>
+          {opt.label} {opt.sku ? `[${opt.sku}]` : ''} — {opt.priceLabel}
+        </option>
+      ))}
+    </>
+  );
+
+  const selectToneClass = familyContext.isSentinelSelection
+    ? 'bg-amber-50/95 dark:bg-amber-950/50 border-amber-300 dark:border-amber-700 hover:border-amber-500 text-amber-950 dark:text-amber-100 focus:ring-amber-500'
+    : 'bg-white dark:bg-slate-900 border-violet-300 dark:border-violet-700 hover:border-violet-500 text-violet-950 dark:text-violet-100 focus:ring-violet-500';
 
   if (fullWidth) {
     return (
@@ -2358,14 +2410,10 @@ export const VariantFamilyBar: React.FC<VariantFamilyBarProps> = ({
           <select
             value={familyContext.activeKey}
             onChange={(e) => handleVariantChange(e.target.value)}
-            className="min-w-0 flex-1 sm:flex-initial sm:max-w-[280px] max-w-full bg-white dark:bg-slate-900 border border-violet-300 dark:border-violet-700 hover:border-violet-500 text-violet-950 dark:text-violet-100 font-semibold rounded-md px-2 py-0.5 text-[11px] cursor-pointer focus:outline-none focus:ring-1 focus:ring-violet-500 truncate"
+            className={`min-w-0 flex-1 sm:flex-initial sm:max-w-[290px] max-w-full border font-semibold rounded-md px-2 py-0.5 text-[11px] cursor-pointer focus:outline-none focus:ring-1 truncate ${selectToneClass}`}
             title="1-Click Switch to another Size / Spec Variant in this Parent Family (updates SKU, differentiating specs, and price)"
           >
-            {familyContext.options.map((opt) => (
-              <option key={opt.key} value={opt.key}>
-                {opt.label} {opt.sku ? `[${opt.sku}]` : ''} — {opt.priceLabel}
-              </option>
-            ))}
+            {renderSelectOptions()}
           </select>
         </div>
       </div>
@@ -2398,14 +2446,10 @@ export const VariantFamilyBar: React.FC<VariantFamilyBarProps> = ({
         <select
           value={familyContext.activeKey}
           onChange={(e) => handleVariantChange(e.target.value)}
-          className="bg-white dark:bg-slate-900 border border-violet-300 dark:border-violet-700 hover:border-violet-500 text-violet-950 dark:text-violet-100 font-bold rounded-md px-1.5 py-0.5 text-[10.5px] cursor-pointer focus:outline-none focus:ring-1 focus:ring-violet-500 max-w-[230px] truncate"
+          className={`border font-bold rounded-md px-1.5 py-0.5 text-[10.5px] cursor-pointer focus:outline-none focus:ring-1 max-w-[240px] truncate ${selectToneClass}`}
           title="1-Click Switch to another Size / Spec Variant in this Parent Family (updates SKU, differentiating specs, and price)"
         >
-          {familyContext.options.map((opt) => (
-            <option key={opt.key} value={opt.key}>
-              {opt.label} {opt.sku ? `[${opt.sku}]` : ''} — {opt.priceLabel}
-            </option>
-          ))}
+          {renderSelectOptions()}
         </select>
       </div>
     </div>

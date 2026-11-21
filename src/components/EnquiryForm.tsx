@@ -11334,9 +11334,17 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                           {((item.childVariants && item.childVariants.length > 0) ||
                             item.has_variants ||
                             (item.attributes || []).some((a) => a.key && !String(a.value ?? '').trim())) && (
-                            <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center gap-1.5 flex-wrap">
-                              <span className="text-[9px] font-mono uppercase tracking-wider text-slate-400 font-semibold">
-                                Variants:
+                            <div
+                              className={`mt-1 p-2 rounded-xl border flex items-center gap-1.5 flex-wrap ${
+                                item.childVariants && item.childVariants.length > 0
+                                  ? 'bg-violet-50/70 dark:bg-violet-950/30 border-violet-200/90 dark:border-violet-800/70'
+                                  : 'bg-slate-50/60 dark:bg-slate-900/50 border-slate-200/80 dark:border-slate-800'
+                              }`}
+                            >
+                              <span className="w-full text-[9.5px] font-mono uppercase tracking-wider text-violet-700 dark:text-violet-300 font-bold">
+                                {item.childVariants && item.childVariants.length > 0
+                                  ? `Select a Variant (${item.childVariants.length}):`
+                                  : 'Base Template:'}
                               </span>
                               {(item.childVariants || []).map((cv: Product) => {
                                 const cvLabel =
@@ -11363,7 +11371,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                         cost_price_aed: cv.cost_price ?? cv.cost_price_aed
                                       })
                                     }
-                                    className="px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-600 text-indigo-700 dark:text-indigo-300 hover:text-white border border-indigo-200 dark:border-indigo-800 text-[10px] font-mono font-semibold transition cursor-pointer"
+                                    className="px-2 py-0.5 rounded-md bg-white dark:bg-indigo-950/70 hover:bg-indigo-600 text-indigo-700 dark:text-indigo-200 hover:text-white border border-indigo-200 dark:border-indigo-700 text-[10px] font-mono font-semibold transition cursor-pointer shadow-2xs"
                                     title={`Insert variant ${cv.name} (${cv.sku || 'No SKU'}) with inherited parent specs`}
                                   >
                                     {cvLabel}
@@ -11371,7 +11379,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                       ? ` — ${formCurrency} ${cvConverted.toLocaleString(undefined, {
                                           maximumFractionDigits: 0
                                         })}`
-                                      : ''}
+                                      : ' — POR'}
                                   </button>
                                 );
                               })}
@@ -11404,23 +11412,46 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                           </div>
                         </div>
 
-                        <button
-                          type="button"
-                          onClick={() =>
-                            handleAddCatalogItem(
-                              { ...item, unit: cleanUom as UnitType },
-                              ((item.childVariants && item.childVariants.length > 0) ||
-                                (item.attributes || []).some((a) => a.key && !String(a.value ?? '').trim())) &&
-                                priceAed === 0
-                                ? { isBaseTemplate: true }
-                                : undefined
-                            )
-                          }
-                          className="mt-4 w-full py-2 bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 hover:bg-blue-600 hover:text-white border border-blue-200/80 dark:border-blue-800/80 text-xs font-semibold rounded-xl transition-all flex items-center justify-center space-x-1.5 cursor-pointer"
-                        >
-                          <Plus className="w-3.5 h-3.5" />
-                          <span>{linkingLineIndex !== null ? 'Link & Populate Line Item' : 'Add to Proposal'}</span>
-                        </button>
+                        {(() => {
+                          const hasChildVars = Boolean(item.childVariants && item.childVariants.length > 0);
+                          const isBaseTemplateOnly =
+                            (hasChildVars ||
+                              (item.attributes || []).some((a) => a.key && !String(a.value ?? '').trim())) &&
+                            priceAed === 0;
+                          return (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleAddCatalogItem(
+                                  { ...item, unit: cleanUom as UnitType },
+                                  isBaseTemplateOnly ? { isBaseTemplate: true } : undefined
+                                )
+                              }
+                              className={`mt-4 w-full py-2 text-xs font-semibold rounded-xl transition-all flex items-center justify-center space-x-1.5 cursor-pointer border ${
+                                isBaseTemplateOnly
+                                  ? 'bg-amber-50/80 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 hover:bg-amber-600 hover:text-white border-amber-200 dark:border-amber-800'
+                                  : hasChildVars
+                                  ? 'bg-slate-50 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 hover:bg-blue-600 hover:text-white border-slate-200 dark:border-slate-700'
+                                  : 'bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 hover:bg-blue-600 hover:text-white border-blue-200/80 dark:border-blue-800/80'
+                              }`}
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                              <span>
+                                {linkingLineIndex !== null
+                                  ? isBaseTemplateOnly
+                                    ? 'Link as Custom Base Template'
+                                    : hasChildVars
+                                    ? 'Link Master Parent Directly'
+                                    : 'Link & Populate Line Item'
+                                  : isBaseTemplateOnly
+                                  ? 'Insert as Custom Base Template'
+                                  : hasChildVars
+                                  ? 'Insert Master Parent Directly'
+                                  : 'Add to Proposal'}
+                              </span>
+                            </button>
+                          );
+                        })()}
                       </div>
                     );
                   })}

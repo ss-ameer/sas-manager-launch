@@ -241,7 +241,7 @@ export function normalizeVariantSkuToken(rawInput?: string | null): string {
 
 function extractBestVariantToken(
   variantDraft: VariantSkuDraftInput | null | undefined,
-  parentProduct: Pick<Product, 'name' | 'model_part_no'> | null | undefined
+  parentProduct: Partial<Pick<Product, 'name' | 'model_part_no'>> | null | undefined
 ): string {
   if (!variantDraft) return '';
 
@@ -338,7 +338,7 @@ export function deduplicateSku(
 export function buildSmartVariantSku(
   parentSku: string | null | undefined,
   parentProduct:
-    | Pick<Product, 'sku' | 'brand_make' | 'brand' | 'name' | 'product_type' | 'model_part_no'>
+    | Partial<Pick<Product, 'sku' | 'brand_make' | 'brand' | 'name' | 'product_type' | 'model_part_no'>>
     | null
     | undefined,
   variantDraft: VariantSkuDraftInput | null | undefined,
@@ -679,3 +679,546 @@ export function buildParentToVariantSyncPatch(
 
   return patch;
 }
+
+// ============================================================================
+// TRACK D2: BULK VARIANT MATRIX & EXACT-MATCH VARIANT FAMILY RESOLUTION
+// ============================================================================
+
+export interface BulkVariantMatrixRow {
+  id: string;
+  variantLabel: string;
+  modelPartNo: string;
+  sku: string;
+  isSkuManual: boolean;
+  costPrice: string;
+  sellingPrice: string;
+}
+
+export const COMMON_DIFFERENTIATING_SPEC_KEYS: string[] = [
+  'Dimensions',
+  'Size',
+  'In/Out Size',
+  'Connection Size',
+  'Capacity',
+  'Flow Rate',
+  'Diameter',
+  'Model',
+  'Rating',
+  'Power'
+];
+
+/**
+ * Auto-detects the most appropriate differentiating technical spec key
+ * for a Master Parent's Bulk Variant Matrix based on blank template keys
+ * on the parent or varying keys across existing linked child variants.
+ */
+export function detectDefaultDifferentiatingSpecKey(
+  parent: Partial<Product> | null | undefined,
+  existingSiblings: Array<Pick<Product, 'attributes'>> = []
+): string {
+  // 1. Blank template attribute key on parent (e.g. `Dimensions: ""`)
+  const parentAttrs = Array.isArray(parent?.attributes) ? parent!.attributes : [];
+  const blankParentKey = parentAttrs.find(
+    (a) => a && a.key.trim() !== '' && String(a.value ?? '').trim() === ''
+  );
+  if (blankParentKey?.key.trim()) {
+    return blankParentKey.key.trim();
+  }
+
+  // 2. Attribute keys whose values vary across existing siblings
+  const keyOriginalCasing = new Map<string, string>();
+  const distinctValuesByKey = new Map<string, Set<string>>();
+  for (const sibling of existingSiblings) {
+    const attrs = Array.isArray(sibling?.attributes) ? sibling.attributes : [];
+    for (const attr of attrs) {
+      const keyTrim = String(attr?.key || '').trim();
+      const valTrim = String(attr?.value || '').trim();
+      if (!keyTrim || !valTrim) continue;
+      const lower = keyTrim.toLowerCase();
+      if (!keyOriginalCasing.has(lower)) keyOriginalCasing.set(lower, keyTrim);
+      if (!distinctValuesByKey.has(lower)) distinctValuesByKey.set(lower, new Set());
+      distinctValuesByKey.get(lower)!.add(valTrim.toLowerCase());
+    }
+  }
+
+  // Prioritize canonical distinguishing keys that vary across siblings
+  for (const [lower, vals] of distinctValuesByKey.entries()) {
+    if (vals.size >= 2 && DISTINGUISHING_ATTR_PRIORITY_RE.test(lower)) {
+      return keyOriginalCasing.get(lower) || 'Dimensions';
+    }
+  }
+  for (const [lower, vals] of distinctValuesByKey.entries()) {
+    if (vals.size >= 2) {
+      return keyOriginalCasing.get(lower) || 'Dimensions';
+    }
+  }
+
+  // 3. Single sibling or parent distinguishing key
+  for (const [lower] of keyOriginalCasing.entries()) {
+    if (DISTINGUISHING_ATTR_PRIORITY_RE.test(lower)) {
+      return keyOriginalCasing.get(lower) || 'Dimensions';
+    }
+  }
+  const parentDistinguishing = parentAttrs.find(
+    (a) => a && a.key.trim() !== '' && DISTINGUISHING_ATTR_PRIORITY_RE.test(a.key.trim())
+  );
+  if (parentDistinguishing?.key.trim()) {
+    return parentDistinguishing.key.trim();
+  }
+
+  return 'Dimensions';
+}
+
+/**
+ * Recomputes live Smart Hierarchical Auto-SKUs across all rows in the Bulk Variant Matrix.
+ * - Strictly preserves any row with `isSkuManual === true`.
+ * - Deduplicates sequentially against both `existingCatalogSkus` and earlier/manual rows in the batch.
+ */
+export function recomputeBulkVariantMatrixSkus(
+  rows: BulkVariantMatrixRow[],
+  parentSku: string | null | undefined,
+  parentProduct:
+    | Partial<Pick<Product, 'sku' | 'brand_make' | 'brand' | 'name' | 'product_type' | 'model_part_no'>>
+    | null
+    | undefined,
+  existingCatalogSkus: Array<string | null | undefined> = [],
+  diffSpecKey: string = 'Dimensions'
+): BulkVariantMatrixRow[] {
+  const takenSkus: string[] = existingCatalogSkus
+    .map((s) => String(s || '').trim().toUpperCase())
+    .filter(Boolean);
+
+  // Reserve manually edited row SKUs up front so auto-generated rows never collide with them
+  for (const row of rows) {
+    if (row.isSkuManual && row.sku.trim()) {
+      takenSkus.push(row.sku.trim().toUpperCase());
+    }
+  }
+
+  return rows.map((row) => {
+    if (row.isSkuManual) {
+      return row;
+    }
+
+    const cleanLabel = row.variantLabel.trim();
+    const cleanModel = row.modelPartNo.trim();
+    if (!cleanLabel && !cleanModel) {
+      return { ...row, sku: '' };
+    }
+
+    const generated = buildSmartVariantSku(
+      parentSku,
+      parentProduct,
+      {
+        variant_label: cleanLabel || undefined,
+        model_part_no: cleanModel || undefined,
+        attributes: cleanLabel ? [{ key: diffSpecKey || 'Dimensions', value: cleanLabel }] : []
+      },
+      takenSkus
+    );
+
+    if (generated) {
+      takenSkus.push(generated.toUpperCase());
+    }
+
+    return {
+      ...row,
+      sku: generated
+    };
+  });
+}
+
+function parseOptionalNumericToken(raw: string): string | null {
+  const cleaned = String(raw || '')
+    .trim()
+    .replace(/^(?:AED|USD|EUR|GBP|SAR|OMR|QAR|BHD|KWD|\$|€|£)\s*/i, '')
+    .replace(/,/g, '')
+    .trim();
+  if (!cleaned) return null;
+  if (/^\d+(?:\.\d+)?$/.test(cleaned)) {
+    return cleaned;
+  }
+  return null;
+}
+
+/**
+ * Parses pasted multi-line variant drafts into BulkVariantMatrixRow items.
+ * Supports:
+ * - `30" × 72"` (variant label only)
+ * - `30" × 72" | 2850` or `30" × 72"\t2850` (label + selling price)
+ * - `30" × 72" | MMF-3072` (label + model)
+ * - `30" × 72" | 1900 | 2850` (label + cost + selling price)
+ * - `30" × 72" | MMF-3072 | 1900 | 2850` (label + model + cost + selling price)
+ */
+export function parseBulkVariantPasteLines(
+  rawText: string,
+  idPrefix: string = 'bvr'
+): BulkVariantMatrixRow[] {
+  const lines = String(rawText || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const parsed: BulkVariantMatrixRow[] = [];
+
+  lines.forEach((line, idx) => {
+    const delimiter = line.includes('\t') ? '\t' : line.includes('|') ? '|' : null;
+    const cols = delimiter
+      ? line.split(delimiter).map((c) => c.trim())
+      : [line];
+
+    const variantLabel = (cols[0] || '').trim();
+    if (!variantLabel) return;
+
+    let modelPartNo = '';
+    let costPrice = '';
+    let sellingPrice = '';
+
+    if (cols.length === 2) {
+      const maybePrice = parseOptionalNumericToken(cols[1]);
+      if (maybePrice !== null) {
+        sellingPrice = maybePrice;
+      } else {
+        modelPartNo = cols[1];
+      }
+    } else if (cols.length === 3) {
+      const num2 = parseOptionalNumericToken(cols[1]);
+      const num3 = parseOptionalNumericToken(cols[2]);
+      if (num2 !== null && num3 !== null) {
+        costPrice = num2;
+        sellingPrice = num3;
+      } else {
+        modelPartNo = cols[1];
+        sellingPrice = num3 !== null ? num3 : '';
+      }
+    } else if (cols.length >= 4) {
+      modelPartNo = cols[1];
+      costPrice = parseOptionalNumericToken(cols[2]) ?? '';
+      sellingPrice = parseOptionalNumericToken(cols[3]) ?? '';
+    }
+
+    parsed.push({
+      id: `${idPrefix}_${Date.now()}_${idx}_${Math.random().toString(36).slice(2, 6)}`,
+      variantLabel,
+      modelPartNo,
+      sku: '',
+      isSkuManual: false,
+      costPrice,
+      sellingPrice
+    });
+  });
+
+  return parsed;
+}
+
+// ============================================================================
+// VARIANT FAMILY BAR EXACT-MATCH RESOLUTION
+// ============================================================================
+
+export const VARIANT_SELECT_PARENT = '__parent__';
+export const VARIANT_SELECT_CUSTOM = '__custom__';
+
+export interface VariantBarItemLike {
+  product_id?: string | null;
+  variant_id?: string | null;
+  variant_name?: string | null;
+  sku?: string | null;
+  product_sku?: string | null;
+  item_name?: string | null;
+  model_part_no?: string | null;
+  unit_price?: number | null;
+  attributes?: ProductAttribute[] | null;
+}
+
+export interface VariantBarInlineOptionLike {
+  id: string;
+  variant_name?: string;
+  sku?: string;
+  unit_price?: number;
+  attributes?: ProductAttribute[];
+}
+
+export interface ResolveSelectedVariantParams {
+  item: VariantBarItemLike | null | undefined;
+  matchedProduct: Product | null | undefined;
+  rootParent: Product;
+  childProducts: Product[];
+  inlineVariants?: VariantBarInlineOptionLike[];
+}
+
+const EMBEDDED_DIMENSION_PAIR_RE =
+  /\b(\d+(?:\.\d+)?)\s*(?:"|″|''|in(?:ch(?:es)?)?|mm|cm|m|ft)?\s*[x×*]\s*(\d+(?:\.\d+)?)\s*(?:"|″|''|in(?:ch(?:es)?)?|mm|cm|m|ft)?\b/i;
+
+function extractEmbeddedDimensionToken(text?: string | null): string {
+  const m = String(text || '').match(EMBEDDED_DIMENSION_PAIR_RE);
+  if (!m) return '';
+  return normalizeVariantSkuToken(`${m[1]}x${m[2]}`);
+}
+
+function buildNormalizedAttrMap(
+  attrs: ProductAttribute[] | null | undefined,
+  protectedKeys: Set<string>
+): Map<string, string> {
+  const map = new Map<string, string>();
+  if (!Array.isArray(attrs)) return map;
+  for (const attr of attrs) {
+    const keyLower = String(attr?.key || '').trim().toLowerCase();
+    const rawVal = String(attr?.value || '').trim();
+    if (!keyLower || !rawVal) continue;
+    if (!isProtectedVariantSpecKey(keyLower, protectedKeys)) continue;
+    const tok = normalizeVariantSkuToken(rawVal);
+    if (tok) {
+      map.set(keyLower, tok);
+    }
+  }
+  return map;
+}
+
+function getCandidateIdentityTokens(
+  candidate: {
+    variant_label?: string | null;
+    variant_name?: string | null;
+    name?: string | null;
+    model_part_no?: string | null;
+    attributes?: ProductAttribute[] | null;
+  },
+  protectedKeys: Set<string>
+): { attrMap: Map<string, string>; labelToken: string; dimToken: string } {
+  const attrMap = buildNormalizedAttrMap(candidate.attributes, protectedKeys);
+  const explicitLabel = (candidate.variant_label || candidate.variant_name || '').trim();
+  const labelToken = explicitLabel ? normalizeVariantSkuToken(explicitLabel) : '';
+  const dimToken =
+    extractEmbeddedDimensionToken(explicitLabel) ||
+    extractEmbeddedDimensionToken(candidate.name) ||
+    Array.from(attrMap.values()).find((v) => /^\d{3,}$/.test(v)) ||
+    '';
+  return { attrMap, labelToken, dimToken };
+}
+
+function doesItemConflictWithCandidate(
+  item: VariantBarItemLike | null | undefined,
+  candidate: {
+    variant_label?: string | null;
+    variant_name?: string | null;
+    name?: string | null;
+    model_part_no?: string | null;
+    attributes?: ProductAttribute[] | null;
+  },
+  protectedKeys: Set<string>
+): boolean {
+  if (!item) return false;
+  const itemAttrs = buildNormalizedAttrMap(item.attributes, protectedKeys);
+  const cand = getCandidateIdentityTokens(candidate, protectedKeys);
+
+  // 1. Direct protected/differentiating attribute conflict on the same key (e.g. Dimensions: 3072 vs 3672)
+  for (const [keyLower, itemTok] of itemAttrs.entries()) {
+    const candTok = cand.attrMap.get(keyLower);
+    if (candTok && itemTok !== candTok) {
+      return true;
+    }
+  }
+
+  // 2. Explicit item.variant_name conflict against candidate label or distinguishing attributes
+  const itemVarNameTok = normalizeVariantSkuToken(item.variant_name || '');
+  if (itemVarNameTok) {
+    const candTokens = new Set<string>(
+      [cand.labelToken, cand.dimToken, ...Array.from(cand.attrMap.values())].filter(Boolean)
+    );
+    if (candTokens.size > 0 && !candTokens.has(itemVarNameTok)) {
+      return true;
+    }
+  }
+
+  // 3. Embedded dimension conflict in item_name (e.g. item_name says 30" x 72" while candidate is 36" x 72")
+  const itemDimTok =
+    extractEmbeddedDimensionToken(item.variant_name) ||
+    extractEmbeddedDimensionToken(item.item_name) ||
+    Array.from(itemAttrs.values()).find((v) => /^\d{3,}$/.test(v)) ||
+    '';
+  if (itemDimTok && cand.dimToken && itemDimTok !== cand.dimToken) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Resolves the EXACT active `<select>` value for `VariantFamilyBar`.
+ *
+ * Guarantees:
+ * - Never silently falls back to `options[0]` or a mismatched sibling variant.
+ * - Matches exact `variant_id` or `product_id` first, then verifies differentiating specs don't conflict.
+ * - Returns `VARIANT_SELECT_PARENT` (`__parent__`) when linked to an unspecialized Master Parent with variants.
+ * - Returns `VARIANT_SELECT_CUSTOM` (`__custom__`) when the line item has locally modified conflicting specs,
+ *   an unrecognized/deleted variant link, or custom overrides that don't match any concrete sibling.
+ */
+export function resolveSelectedVariantId(params: ResolveSelectedVariantParams): string {
+  const { item, matchedProduct, rootParent, childProducts = [], inlineVariants = [] } = params;
+  const hasVariants = childProducts.length > 0 || inlineVariants.length > 0;
+  const protectedKeys = detectProtectedVariantSpecKeys([rootParent, ...childProducts]);
+
+  // 1. Exact inline variant_id match
+  const itemVariantId = String(item?.variant_id || '').trim();
+  if (itemVariantId) {
+    const matchedInline = inlineVariants.find((iv) => iv.id === itemVariantId);
+    if (matchedInline) {
+      const conflict = doesItemConflictWithCandidate(
+        item,
+        {
+          variant_name: matchedInline.variant_name,
+          attributes: matchedInline.attributes
+        },
+        protectedKeys
+      );
+      return conflict ? VARIANT_SELECT_CUSTOM : `ivar_${matchedInline.id}`;
+    }
+    // Stale/deleted inline variant_id — never fall back to options[0]
+    return VARIANT_SELECT_CUSTOM;
+  }
+
+  const linkedProductId = String(item?.product_id || matchedProduct?.id || '').trim();
+
+  // 2. Exact child product match
+  if (linkedProductId) {
+    const matchedChild = childProducts.find((cp) => cp.id === linkedProductId);
+    if (matchedChild) {
+      const conflict = doesItemConflictWithCandidate(
+        item,
+        {
+          variant_label: (matchedChild as any).variant_label,
+          name: matchedChild.name,
+          model_part_no: matchedChild.model_part_no,
+          attributes: matchedChild.attributes
+        },
+        protectedKeys
+      );
+      return conflict ? VARIANT_SELECT_CUSTOM : `prod_${matchedChild.id}`;
+    }
+  }
+
+  // 3. Unambiguous exact SKU match against child variants (useful when item.product_id was left on parent or cleared)
+  const itemSkuNorm = String(item?.sku || item?.product_sku || '').trim().toLowerCase();
+  if (itemSkuNorm) {
+    const skuChildMatches = childProducts.filter(
+      (cp) => cp.id && String(cp.sku || '').trim().toLowerCase() === itemSkuNorm
+    );
+    if (skuChildMatches.length === 1) {
+      const onlyChild = skuChildMatches[0];
+      const conflict = doesItemConflictWithCandidate(
+        item,
+        {
+          variant_label: (onlyChild as any).variant_label,
+          name: onlyChild.name,
+          model_part_no: onlyChild.model_part_no,
+          attributes: onlyChild.attributes
+        },
+        protectedKeys
+      );
+      if (!conflict) {
+        return `prod_${onlyChild.id}`;
+      }
+    }
+    const skuInlineMatches = inlineVariants.filter(
+      (iv) => String(iv.sku || '').trim().toLowerCase() === itemSkuNorm
+    );
+    if (skuInlineMatches.length === 1) {
+      const onlyInline = skuInlineMatches[0];
+      const conflict = doesItemConflictWithCandidate(
+        item,
+        {
+          variant_name: onlyInline.variant_name,
+          attributes: onlyInline.attributes
+        },
+        protectedKeys
+      );
+      if (!conflict) {
+        return `ivar_${onlyInline.id}`;
+      }
+    }
+  }
+
+  // 4. Linked directly to Master Parent
+  if (linkedProductId && linkedProductId === rootParent.id) {
+    if (!hasVariants) {
+      return `prod_${rootParent.id}`;
+    }
+
+    const parentConflict = doesItemConflictWithCandidate(
+      item,
+      {
+        variant_label: (rootParent as any).variant_label,
+        name: rootParent.name,
+        model_part_no: rootParent.model_part_no,
+        attributes: rootParent.attributes
+      },
+      protectedKeys
+    );
+    if (parentConflict) {
+      return VARIANT_SELECT_CUSTOM;
+    }
+
+    // Check if the item carries a concrete custom differentiating spec/price when the parent is a blank base template
+    const itemAttrs = buildNormalizedAttrMap(item?.attributes, protectedKeys);
+    const parentAttrs = buildNormalizedAttrMap(rootParent.attributes, protectedKeys);
+    const hasCustomPopulatedSpec = Array.from(itemAttrs.entries()).some(
+      ([k, v]) => !parentAttrs.has(k) && Boolean(v)
+    );
+    const itemPrice = Number(item?.unit_price || 0);
+    const parentPrice = Number(rootParent.unit_price || 0);
+    const hasDistinctCustomPrice =
+      itemPrice > 0 && parentPrice > 0 && Math.abs(itemPrice - parentPrice) > 0.01;
+
+    if (hasCustomPopulatedSpec || hasDistinctCustomPrice || Boolean(item?.variant_name?.trim())) {
+      return VARIANT_SELECT_CUSTOM;
+    }
+
+    return VARIANT_SELECT_PARENT;
+  }
+
+  // 5. Fallback: NEVER silently pick options[0]
+  return VARIANT_SELECT_CUSTOM;
+}
+
+/**
+ * Formats a compact, truthful summary of the active line item for the
+ * `Custom / Modified (...)` option in `VariantFamilyBar`.
+ */
+export function formatCustomLineItemVariantSummary(
+  item: VariantBarItemLike | null | undefined,
+  currency: string = 'AED'
+): string {
+  if (!item) return 'Unmatched Variant';
+
+  const parts: string[] = [];
+
+  // 1. Distinguishing spec or variant name
+  const explicitVar = String(item.variant_name || '').trim();
+  if (explicitVar) {
+    parts.push(explicitVar);
+  } else {
+    const attrs = Array.isArray(item.attributes) ? item.attributes : [];
+    const distAttr = attrs.find(
+      (a) => a && a.key.trim() !== '' && a.value.trim() !== '' && DISTINGUISHING_ATTR_PRIORITY_RE.test(a.key.trim())
+    );
+    if (distAttr?.value.trim()) {
+      parts.push(distAttr.value.trim());
+    } else {
+      const dimMatch = String(item.item_name || '').match(EMBEDDED_DIMENSION_PAIR_RE);
+      if (dimMatch) {
+        parts.push(dimMatch[0].trim());
+      } else if (item.model_part_no?.trim()) {
+        parts.push(item.model_part_no.trim());
+      }
+    }
+  }
+
+  // 2. Active line item unit price
+  const price = Number(item.unit_price || 0);
+  if (price > 0) {
+    const curr = String(currency || 'AED').toUpperCase();
+    parts.push(`${curr} ${price.toLocaleString()}`);
+  }
+
+  return parts.length > 0 ? parts.join(' · ') : 'Local Quote Edits';
+}
+

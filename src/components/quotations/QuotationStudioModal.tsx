@@ -6021,6 +6021,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
   // Studio Quick Catalog Insert state & handler
   const [studioCatalogPickerLocation, setStudioCatalogPickerLocation] = useState<'sidebar' | 'inspector' | null>(null);
   const [studioCatalogSearchQuery, setStudioCatalogSearchQuery] = useState<string>('');
+  const [highlightedCatalogParentId, setHighlightedCatalogParentId] = useState<string | null>(null);
 
   const filteredStudioCatalogProducts = useMemo(() => {
     const activeList = workspaceProducts.filter((p) => !p.is_deleted);
@@ -6182,17 +6183,40 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     return topLevelRows.map((prod) => {
       const effectiveProd = resolveEffectiveCatalogProduct(prod, workspaceProducts);
       const childVariants = prod.id ? childrenByParentId.get(prod.id) || [] : [];
+      const hasBlankTemplateAttr =
+        Array.isArray(prod.attributes) &&
+        prod.attributes.some((a) => a.key?.trim() && !a.value?.trim());
       const isParentFamily =
         childVariants.length > 0 ||
         Boolean(prod.has_variants) ||
-        (Array.isArray(prod.attributes) &&
-          prod.attributes.some((a) => a.key?.trim() && !a.value?.trim()));
+        hasBlankTemplateAttr;
+      const parentPriceNum = Number(
+        (effectiveProd as any).default_unit_price ?? effectiveProd.unit_price ?? 0
+      );
+      const isHighlightedParent =
+        Boolean(prod.id) && highlightedCatalogParentId === prod.id;
 
       return (
-        <div key={prod.id} className="py-1.5 px-1 space-y-1">
+        <div
+          key={prod.id}
+          className={`py-1.5 px-1 space-y-1 rounded-lg transition ${
+            isHighlightedParent ? 'bg-violet-50/70 ring-1 ring-violet-300' : ''
+          }`}
+        >
           <button
             type="button"
-            onClick={() => handleAddCatalogProductToStudio(prod)}
+            onClick={() => {
+              if (childVariants.length > 0) {
+                setHighlightedCatalogParentId((prev) =>
+                  prev === prod.id ? null : prod.id || null
+                );
+                return;
+              }
+              handleAddCatalogProductToStudio(
+                prod,
+                isParentFamily && parentPriceNum <= 0 ? { isBaseTemplate: true } : undefined
+              );
+            }}
             className="w-full text-left px-2 py-1.5 hover:bg-indigo-50/80 rounded-lg transition flex items-start justify-between gap-2 cursor-pointer"
           >
             <div className="min-w-0 flex-1">
@@ -6217,16 +6241,37 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                   'Standard Item'}
               </div>
             </div>
-            <span className="shrink-0 font-mono text-[10.5px] font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100">
-              {effectiveProd.currency || 'AED'}{' '}
-              {Number(
-                (effectiveProd as any).default_unit_price ?? effectiveProd.unit_price ?? 0
-              ).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </span>
+            {childVariants.length > 0 ? (
+              <span className="shrink-0 text-[10px] font-semibold text-violet-700 bg-violet-50 px-2 py-0.5 rounded border border-violet-200 whitespace-nowrap">
+                Pick Variant ▾
+              </span>
+            ) : (
+              <span className="shrink-0 font-mono text-[10.5px] font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100">
+                {parentPriceNum > 0
+                  ? `${effectiveProd.currency || 'AED'} ${parentPriceNum.toLocaleString(undefined, {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2
+                    })}`
+                  : 'POR'}
+              </span>
+            )}
           </button>
 
           {isParentFamily && (
-            <div className="pl-3 pr-1 pb-1 flex flex-wrap items-center gap-1 border-l-2 border-purple-200 ml-2">
+            <div
+              className={`pl-3 pr-1 pb-1.5 pt-1 flex flex-wrap items-center gap-1 border-l-2 ml-2 rounded-r-md transition ${
+                isHighlightedParent
+                  ? 'border-violet-500 bg-white/80'
+                  : 'border-purple-200'
+              }`}
+            >
+              {childVariants.length > 0 && (
+                <span className="w-full text-[9.5px] font-semibold text-violet-700 mb-0.5">
+                  {isHighlightedParent
+                    ? 'Select a specific size / variant below (or use Custom Base Template):'
+                    : 'Variants:'}
+                </span>
+              )}
               {childVariants.map((cv) => {
                 const resolvedCv = resolveEffectiveCatalogProduct(cv, workspaceProducts);
                 const cvLabel =
@@ -6235,35 +6280,57 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                   deriveSuggestedVariantLabel(cv.attributes, prod) ||
                   cv.sku ||
                   cv.name;
+                const cvPriceNum = Number(
+                  (resolvedCv as any).default_unit_price ?? resolvedCv.unit_price ?? 0
+                );
                 return (
                   <button
                     key={cv.id}
                     type="button"
-                    onClick={() => handleAddCatalogProductToStudio(cv)}
-                    className="px-2 py-0.5 rounded-md bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 text-[10px] font-semibold transition cursor-pointer flex items-center gap-1"
+                    onClick={() => {
+                      setHighlightedCatalogParentId(null);
+                      handleAddCatalogProductToStudio(cv);
+                    }}
+                    className="px-2 py-0.5 rounded-md bg-indigo-50 hover:bg-indigo-600 text-indigo-800 hover:text-white border border-indigo-200 text-[10px] font-semibold transition cursor-pointer flex items-center gap-1"
                     title={`Insert variant ${cvLabel} (inherits shared parent specs)`}
                   >
                     <span>{cvLabel}</span>
-                    <span className="font-mono text-[9.5px] text-indigo-600">
-                      — {resolvedCv.currency || 'AED'}{' '}
-                      {Number(
-                        (resolvedCv as any).default_unit_price ?? resolvedCv.unit_price ?? 0
-                      ).toLocaleString(undefined, {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2
-                      })}
+                    <span className="font-mono text-[9.5px] opacity-85">
+                      —{' '}
+                      {cvPriceNum > 0
+                        ? `${resolvedCv.currency || 'AED'} ${cvPriceNum.toLocaleString(undefined, {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2
+                          })}`
+                        : 'POR'}
                     </span>
                   </button>
                 );
               })}
               <button
                 type="button"
-                onClick={() => handleAddCatalogProductToStudio(prod, { isBaseTemplate: true })}
+                onClick={() => {
+                  setHighlightedCatalogParentId(null);
+                  handleAddCatalogProductToStudio(prod, { isBaseTemplate: true });
+                }}
                 className="px-2 py-0.5 rounded-md bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 text-[10px] font-semibold transition cursor-pointer"
                 title="Insert shared base attributes & image as a custom row for this quote (leaves SKU unlinked so you can customize and save as a new variant)"
               >
                 ✨ Custom / Base Template
               </button>
+              {childVariants.length > 0 && parentPriceNum > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setHighlightedCatalogParentId(null);
+                    handleAddCatalogProductToStudio(prod);
+                  }}
+                  className="px-2 py-0.5 rounded-md bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 text-[10px] font-medium transition cursor-pointer"
+                  title="Insert the Master Parent record directly"
+                >
+                  Insert Parent ({effectiveProd.currency || 'AED'} {parentPriceNum.toLocaleString()})
+                </button>
+              )}
             </div>
           )}
         </div>
