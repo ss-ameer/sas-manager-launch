@@ -511,6 +511,23 @@ export function evaluateCompanyPairScore(nameA: string, nameB: string): {
 }
 
 /**
+ * Generic corporate modifiers that frequently prefix unrelated client names
+ * (e.g., "Advanced Engineering LLC", "Advanced Water Solutions FZE") and must NEVER alone
+ * trigger own-company blocking against own workspace names like "Advanced Nirvana Water".
+ */
+const OWN_COMPANY_NON_ANCHOR_MODIFIERS = new Set([
+  'advanced', 'modern', 'united', 'national', 'emirates', 'gulf', 'arabian',
+  'prime', 'smart', 'pro', 'first', 'elite', 'royal', 'apex', 'alpha',
+  'star', 'new', 'best', 'global', 'international', 'arab', 'middle', 'east',
+  'al', 'future', 'dynamic', 'universal', 'superior', 'premier', 'total',
+  'integrated', 'innovative', 'green', 'eco', 'pure', 'clean', 'blue'
+]);
+
+const OWN_COMPANY_LEGAL_SUFFIXES = new Set([
+  'llc', 'fze', 'fzc', 'fzco', 'ltd', 'limited', 'inc', 'corp', 'co', 'est', 'wll', 'pjsc', 'dmcc'
+]);
+
+/**
  * Checks whether a candidate or extracted company name matches our own workspace company
  * (Sender-vs-Recipient Guard).
  */
@@ -522,20 +539,59 @@ export function isOwnWorkspaceCompanyName(
   const cleanOwnNames = ownCompanyNames.map((n) => String(n || '').trim()).filter(Boolean);
   if (cleanOwnNames.length === 0) return false;
 
+  const candTok = extractCompanyTokens(candidateName);
+  const candCore = candTok.coreTokens;
+  const candAnchorTokens = candCore.filter((t) => !OWN_COMPANY_NON_ANCHOR_MODIFIERS.has(t));
+
   for (const own of cleanOwnNames) {
-    const res = evaluateCompanyPairScore(candidateName, own);
-    if (res.confidence === 'exact' || res.confidence === 'high') {
-      return true;
+    const ownTok = extractCompanyTokens(own);
+    const ownCore = ownTok.coreTokens;
+    const ownAnchorTokens = ownCore.filter((t) => !OWN_COMPANY_NON_ANCHOR_MODIFIERS.has(t));
+
+    if (ownAnchorTokens.length > 0) {
+      // Own workspace name has distinctive brand anchor token(s) (e.g. "nirvana", "aventura").
+      // Require ALL distinctive anchor tokens to match so generic modifiers like "Advanced"
+      // never falsely block legitimate clients such as "Advanced Engineering LLC".
+      const matchesAllOwnAnchors = ownAnchorTokens.every((o) =>
+        candCore.some((c) => scoreCoreTokenPair(c, o) >= 0.90)
+      );
+      if (!matchesAllOwnAnchors) {
+        continue;
+      }
+
+      const res = evaluateCompanyPairScore(candidateName, own);
+      if (res.confidence === 'exact' || res.confidence === 'high') {
+        return true;
+      }
+
+      // Also catch short brand references like "Aventura", "Nirvana Water", or "Advanced Nirvana"
+      // when every core token in the candidate belongs to the own company and at least one
+      // distinctive brand anchor token is present.
+      if (
+        candAnchorTokens.length > 0 &&
+        candCore.length > 0 &&
+        candCore.every((c) => ownCore.some((o) => scoreCoreTokenPair(c, o) >= 0.90))
+      ) {
+        return true;
+      }
+      continue;
     }
-    // Also catch short brand references like "Aventura" or "Advanced Nirvana"
-    const candCore = extractCompanyTokens(candidateName).coreTokens;
-    const ownCore = extractCompanyTokens(own).coreTokens;
-    if (
-      candCore.length > 0 &&
-      ownCore.length > 0 &&
-      candCore.every((c) => ownCore.some((o) => scoreCoreTokenPair(c, o) >= 0.90))
-    ) {
-      return true;
+
+    // Fallback when an own-company name contains only generic/modifier words (no unique brand anchor):
+    // require tight full non-legal name agreement so generic modifiers never block unrelated clients.
+    const sigCand = candTok.allTokens.filter((t) => !OWN_COMPANY_LEGAL_SUFFIXES.has(t)).join(' ');
+    const sigOwn = ownTok.allTokens.filter((t) => !OWN_COMPANY_LEGAL_SUFFIXES.has(t)).join(' ');
+    if (sigCand && sigOwn) {
+      if (sigCand === sigOwn) {
+        return true;
+      }
+      const compactCand = sigCand.replace(/\s+/g, '');
+      const compactOwn = sigOwn.replace(/\s+/g, '');
+      const dist = levenshteinDistance(compactCand, compactOwn);
+      const maxLen = Math.max(compactCand.length, compactOwn.length);
+      if (maxLen > 0 && 1 - dist / maxLen >= 0.90) {
+        return true;
+      }
     }
   }
   return false;

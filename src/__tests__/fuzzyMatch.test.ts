@@ -233,7 +233,10 @@ describe('Sender-vs-Recipient Guard (Own Workspace & Signatories)', () => {
 
   it('blocks own workspace companies (Aventura Components / Advanced Nirvana Water) from matching as client', () => {
     expect(isOwnWorkspaceCompanyName('Aventura Components (FZE)', ownCompanies)).toBe(true);
+    expect(isOwnWorkspaceCompanyName('Aventura Components', ownCompanies)).toBe(true);
     expect(isOwnWorkspaceCompanyName('Advanced Nirvana Water', ownCompanies)).toBe(true);
+    expect(isOwnWorkspaceCompanyName('Advanced Nirvana Water Treatment LLC', ownCompanies)).toBe(true);
+    expect(isOwnWorkspaceCompanyName('Nirvana Water', ownCompanies)).toBe(true);
     expect(isOwnWorkspaceCompanyName('Veolia Water Technologies', ownCompanies)).toBe(false);
 
     const blockedRes = findBestCompanyMatch(
@@ -244,6 +247,52 @@ describe('Sender-vs-Recipient Guard (Own Workspace & Signatories)', () => {
     expect(blockedRes.match).toBe(null);
     expect(blockedRes.confidence).toBe('none');
     expect(blockedRes.blockedAsOwnCompany).toBe(true);
+
+    const blockedNirvanaRes = findBestCompanyMatch(
+      'Advanced Nirvana Water Treatment LLC',
+      [makeCompany('c_anw', 'Advanced Nirvana Water Treatment LLC')],
+      { ownCompanyNames: ownCompanies }
+    );
+    expect(blockedNirvanaRes.match).toBe(null);
+    expect(blockedNirvanaRes.confidence).toBe('none');
+    expect(blockedNirvanaRes.blockedAsOwnCompany).toBe(true);
+  });
+
+  it('does NOT falsely block legitimate client companies sharing generic modifier "Advanced" (P1-12)', () => {
+    const extendedOwnCompanies = [
+      ...ownCompanies,
+      'Advanced Nirvana Water Treatment'
+    ];
+    expect(isOwnWorkspaceCompanyName('Advanced Engineering LLC', extendedOwnCompanies)).toBe(false);
+    expect(isOwnWorkspaceCompanyName('Advanced Water Solutions FZE', extendedOwnCompanies)).toBe(false);
+    expect(isOwnWorkspaceCompanyName('Advanced Technical Contracting', extendedOwnCompanies)).toBe(false);
+
+    const clientRegistry: Company[] = [
+      makeCompany('c_adv_eng', 'Advanced Engineering LLC'),
+      makeCompany('c_adv_wat', 'Advanced Water Solutions FZE'),
+      makeCompany('c_adv_tech', 'Advanced Technical Contracting')
+    ];
+
+    const advEngMatch = findBestCompanyMatch('Advanced Engineering LLC', clientRegistry, {
+      ownCompanyNames: extendedOwnCompanies
+    });
+    expect(advEngMatch.blockedAsOwnCompany).toBe(undefined);
+    expect(advEngMatch.match?.id).toBe('c_adv_eng');
+    expect(advEngMatch.confidence === 'exact' || advEngMatch.confidence === 'high').toBe(true);
+
+    const advWaterMatch = findBestCompanyMatch('Advanced Water Solutions FZE', clientRegistry, {
+      ownCompanyNames: extendedOwnCompanies
+    });
+    expect(advWaterMatch.blockedAsOwnCompany).toBe(undefined);
+    expect(advWaterMatch.match?.id).toBe('c_adv_wat');
+    expect(advWaterMatch.confidence === 'exact' || advWaterMatch.confidence === 'high').toBe(true);
+
+    const advTechMatch = findBestCompanyMatch('Advanced Technical Contracting', clientRegistry, {
+      ownCompanyNames: extendedOwnCompanies
+    });
+    expect(advTechMatch.blockedAsOwnCompany).toBe(undefined);
+    expect(advTechMatch.match?.id).toBe('c_adv_tech');
+    expect(advTechMatch.confidence === 'exact' || advTechMatch.confidence === 'high').toBe(true);
   });
 
   it('blocks own signatories (Nitin Srivastava / Pawan Verma) from matching as client contact', () => {

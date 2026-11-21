@@ -2671,232 +2671,262 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
     return !canEditEnquiry(user, activeWorkspace, enquiryToEdit);
   }, [isEditing, enquiryToEdit, user, activeWorkspace]);
 
-  // Load edit values
+  const hydratedEnquiryKeyRef = useRef<string | object | null>(null);
+  const hasDefaultedNewSalespersonRef = useRef<boolean>(false);
+
+  // Load edit values (guarded by enquiry identity ref so background updates to `companies` or
+  // `salespersons`—including creating a new company inline—never wipe unsaved or AI-extracted fields)
   useEffect(() => {
-    if (enquiryToEdit) {
-      setSn(enquiryToEdit.sn ?? calibratedDefaultSn);
-      setEnquiryDate(enquiryToEdit.enquiry_date || new Date().toISOString().split('T')[0]);
-      setLoggedDate(enquiryToEdit.logged_date || new Date().toISOString().split('T')[0]);
-      setSalesPerson(enquiryToEdit.sales_person_id || enquiryToEdit.sales_person || '');
-      setConcernedPersons(enquiryToEdit.concerned_persons || (enquiryToEdit.concerned_person ? [enquiryToEdit.concerned_person] : []));
-      setCompanyId(enquiryToEdit.company_id || '');
-      setContactId(enquiryToEdit.contact_id || '');
-      setCountry(enquiryToEdit.country || 'UAE');
-      setProjectLocation(enquiryToEdit.project_location || '');
-      setEnquirySource(e_src_fallback(enquiryToEdit.enquiry_source));
+    if (!enquiryToEdit) {
+      if (hydratedEnquiryKeyRef.current !== null) {
+        hydratedEnquiryKeyRef.current = null;
+        hasDefaultedNewSalespersonRef.current = false;
+      }
+      return;
+    }
 
-      const dedupeRemarkLines = (raw?: string) => {
-        if (!raw) return '';
-        const nonEmpty = raw
-          .split(/\r?\n/)
-          .map((l) => l.trim())
-          .filter(Boolean);
-        const exactUnique: string[] = [];
-        const seen = new Set<string>();
-        for (const line of nonEmpty) {
-          const key = line.toLowerCase();
-          if (!seen.has(key)) {
-            seen.add(key);
-            exactUnique.push(line);
-          }
-        }
-        return exactUnique
-          .filter((line, idx) => {
-            const lower = line.toLowerCase();
-            if (lower.length < 10) return true;
-            return !exactUnique.some(
-              (other, oIdx) =>
-                oIdx !== idx &&
-                other.length > line.length &&
-                other.toLowerCase().includes(lower)
-            );
-          })
-          .join('\n');
-      };
+    const currentHydrationKey = enquiryToEdit.id || (enquiryToEdit as any)._id || enquiryToEdit;
+    if (hydratedEnquiryKeyRef.current === currentHydrationKey) {
+      return;
+    }
+    hydratedEnquiryKeyRef.current = currentHydrationKey;
+    hasDefaultedNewSalespersonRef.current = true;
 
-      if (isClaimingGap || enquiryToEdit.status === 'Gap / Reserved' || enquiryToEdit.status === 'GAP / RESERVED') {
-        setStatus('Active');
-        if (enquiryToEdit.remarks?.startsWith('[Reserved Gap]') || enquiryToEdit.remarks?.includes('missing record')) {
-          setRemarks('');
-        } else {
-          setRemarks(dedupeRemarkLines(enquiryToEdit.remarks));
+    setSn(enquiryToEdit.sn ?? calibratedDefaultSn);
+    setEnquiryDate(enquiryToEdit.enquiry_date || new Date().toISOString().split('T')[0]);
+    setLoggedDate(enquiryToEdit.logged_date || new Date().toISOString().split('T')[0]);
+    setSalesPerson(enquiryToEdit.sales_person_id || enquiryToEdit.sales_person || '');
+    setConcernedPersons(enquiryToEdit.concerned_persons || (enquiryToEdit.concerned_person ? [enquiryToEdit.concerned_person] : []));
+    setCompanyId(enquiryToEdit.company_id || '');
+    setContactId(enquiryToEdit.contact_id || '');
+    setCountry(enquiryToEdit.country || 'UAE');
+    setProjectLocation(enquiryToEdit.project_location || '');
+    setEnquirySource(e_src_fallback(enquiryToEdit.enquiry_source));
+
+    const dedupeRemarkLines = (raw?: string) => {
+      if (!raw) return '';
+      const nonEmpty = raw
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .filter(Boolean);
+      const exactUnique: string[] = [];
+      const seen = new Set<string>();
+      for (const line of nonEmpty) {
+        const key = line.toLowerCase();
+        if (!seen.has(key)) {
+          seen.add(key);
+          exactUnique.push(line);
         }
+      }
+      return exactUnique
+        .filter((line, idx) => {
+          const lower = line.toLowerCase();
+          if (lower.length < 10) return true;
+          return !exactUnique.some(
+            (other, oIdx) =>
+              oIdx !== idx &&
+              other.length > line.length &&
+              other.toLowerCase().includes(lower)
+          );
+        })
+        .join('\n');
+    };
+
+    if (isClaimingGap || enquiryToEdit.status === 'Gap / Reserved' || enquiryToEdit.status === 'GAP / RESERVED') {
+      setStatus('Active');
+      if (enquiryToEdit.remarks?.startsWith('[Reserved Gap]') || enquiryToEdit.remarks?.includes('missing record')) {
+        setRemarks('');
       } else {
-        setStatus(normalizeEnquiryStatus(enquiryToEdit.status) as EnquiryStatus);
         setRemarks(dedupeRemarkLines(enquiryToEdit.remarks));
       }
-
-      setPastedSourceText(enquiryToEdit.raw_source_text || null);
-      const initialEditRef =
-        enquiryToEdit.quote_ref_no &&
-        /\d/.test(enquiryToEdit.quote_ref_no) &&
-        !/^(received|details|from|for|by|subject|enquiry|quotation|item|none|null)$/i.test(
-          enquiryToEdit.quote_ref_no.trim()
-        )
-          ? enquiryToEdit.quote_ref_no.trim()
-          : '';
-      setQuoteRefNo(initialEditRef);
-      if (initialEditRef) {
-        setIsQuoteRefCustom(true);
-      }
-      setProjectedOrderDate(enquiryToEdit.projected_order_date || '');
-      setNextFollowupDate(enquiryToEdit.next_followup_date || '');
-      const editCurrency = enquiryToEdit.currency || 'AED';
-      setFormCurrency(editCurrency);
-      const safeVal = Number(enquiryToEdit.value_aed) || 0;
-      const resolvedManualVal = editCurrency === 'USD' ? safeVal / 3.6725 : safeVal;
-      setManualValue(resolvedManualVal);
-      setInvoicePoNo(enquiryToEdit.invoice_po_no || '');
-      setPaymentStatus(enquiryToEdit.payment_status || '');
-      const rawRem = enquiryToEdit.remarks || '';
-      const fallbackFromSource = extractCommercialTermsAndHeaderFromText(
-        `${rawRem}\n${enquiryToEdit.raw_source_text || ''}`
-      );
-      const extractedValidity = rawRem.match(/validity\s*[:=-]\s*(\d+)\s*day/i)?.[1];
-      const extractedPriceBasis =
-        rawRem.match(/(?:price\s*basis|incoterms?)\s*[:=-]\s*([^\n;|]+)/i)?.[1]?.trim() ||
-        fallbackFromSource.priceBasis;
-      const extractedDelivery =
-        rawRem.match(/delivery(?:\s*period|\s*terms)?\s*[:=-]\s*([^\n;|]+)/i)?.[1]?.trim() ||
-        fallbackFromSource.deliveryPeriod;
-      const extractedPayment =
-        rawRem.match(/payment(?:\s*terms)?\s*[:=-]\s*([^\n;|]+)/i)?.[1]?.trim() ||
-        fallbackFromSource.paymentTerms;
-      setValidityDays(
-        typeof enquiryToEdit.validity_days === 'number' && enquiryToEdit.validity_days > 0
-          ? enquiryToEdit.validity_days
-          : extractedValidity
-          ? Number(extractedValidity) || 30
-          : fallbackFromSource.validityDays || 30
-      );
-      setPriceBasis(enquiryToEdit.price_basis || extractedPriceBasis || '');
-      setDeliveryPeriod(enquiryToEdit.delivery_period || extractedDelivery || '');
-      setPaymentTerms(enquiryToEdit.payment_terms || extractedPayment || enquiryToEdit.payment_status || '');
-      const rawTaxMode = String(enquiryToEdit.tax_mode || fallbackFromSource.taxMode || 'taxes_extra');
-      const normalizedTaxMode: QuotationTaxMode =
-        rawTaxMode === 'inclusive'
-          ? 'tax_calculated'
-          : rawTaxMode === 'zero_rated'
-          ? 'tax_exempt'
-          : (rawTaxMode as QuotationTaxMode);
-      setTaxMode(normalizedTaxMode);
-      setSubject(enquiryToEdit.subject || fallbackFromSource.subject || '');
-      setCustomerReferenceCode(enquiryToEdit.customer_reference_code || '');
-      setProposalOption(enquiryToEdit.proposal_option || '');
-      setParentId(enquiryToEdit.parent_id ?? null);
-      setRevisionNumber(
-        typeof enquiryToEdit.revision_number === 'number'
-          ? enquiryToEdit.revision_number
-          : (enquiryToEdit.parent_id ? 1 : 0)
-      );
-      if (enquiryToEdit.custom_project_details) {
-        if (Array.isArray(enquiryToEdit.custom_project_details)) {
-          setCustomProjectDetails(enquiryToEdit.custom_project_details);
-        } else if (typeof enquiryToEdit.custom_project_details === 'object') {
-          const arr = Object.entries(enquiryToEdit.custom_project_details).map(([key, value]) => ({ key, value: String(value) }));
-          if (arr.length > 0) setCustomProjectDetails(arr);
-        }
-      }
-      const parsedItems = rehydrateLineItemsFromCatalog(
-        (enquiryToEdit.line_items || []).map(item => {
-          let cleanedSubs = item.sub_components;
-          if (Array.isArray(cleanedSubs) && cleanedSubs.length >= 2) {
-            const first = cleanedSubs[0];
-            const pName = (item.item_name || '').trim().toLowerCase();
-            const fName = (first.item_name || '').trim().toLowerCase();
-            if (
-              !first.is_included_accessory &&
-              (Number(first.unit_price) || 0) === 0 &&
-              (!fName || fName === pName) &&
-              cleanedSubs.slice(1).some((c) => Boolean(c.is_included_accessory) || (Number(c.unit_price) || 0) === 0)
-            ) {
-              cleanedSubs = cleanedSubs.slice(1);
-            }
-          }
-          const hasCustomEnquiryDelivery =
-            Boolean(enquiryToEdit.delivery_period?.trim()) &&
-            enquiryToEdit.delivery_period?.trim() !== 'Ex-Stock / Standard';
-          const normalizedLeadTime =
-            hasCustomEnquiryDelivery && item.lead_time_note?.trim() === 'Ex-Stock / Standard'
-              ? ''
-              : item.lead_time_note;
-          return {
-            ...item,
-            lead_time_note: normalizedLeadTime,
-            ...(cleanedSubs ? { sub_components: cleanedSubs } : {}),
-            option: item.option || (item as any).option_designation || 'Default / Included',
-            attributes: (item.attributes || []).map((a) => ({
-              ...a,
-              key: (a.key || '').trim(),
-              value: String(a.value || '').replace(/^[•▪▸\-*]\s*/, '').trim()
-            }))
-          };
-        }),
-        products
-      );
-
-      // Auto-heal single-package items whose unit_price was zeroed out by legacy BOM conversion while value_aed held the real package price
-      let shouldKeepLumpSum = Boolean(enquiryToEdit.is_lump_sum);
-      if (
-        parsedItems.length === 1 &&
-        (Number(parsedItems[0].unit_price) || 0) === 0 &&
-        resolvedManualVal > 0
-      ) {
-        const q = Math.max(1, Number(parsedItems[0].quantity) || 1);
-        parsedItems[0] = {
-          ...parsedItems[0],
-          unit_price: Number((resolvedManualVal / q).toFixed(2)),
-          total_price: Number(resolvedManualVal.toFixed(2)),
-        };
-        shouldKeepLumpSum = false;
-      }
-      setIsLumpSum(shouldKeepLumpSum);
-
-      setLineItems(parsedItems);
-      if (parsedItems.length > 0) {
-        rehydrateDocumentBlobsFromLocal({ line_items: parsedItems })
-          .then((rehydrated) => {
-            if (rehydrated?.line_items) {
-              setLineItems(rehydrateLineItemsFromCatalog(rehydrated.line_items, products));
-            }
-          })
-          .catch(() => {});
-      }
-      const initialAttachments = enquiryToEdit.attachments || [];
-      setAttachments(initialAttachments);
-      if (initialAttachments.length > 0) {
-        Promise.all(
-          initialAttachments.map(async (att) => {
-            const resolvedUrl = await resolveAttachmentUrl(att);
-            return {
-              ...att,
-              url: resolvedUrl || att.url || ''
-            };
-          })
-        ).then((resolved) => {
-          setAttachments(resolved);
-          if (resolved.length > 0 && resolved[0].url) {
-            setActivePreviewUrl(resolved[0].url);
-            setPreviewFileName(resolved[0].name);
-            setPreviewFileType(resolved[0].type || 'application/pdf');
-          }
-        });
-      }
-
-      const matchedComp = companies.find((c) => c.id === enquiryToEdit.company_id);
-      if (matchedComp) {
-        setCompanySearch(matchedComp.display_name || matchedComp.canonical_name || '');
-      } else if (isClaimingGap || enquiryToEdit.status === 'Gap / Reserved' || enquiryToEdit.status === 'GAP / RESERVED' || enquiryToEdit.company_name?.includes('[Reserved Sequence')) {
-        setCompanySearch('');
-        setCompanyId('');
-      }
     } else {
-      // Default Salesperson to the first initials/ID in the list
-      if (salespersons.length > 0) {
-        setSalesPerson(salespersons[0].id || salespersons[0].initials || '');
+      setStatus(normalizeEnquiryStatus(enquiryToEdit.status) as EnquiryStatus);
+      setRemarks(dedupeRemarkLines(enquiryToEdit.remarks));
+    }
+
+    setPastedSourceText(enquiryToEdit.raw_source_text || null);
+    const initialEditRef =
+      enquiryToEdit.quote_ref_no &&
+      /\d/.test(enquiryToEdit.quote_ref_no) &&
+      !/^(received|details|from|for|by|subject|enquiry|quotation|item|none|null)$/i.test(
+        enquiryToEdit.quote_ref_no.trim()
+      )
+        ? enquiryToEdit.quote_ref_no.trim()
+        : '';
+    setQuoteRefNo(initialEditRef);
+    if (initialEditRef) {
+      setIsQuoteRefCustom(true);
+    }
+    setProjectedOrderDate(enquiryToEdit.projected_order_date || '');
+    setNextFollowupDate(enquiryToEdit.next_followup_date || '');
+    const editCurrency = enquiryToEdit.currency || 'AED';
+    setFormCurrency(editCurrency);
+    const safeVal = Number(enquiryToEdit.value_aed) || 0;
+    const resolvedManualVal = editCurrency === 'USD' ? safeVal / 3.6725 : safeVal;
+    setManualValue(resolvedManualVal);
+    setInvoicePoNo(enquiryToEdit.invoice_po_no || '');
+    setPaymentStatus(enquiryToEdit.payment_status || '');
+    const rawRem = enquiryToEdit.remarks || '';
+    const fallbackFromSource = extractCommercialTermsAndHeaderFromText(
+      `${rawRem}\n${enquiryToEdit.raw_source_text || ''}`
+    );
+    const extractedValidity = rawRem.match(/validity\s*[:=-]\s*(\d+)\s*day/i)?.[1];
+    const extractedPriceBasis =
+      rawRem.match(/(?:price\s*basis|incoterms?)\s*[:=-]\s*([^\n;|]+)/i)?.[1]?.trim() ||
+      fallbackFromSource.priceBasis;
+    const extractedDelivery =
+      rawRem.match(/delivery(?:\s*period|\s*terms)?\s*[:=-]\s*([^\n;|]+)/i)?.[1]?.trim() ||
+      fallbackFromSource.deliveryPeriod;
+    const extractedPayment =
+      rawRem.match(/payment(?:\s*terms)?\s*[:=-]\s*([^\n;|]+)/i)?.[1]?.trim() ||
+      fallbackFromSource.paymentTerms;
+    setValidityDays(
+      typeof enquiryToEdit.validity_days === 'number' && enquiryToEdit.validity_days > 0
+        ? enquiryToEdit.validity_days
+        : extractedValidity
+        ? Number(extractedValidity) || 30
+        : fallbackFromSource.validityDays || 30
+    );
+    setPriceBasis(enquiryToEdit.price_basis || extractedPriceBasis || '');
+    setDeliveryPeriod(enquiryToEdit.delivery_period || extractedDelivery || '');
+    setPaymentTerms(enquiryToEdit.payment_terms || extractedPayment || enquiryToEdit.payment_status || '');
+    const rawTaxMode = String(enquiryToEdit.tax_mode || fallbackFromSource.taxMode || 'taxes_extra');
+    const normalizedTaxMode: QuotationTaxMode =
+      rawTaxMode === 'inclusive'
+        ? 'tax_calculated'
+        : rawTaxMode === 'zero_rated'
+        ? 'tax_exempt'
+        : (rawTaxMode as QuotationTaxMode);
+    setTaxMode(normalizedTaxMode);
+    setSubject(enquiryToEdit.subject || fallbackFromSource.subject || '');
+    setCustomerReferenceCode(enquiryToEdit.customer_reference_code || '');
+    setProposalOption(enquiryToEdit.proposal_option || '');
+    setParentId(enquiryToEdit.parent_id ?? null);
+    setRevisionNumber(
+      typeof enquiryToEdit.revision_number === 'number'
+        ? enquiryToEdit.revision_number
+        : (enquiryToEdit.parent_id ? 1 : 0)
+    );
+    if (enquiryToEdit.custom_project_details) {
+      if (Array.isArray(enquiryToEdit.custom_project_details)) {
+        setCustomProjectDetails(enquiryToEdit.custom_project_details);
+      } else if (typeof enquiryToEdit.custom_project_details === 'object') {
+        const arr = Object.entries(enquiryToEdit.custom_project_details).map(([key, value]) => ({ key, value: String(value) }));
+        if (arr.length > 0) setCustomProjectDetails(arr);
       }
     }
-  }, [enquiryToEdit, companies, salespersons]);
+    const parsedItems = rehydrateLineItemsFromCatalog(
+      (enquiryToEdit.line_items || []).map(item => {
+        let cleanedSubs = item.sub_components;
+        if (Array.isArray(cleanedSubs) && cleanedSubs.length >= 2) {
+          const first = cleanedSubs[0];
+          const pName = (item.item_name || '').trim().toLowerCase();
+          const fName = (first.item_name || '').trim().toLowerCase();
+          if (
+            !first.is_included_accessory &&
+            (Number(first.unit_price) || 0) === 0 &&
+            (!fName || fName === pName) &&
+            cleanedSubs.slice(1).some((c) => Boolean(c.is_included_accessory) || (Number(c.unit_price) || 0) === 0)
+          ) {
+            cleanedSubs = cleanedSubs.slice(1);
+          }
+        }
+        const hasCustomEnquiryDelivery =
+          Boolean(enquiryToEdit.delivery_period?.trim()) &&
+          enquiryToEdit.delivery_period?.trim() !== 'Ex-Stock / Standard';
+        const normalizedLeadTime =
+          hasCustomEnquiryDelivery && item.lead_time_note?.trim() === 'Ex-Stock / Standard'
+            ? ''
+            : item.lead_time_note;
+        return {
+          ...item,
+          lead_time_note: normalizedLeadTime,
+          ...(cleanedSubs ? { sub_components: cleanedSubs } : {}),
+          option: item.option || (item as any).option_designation || 'Default / Included',
+          attributes: (item.attributes || []).map((a) => ({
+            ...a,
+            key: (a.key || '').trim(),
+            value: String(a.value || '').replace(/^[•▪▸\-*]\s*/, '').trim()
+          }))
+        };
+      }),
+      products
+    );
+
+    // Auto-heal single-package items whose unit_price was zeroed out by legacy BOM conversion while value_aed held the real package price
+    let shouldKeepLumpSum = Boolean(enquiryToEdit.is_lump_sum);
+    if (
+      parsedItems.length === 1 &&
+      (Number(parsedItems[0].unit_price) || 0) === 0 &&
+      resolvedManualVal > 0
+    ) {
+      const q = Math.max(1, Number(parsedItems[0].quantity) || 1);
+      parsedItems[0] = {
+        ...parsedItems[0],
+        unit_price: Number((resolvedManualVal / q).toFixed(2)),
+        total_price: Number(resolvedManualVal.toFixed(2)),
+      };
+      shouldKeepLumpSum = false;
+    }
+    setIsLumpSum(shouldKeepLumpSum);
+
+    setLineItems(parsedItems);
+    if (parsedItems.length > 0) {
+      rehydrateDocumentBlobsFromLocal({ line_items: parsedItems })
+        .then((rehydrated) => {
+          if (rehydrated?.line_items) {
+            setLineItems(rehydrateLineItemsFromCatalog(rehydrated.line_items, products));
+          }
+        })
+        .catch(() => {});
+    }
+    const initialAttachments = enquiryToEdit.attachments || [];
+    setAttachments(initialAttachments);
+    if (initialAttachments.length > 0) {
+      Promise.all(
+        initialAttachments.map(async (att) => {
+          const resolvedUrl = await resolveAttachmentUrl(att);
+          return {
+            ...att,
+            url: resolvedUrl || att.url || ''
+          };
+        })
+      ).then((resolved) => {
+        setAttachments(resolved);
+        if (resolved.length > 0 && resolved[0].url) {
+          setActivePreviewUrl(resolved[0].url);
+          setPreviewFileName(resolved[0].name);
+          setPreviewFileType(resolved[0].type || 'application/pdf');
+        }
+      });
+    }
+
+    const matchedComp = companies.find((c) => c.id === enquiryToEdit.company_id);
+    if (matchedComp) {
+      setCompanySearch(matchedComp.display_name || matchedComp.canonical_name || '');
+    } else if (isClaimingGap || enquiryToEdit.status === 'Gap / Reserved' || enquiryToEdit.status === 'GAP / RESERVED' || enquiryToEdit.company_name?.includes('[Reserved Sequence')) {
+      setCompanySearch('');
+      setCompanyId('');
+    }
+  }, [enquiryToEdit]);
+
+  // Non-destructive backfill for company display label if `companies` loads after initial hydration
+  useEffect(() => {
+    if (!companyId || companySearch.trim() !== '') return;
+    const matchedComp = companies.find((c) => c.id === companyId);
+    if (matchedComp) {
+      setCompanySearch(matchedComp.display_name || matchedComp.canonical_name || '');
+    }
+  }, [companies, companyId, companySearch]);
+
+  // One-time default salesperson for brand-new enquiries once salespersons list loads
+  useEffect(() => {
+    if (enquiryToEdit || hasDefaultedNewSalespersonRef.current) return;
+    if (!salesPerson && salespersons.length > 0) {
+      hasDefaultedNewSalespersonRef.current = true;
+      setSalesPerson(salespersons[0].id || salespersons[0].initials || '');
+    }
+  }, [enquiryToEdit, salespersons, salesPerson]);
 
   const e_src_fallback = (val: string): string => {
     return activeSources.includes(val) ? val : (activeSources[0] || 'Email');
