@@ -834,6 +834,80 @@ export function estimateBlockHeightMm(
   return (block.placement || 'full') === 'full' ? 28 : 24;
 }
 
+export function prepareOptionFilteredLineItems(
+  lineItems: QuotationLineItem[] | undefined | null,
+  optionDisplayMode: string = 'all_separate_tables'
+): QuotationLineItem[] {
+  const raw = Array.isArray(lineItems) ? lineItems : [];
+  const tagged: QuotationLineItem[] = [];
+  raw.forEach((it, originalIdx) => {
+    if (!it) return;
+    tagged.push({
+      ...it,
+      sourceLineIndex:
+        typeof (it as any).sourceLineIndex === 'number'
+          ? (it as any).sourceLineIndex
+          : originalIdx
+    });
+  });
+
+  if (optionDisplayMode === 'option_a_only') {
+    return tagged
+      .filter((it) => {
+        const opt = String(it.option || it.option_group || '').trim();
+        return !opt || opt === 'Default / Included' || /^option\s*a\b/i.test(opt) || /^option\s*1\b/i.test(opt);
+      })
+      .map((it) => ({ ...it, is_optional: false }));
+  }
+  if (optionDisplayMode === 'option_b_only') {
+    return tagged
+      .filter((it) => {
+        const opt = String(it.option || it.option_group || '').trim();
+        return !opt || opt === 'Default / Included' || /^option\s*b\b/i.test(opt) || /^option\s*2\b/i.test(opt);
+      })
+      .map((it) => ({ ...it, is_optional: false }));
+  }
+  if (optionDisplayMode === 'option_c_only') {
+    return tagged
+      .filter((it) => {
+        const opt = String(it.option || it.option_group || '').trim();
+        return !opt || opt === 'Default / Included' || /^option\s*c\b/i.test(opt) || /^option\s*3\b/i.test(opt);
+      })
+      .map((it) => ({ ...it, is_optional: false }));
+  }
+  return tagged;
+}
+
+export function resolveCanonicalLineItemIndex(
+  item: QuotationLineItem | undefined | null,
+  fallbackIndex: number
+): number {
+  return typeof (item as any)?.sourceLineIndex === 'number'
+    ? (item as any).sourceLineIndex
+    : fallbackIndex;
+}
+
+export function resolveLineItemOptionalFlag(params: {
+  effectiveOptionLabel?: string | null;
+  explicitOptionalOverride?: boolean;
+  compositeOverrideOptional?: boolean;
+  itemIsOptional?: boolean;
+}): boolean {
+  if (typeof params.explicitOptionalOverride === 'boolean') {
+    return params.explicitOptionalOverride;
+  }
+  if (typeof params.compositeOverrideOptional === 'boolean') {
+    return params.compositeOverrideOptional;
+  }
+  const effectiveOptLabel = String(params.effectiveOptionLabel || '').trim();
+  const isLetteredOrBaselineItemOpt =
+    /^(Option\s+[A-Z0-9]+|Baseline|Default|Included)/i.test(effectiveOptLabel);
+  if (isLetteredOrBaselineItemOpt) {
+    return false;
+  }
+  return /optional|add-?on/i.test(effectiveOptLabel) || Boolean(params.itemIsOptional);
+}
+
 export function splitLineItemsIntoChunks(
   lineItems: QuotationLineItem[] = [],
   options?: {
@@ -1422,6 +1496,10 @@ export function splitLineItemsIntoChunks(
       ...item,
       parentItemNumber: idx + 1,
       globalOptionItemNumber: optionCounters[optKey],
+      sourceLineIndex:
+        typeof (item as any).sourceLineIndex === 'number'
+          ? (item as any).sourceLineIndex
+          : idx,
       ...(subs !== undefined ? { sub_components: subs } : {})
     };
   });
@@ -4261,34 +4339,10 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
     (quotation as any).presentation_preset?.option_display_mode ||
     'all_separate_tables';
 
-  const rawLineItems: QuotationLineItem[] = React.useMemo(() => {
-    const all = Array.isArray(quotation?.line_items) ? quotation.line_items.filter(Boolean) : [];
-    if (resolvedOptionDisplayMode === 'option_a_only') {
-      return all
-        .filter((it) => {
-          const opt = String(it.option || it.option_group || '').trim();
-          return !opt || opt === 'Default / Included' || /^option\s*a\b/i.test(opt) || /^option\s*1\b/i.test(opt);
-        })
-        .map((it) => ({ ...it, is_optional: false }));
-    }
-    if (resolvedOptionDisplayMode === 'option_b_only') {
-      return all
-        .filter((it) => {
-          const opt = String(it.option || it.option_group || '').trim();
-          return !opt || opt === 'Default / Included' || /^option\s*b\b/i.test(opt) || /^option\s*2\b/i.test(opt);
-        })
-        .map((it) => ({ ...it, is_optional: false }));
-    }
-    if (resolvedOptionDisplayMode === 'option_c_only') {
-      return all
-        .filter((it) => {
-          const opt = String(it.option || it.option_group || '').trim();
-          return !opt || opt === 'Default / Included' || /^option\s*c\b/i.test(opt) || /^option\s*3\b/i.test(opt);
-        })
-        .map((it) => ({ ...it, is_optional: false }));
-    }
-    return all;
-  }, [quotation?.line_items, resolvedOptionDisplayMode]);
+  const rawLineItems: QuotationLineItem[] = React.useMemo(
+    () => prepareOptionFilteredLineItems(quotation?.line_items, resolvedOptionDisplayMode),
+    [quotation?.line_items, resolvedOptionDisplayMode]
+  );
 
   const hasExplicitLayoutBlocks = Boolean(
     (Array.isArray(layoutBlocks) && layoutBlocks.length > 0) ||
@@ -13494,7 +13548,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                         const isSetContinuation = Boolean(item.isCompositeContinuation);
                         const itemEffLayout = resolveItemEffectiveLayout(item);
                         const hasAnyItemImage = Boolean(item.image_url || item.secondary_image_url);
-                        const absoluteItemIdx = startIndex + idx;
+                        const absoluteItemIdx = resolveCanonicalLineItemIndex(item, startIndex + idx);
                         const isRowFocused = typeof focusedItemIndex === 'number' && focusedItemIndex === absoluteItemIdx;
 
                         const renderDedicatedImageCell = () => (

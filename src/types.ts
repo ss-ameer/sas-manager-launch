@@ -1507,6 +1507,7 @@ export interface QuotationLineItem {
   subComponentStartIndex?: number;
   parentItemNumber?: number;
   globalOptionItemNumber?: number;
+  sourceLineIndex?: number;
   qty_ordered?: number;
   qty_delivered?: number;
   qty_received?: number;

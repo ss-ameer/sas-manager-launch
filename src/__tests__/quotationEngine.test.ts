@@ -39,6 +39,9 @@ import {
   resolveHeaderFields,
   resolveFooterPresentation,
   amountInWordsAED,
+  prepareOptionFilteredLineItems,
+  resolveCanonicalLineItemIndex,
+  resolveLineItemOptionalFlag,
   DEFAULT_QUOTATION_BLOCKS,
   DEFAULT_HEADER_CONFIG,
   DEFAULT_RECIPIENT_CONFIG
@@ -4453,6 +4456,170 @@ describe('Optional Badge Deduplication, Alternate Total (Incl. Optionals) & @tag
     const clonedTotals = clonedRev.layout_blocks?.find((b) => b.id === 'totals');
     expect(clonedTotals?.showAlternateTotalWithOptionals).toBe(true);
     expect(clonedTotals?.alternateTotalWithOptionalsLabel).toBe(customLabel);
+  });
+});
+
+// ==========================================
+// SUITE: FIX F1 — QUICK-EDIT CANONICAL SOURCE INDEXING (P0-1) & OPTIONAL ROW TOGGLE SYNC (P0-6)
+// ==========================================
+describe('Fix F1: Canonical sourceLineIndex & Focused Row Optional Toggle Sync', () => {
+  it('P0-1: preserves canonical sourceLineIndex through option_b_only filtering, split option tables, and multi-page continuation chunks', () => {
+    const backingItems: QuotationLineItem[] = [
+      {
+        id: 'opt_a_1',
+        item_name: 'Option A — FRP Vessel 30x72',
+        description: 'Option A primary vessel',
+        quantity: 1,
+        unit: 'Nos',
+        unit_price: 2850,
+        total_price: 2850,
+        option: 'Option A'
+      },
+      {
+        id: 'opt_a_2',
+        item_name: 'Option A — Clack WS2EI Valve',
+        description: 'Option A valve',
+        quantity: 1,
+        unit: 'Nos',
+        unit_price: 5000,
+        total_price: 5000,
+        option: 'Option A'
+      },
+      {
+        id: 'opt_b_1',
+        item_name: 'Option B — Duplex MMF Skid',
+        description: 'Option B composite package',
+        quantity: 1,
+        unit: 'Set',
+        unit_price: 45000,
+        total_price: 45000,
+        option: 'Option B',
+        is_composite_set: true,
+        sub_components: [
+          { id: 'b_sub_1', item_name: 'FRP Vessel 48x72', quantity: 2, unit: 'Nos', unit_price: 0, total_price: 0, is_included_accessory: true, page_break_after: true },
+          { id: 'b_sub_2', item_name: 'Clack WS3 Valve', quantity: 2, unit: 'Nos', unit_price: 0, total_price: 0, is_included_accessory: true }
+        ]
+      },
+      {
+        id: 'opt_b_2',
+        item_name: 'Option B — Commissioning',
+        description: 'Site testing & commissioning',
+        quantity: 1,
+        unit: 'Lot',
+        unit_price: 3500,
+        total_price: 3500,
+        option: 'Option B'
+      }
+    ];
+
+    // 1. Filtered option_b_only mode: backing indices 2 and 3 MUST NOT collapse to 0 and 1
+    const filteredOptionB = prepareOptionFilteredLineItems(backingItems, 'option_b_only');
+    expect(filteredOptionB.length).toBe(2);
+    expect(resolveCanonicalLineItemIndex(filteredOptionB[0], 0)).toBe(2);
+    expect(resolveCanonicalLineItemIndex(filteredOptionB[1], 1)).toBe(3);
+
+    // Chunks across mid-set continuation break preserve sourceLineIndex = 2 on both slices, and 3 on next item
+    const filteredChunks = splitLineItemsIntoChunks(filteredOptionB, { autoPaginate: true });
+    expect(filteredChunks.length).toBe(2);
+    expect(filteredChunks[0].items[0].id).toBe('opt_b_1');
+    expect(resolveCanonicalLineItemIndex(filteredChunks[0].items[0], 0)).toBe(2);
+    expect(filteredChunks[1].items[0].id).toBe('opt_b_1');
+    expect(filteredChunks[1].items[0].isCompositeContinuation).toBe(true);
+    expect(resolveCanonicalLineItemIndex(filteredChunks[1].items[0], 0)).toBe(2);
+    expect(filteredChunks[1].items[1].id).toBe('opt_b_2');
+    expect(resolveCanonicalLineItemIndex(filteredChunks[1].items[1], 1)).toBe(3);
+
+    // Quick-Edit field key built for Option B row #1 targets backing index 2 (never Option A index 0)
+    const quickEditKey = buildInlineLineItemFieldKey(
+      resolveCanonicalLineItemIndex(filteredChunks[0].items[0], 0),
+      'unit_price'
+    );
+    expect(quickEditKey).toBe('line_item:2:unit_price');
+    expect(parseInlineLineItemFieldKey(quickEditKey)).toEqual({ index: 2, field: 'unit_price' });
+
+    // 2. Split option tables mode (all_separate_tables): Option A & Option B split into separate groups where local idx resets to 0
+    const allTagged = prepareOptionFilteredLineItems(backingItems, 'all_separate_tables');
+    const allChunks = splitLineItemsIntoChunks(allTagged, { autoPaginate: false });
+    expect(allChunks.length).toBe(2);
+    const chunk0OptionA = allChunks[0].items.filter((it) => it.option === 'Option A');
+    const chunk0OptionB = allChunks[0].items.filter((it) => it.option === 'Option B');
+    const chunk1OptionB = allChunks[1].items.filter((it) => it.option === 'Option B');
+
+    // Option A resolves to backing indices 0 and 1; Option B local idx=0 on chunk 0 & chunk 1 resolves to 2 and 3
+    expect(resolveCanonicalLineItemIndex(chunk0OptionA[0], 0)).toBe(0);
+    expect(resolveCanonicalLineItemIndex(chunk0OptionA[1], 1)).toBe(1);
+    expect(resolveCanonicalLineItemIndex(chunk0OptionB[0], 0)).toBe(2);
+    expect(chunk1OptionB[0].isCompositeContinuation).toBe(true);
+    expect(resolveCanonicalLineItemIndex(chunk1OptionB[0], 0)).toBe(2);
+    expect(resolveCanonicalLineItemIndex(chunk1OptionB[1], 1)).toBe(3);
+  });
+
+  it('P0-6: explicit is_optional override toggles Default / Included and Option A items on and back off without snapping back', () => {
+    // Baseline defaults when no explicit overrides exist
+    expect(
+      resolveLineItemOptionalFlag({
+        effectiveOptionLabel: 'Default / Included',
+        itemIsOptional: false
+      })
+    ).toBe(false);
+    expect(
+      resolveLineItemOptionalFlag({
+        effectiveOptionLabel: 'Option A',
+        itemIsOptional: false
+      })
+    ).toBe(false);
+    expect(
+      resolveLineItemOptionalFlag({
+        effectiveOptionLabel: 'Optional / Add-On',
+        itemIsOptional: false
+      })
+    ).toBe(true);
+
+    // Focused Row Inspector updates compOverride.is_optional = true on a Default / Included row -> stays true
+    expect(
+      resolveLineItemOptionalFlag({
+        effectiveOptionLabel: 'Default / Included',
+        compositeOverrideOptional: true,
+        itemIsOptional: false
+      })
+    ).toBe(true);
+
+    // Focused Row Inspector updates compOverride.is_optional = true on an Option A row -> stays true
+    expect(
+      resolveLineItemOptionalFlag({
+        effectiveOptionLabel: 'Option A',
+        compositeOverrideOptional: true,
+        itemIsOptional: false
+      })
+    ).toBe(true);
+
+    // Explicit itemOptionalOverrides sync takes precedence for toggling on AND back off
+    expect(
+      resolveLineItemOptionalFlag({
+        effectiveOptionLabel: 'Default / Included',
+        explicitOptionalOverride: true,
+        compositeOverrideOptional: true,
+        itemIsOptional: false
+      })
+    ).toBe(true);
+    expect(
+      resolveLineItemOptionalFlag({
+        effectiveOptionLabel: 'Default / Included',
+        explicitOptionalOverride: false,
+        compositeOverrideOptional: false,
+        itemIsOptional: true
+      })
+    ).toBe(false);
+
+    // Toggling an Optional / Add-On item explicitly OFF via override stays false
+    expect(
+      resolveLineItemOptionalFlag({
+        effectiveOptionLabel: 'Optional / Add-On',
+        explicitOptionalOverride: false,
+        compositeOverrideOptional: false,
+        itemIsOptional: true
+      })
+    ).toBe(false);
   });
 });
 

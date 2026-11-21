@@ -106,7 +106,8 @@ import {
   resolveDocumentPaginationWithAnnexes,
   getBodyPageHeaderKey,
   getAnnexPageHeaderKey,
-  isPageHeaderOverrideActive
+  isPageHeaderOverrideActive,
+  resolveLineItemOptionalFlag
 } from './QuotationDocument';
 import {
   AtMentionInput,
@@ -5211,14 +5212,12 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       const effectiveOptLabel = String(
         compOverride.option ?? item.option ?? item.option_group ?? ''
       ).trim();
-      const isLetteredOrBaselineItemOpt =
-        /^(Option\s+[A-Z0-9]+|Baseline|Default|Included)/i.test(effectiveOptLabel);
-      const resolvedOptional =
-        itemOptionalOverrides[itemKey] !== undefined
-          ? itemOptionalOverrides[itemKey]
-          : isLetteredOrBaselineItemOpt
-          ? false
-          : /optional|add-?on/i.test(effectiveOptLabel) || Boolean(item.is_optional);
+      const resolvedOptional = resolveLineItemOptionalFlag({
+        effectiveOptionLabel: effectiveOptLabel,
+        explicitOptionalOverride: itemOptionalOverrides[itemKey],
+        compositeOverrideOptional: compOverride.is_optional,
+        itemIsOptional: item.is_optional
+      });
 
       const rawSubComponents =
         compOverride.sub_components ??
@@ -5765,6 +5764,12 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     itemKey: string,
     patch: Partial<QuotationLineItem>
   ) => {
+    if ('is_optional' in patch) {
+      setItemOptionalOverrides((prev) => ({
+        ...prev,
+        [itemKey]: Boolean(patch.is_optional)
+      }));
+    }
     if (patch.page_break_after !== undefined) {
       setItemPageBreaks((prev) => ({
         ...prev,
@@ -5803,13 +5808,11 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         ...patch
       }
     }));
-    if (customStudioLineItems) {
-      setCustomStudioLineItems((prev) =>
-        prev
-          ? prev.map((it, i) => ((it.id || `item_${i}`) === itemKey ? { ...it, ...patch } : it))
-          : prev
-      );
-    }
+    setCustomStudioLineItems((prev) =>
+      prev
+        ? prev.map((it, i) => ((it.id || `item_${i}`) === itemKey ? { ...it, ...patch } : it))
+        : prev
+    );
   };
 
   const resetAllItemsImageOverrides = (
@@ -8766,50 +8769,70 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       const parsedLineItem = parseInlineLineItemFieldKey(fieldKey);
       if (parsedLineItem) {
         const { index, field } = parsedLineItem;
-        const currentList = customStudioLineItems ?? quotationLineItems;
-        const targetRow = currentList[index];
-        if (!targetRow) return;
-        const itemKey = targetRow.id || `item_${index}`;
+        const fallbackList = customStudioLineItems ?? quotationLineItems;
+        const fallbackRow = fallbackList[index];
+        if (!fallbackRow) return;
+        const itemKey = fallbackRow.id || `item_${index}`;
         const isVendorCostDoc =
           documentType === 'purchase_order' ||
           documentType === 'material_return_note' ||
           (documentType as string) === 'material_return' ||
           documentType === 'debit_note';
 
-        let patch: Partial<QuotationLineItem> = {};
-        if (field === 'item_name') {
-          patch = { item_name: nextValue };
-        } else if (field === 'description') {
-          patch = { description: nextValue };
-        } else if (field === 'unit') {
-          patch = { unit: nextValue.trim() || 'Nos' };
-        } else if (field === 'quantity') {
-          const nextQty = parseInlineNumericValue(nextValue, Number(targetRow.quantity) || 0);
-          patch = {
-            quantity: nextQty,
-            qty_ordered: nextQty,
-            total_price: QuotationRepository.roundCurrency(
-              nextQty * (Number(targetRow.unit_price) || 0)
-            )
-          };
-        } else if (field === 'unit_price') {
-          const nextRate = parseInlineNumericValue(
-            nextValue,
-            Number(targetRow.unit_price) || 0
-          );
-          patch = {
-            unit_price: nextRate,
-            ...(isVendorCostDoc ? { cost_price: nextRate } : {}),
-            total_price: QuotationRepository.roundCurrency(
-              (Number(targetRow.quantity) || 0) * nextRate
-            )
-          };
-        }
+        const computeRowPatch = (row: QuotationLineItem): Partial<QuotationLineItem> => {
+          if (field === 'item_name') {
+            return { item_name: nextValue };
+          }
+          if (field === 'description') {
+            return { description: nextValue };
+          }
+          if (field === 'unit') {
+            return { unit: nextValue.trim() || 'Nos' };
+          }
+          if (field === 'quantity') {
+            const nextQty = parseInlineNumericValue(nextValue, Number(row.quantity) || 0);
+            return {
+              quantity: nextQty,
+              qty_ordered: nextQty,
+              total_price: QuotationRepository.roundCurrency(
+                nextQty * (Number(row.unit_price) || 0)
+              )
+            };
+          }
+          if (field === 'unit_price') {
+            const nextRate = parseInlineNumericValue(
+              nextValue,
+              Number(row.unit_price) || 0
+            );
+            return {
+              unit_price: nextRate,
+              ...(isVendorCostDoc ? { cost_price: nextRate } : {}),
+              total_price: QuotationRepository.roundCurrency(
+                (Number(row.quantity) || 0) * nextRate
+              )
+            };
+          }
+          return {};
+        };
 
-        setCustomStudioLineItems(
-          currentList.map((row, rIdx) => (rIdx === index ? { ...row, ...patch } : row))
-        );
-        handleUpdateTopItemRowOption(itemKey, patch);
+        setCustomStudioLineItems((prev) => {
+          const baseList = prev ?? quotationLineItems;
+          if (!baseList[index]) return prev;
+          return baseList.map((row, rIdx) =>
+            rIdx === index ? { ...row, ...computeRowPatch(row) } : row
+          );
+        });
+        setItemCompositeOverrides((prev) => {
+          const existingOverride = prev[itemKey] || {};
+          const mergedRow: QuotationLineItem = { ...fallbackRow, ...existingOverride };
+          return {
+            ...prev,
+            [itemKey]: {
+              ...existingOverride,
+              ...computeRowPatch(mergedRow)
+            }
+          };
+        });
         return;
       }
 
@@ -20159,12 +20182,12 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                           : undefined;
 
                         const updateCurItem = (patch: Partial<QuotationLineItem>) => {
-                          const currentList = customStudioLineItems ?? quotationLineItems;
-                          setCustomStudioLineItems(
-                            currentList.map((row, rIdx) =>
+                          setCustomStudioLineItems((prev) => {
+                            const baseList = prev ?? quotationLineItems;
+                            return baseList.map((row, rIdx) =>
                               rIdx === focusedItemIndex ? { ...row, ...patch } : row
-                            )
-                          );
+                            );
+                          });
                           handleUpdateTopItemRowOption(itemKey, patch);
                         };
 
@@ -22305,10 +22328,9 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                       <button
                                         type="button"
                                         onClick={() =>
-                                          setItemOptionalOverrides((prev) => ({
-                                            ...prev,
-                                            [itemKey]: !item.is_optional
-                                          }))
+                                          handleUpdateTopItemRowOption(itemKey, {
+                                            is_optional: !item.is_optional
+                                          })
                                         }
                                         className={`text-[9.5px] font-semibold px-1.5 py-0.2 rounded border transition cursor-pointer ${
                                           item.is_optional
