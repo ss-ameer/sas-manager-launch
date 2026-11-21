@@ -1,4 +1,4 @@
-import type { Product, ProductAttribute, LineItemComponent } from '../types';
+import type { Product, ProductAttribute, ProductSpecVariant, LineItemComponent } from '../types';
 
 export type ParentSyncFieldKey =
   | 'category'
@@ -1042,22 +1042,51 @@ function doesItemConflictWithCandidate(
   return false;
 }
 
+function resolveCanonicalInlineOptionKey(
+  iv: VariantBarInlineOptionLike,
+  rootParent: Product,
+  childProducts: Product[],
+  isRootParentSelectableOption: boolean
+): string {
+  const ivSkuLower = String(iv.sku || '').trim().toLowerCase();
+  if (ivSkuLower) {
+    if (
+      isRootParentSelectableOption &&
+      rootParent.id &&
+      String(rootParent.sku || '').trim().toLowerCase() === ivSkuLower
+    ) {
+      return `prod_${rootParent.id}`;
+    }
+    const matchingChild = childProducts.find(
+      (cp) => cp.id && String(cp.sku || '').trim().toLowerCase() === ivSkuLower
+    );
+    if (matchingChild) {
+      return `prod_${matchingChild.id}`;
+    }
+  }
+  return `ivar_${iv.id}`;
+}
+
 /**
  * Resolves the EXACT active `<select>` value for `VariantFamilyBar`.
  *
  * Guarantees:
  * - Never silently falls back to `options[0]` or a mismatched sibling variant.
  * - Matches exact `variant_id` or `product_id` first, then verifies differentiating specs don't conflict.
- * - Returns `VARIANT_SELECT_PARENT` (`__parent__`) when linked to an unspecialized Master Parent with variants.
+ * - Maps deduplicated inline variants (`ivar_...`) whose SKU matches a concrete catalog child or
+ *   selectable Master Parent directly to that rendered `prod_...` option key.
+ * - Returns `prod_${rootParent.id}` when linked to a selectable (priced or childless) Master Parent,
+ *   and `VARIANT_SELECT_PARENT` (`__parent__`) ONLY when linked to an unpriced Master Parent template with variants.
  * - Returns `VARIANT_SELECT_CUSTOM` (`__custom__`) when the line item has locally modified conflicting specs,
  *   an unrecognized/deleted variant link, or custom overrides that don't match any concrete sibling.
  */
 export function resolveSelectedVariantId(params: ResolveSelectedVariantParams): string {
   const { item, matchedProduct, rootParent, childProducts = [], inlineVariants = [] } = params;
   const hasVariants = childProducts.length > 0 || inlineVariants.length > 0;
+  const isRootParentSelectableOption = !hasVariants || Number(rootParent.unit_price || 0) > 0;
   const protectedKeys = detectProtectedVariantSpecKeys([rootParent, ...childProducts]);
 
-  // 1. Exact inline variant_id match
+  // 1. Exact inline variant_id match (mapped to canonical rendered key if deduplicated by SKU)
   const itemVariantId = String(item?.variant_id || '').trim();
   if (itemVariantId) {
     const matchedInline = inlineVariants.find((iv) => iv.id === itemVariantId);
@@ -1070,7 +1099,13 @@ export function resolveSelectedVariantId(params: ResolveSelectedVariantParams): 
         },
         protectedKeys
       );
-      return conflict ? VARIANT_SELECT_CUSTOM : `ivar_${matchedInline.id}`;
+      if (conflict) return VARIANT_SELECT_CUSTOM;
+      return resolveCanonicalInlineOptionKey(
+        matchedInline,
+        rootParent,
+        childProducts,
+        isRootParentSelectableOption
+      );
     }
     // Stale/deleted inline variant_id — never fall back to options[0]
     return VARIANT_SELECT_CUSTOM;
@@ -1132,7 +1167,12 @@ export function resolveSelectedVariantId(params: ResolveSelectedVariantParams): 
         protectedKeys
       );
       if (!conflict) {
-        return `ivar_${onlyInline.id}`;
+        return resolveCanonicalInlineOptionKey(
+          onlyInline,
+          rootParent,
+          childProducts,
+          isRootParentSelectableOption
+        );
       }
     }
   }
@@ -1172,11 +1212,38 @@ export function resolveSelectedVariantId(params: ResolveSelectedVariantParams): 
       return VARIANT_SELECT_CUSTOM;
     }
 
-    return VARIANT_SELECT_PARENT;
+    // Priced Master Parents are rendered as a concrete selectable `prod_${rootParent.id}` option;
+    // unpriced Master Parent templates use the `__parent__` sentinel prompting the user to pick a variant.
+    return isRootParentSelectableOption ? `prod_${rootParent.id}` : VARIANT_SELECT_PARENT;
   }
 
   // 5. Fallback: NEVER silently pick options[0]
   return VARIANT_SELECT_CUSTOM;
+}
+
+/**
+ * Defensive invariant check ensuring the `<select>` value in `VariantFamilyBar`
+ * ALWAYS matches an actually rendered `<option value={...}>` element.
+ * If an unexpected ID is ever not present in `renderedOptionKeys`, falls back
+ * explicitly to `VARIANT_SELECT_CUSTOM` instead of letting `<select>` silently
+ * display `options[0]`.
+ */
+export function resolveSafeVariantSelectKey(
+  resolvedKey: string,
+  renderedOptionKeys: Iterable<string>,
+  rootParentId?: string | null
+): string {
+  const keySet = new Set(renderedOptionKeys);
+  if (resolvedKey === VARIANT_SELECT_CUSTOM) {
+    return VARIANT_SELECT_CUSTOM;
+  }
+  if (resolvedKey === VARIANT_SELECT_PARENT) {
+    if (rootParentId && keySet.has(`prod_${rootParentId}`)) {
+      return `prod_${rootParentId}`;
+    }
+    return VARIANT_SELECT_PARENT;
+  }
+  return keySet.has(resolvedKey) ? resolvedKey : VARIANT_SELECT_CUSTOM;
 }
 
 /**
@@ -1221,4 +1288,272 @@ export function formatCustomLineItemVariantSummary(
 
   return parts.length > 0 ? parts.join(' · ') : 'Local Quote Edits';
 }
+
+// ============================================================================
+// FIX F3: DRAFT BOM SUB_COMPONENTS MERGE (P0-4) & VARIANT SWITCH HYGIENE (P0-7)
+// ============================================================================
+
+function trimOrUndefined(value?: string | null): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+/**
+ * Merges fresh Enquiry `sub_components` into existing Draft Quotation Studio `sub_components`
+ * without wiping Studio-only presentation overrides or Studio-populated metadata (P0-4).
+ *
+ * Matching priority per fresh sub-item:
+ * 1. Exact `id` match
+ * 2. Exact trimmed case-insensitive `item_name` match (unused)
+ * 3. Unambiguous positional index fallback (only when that previous slot is not claimed by
+ *    a different fresh sub-item's exact `id` or `item_name` match)
+ */
+export function mergeFreshSubComponentsIntoStudioSubs(
+  freshSubs: LineItemComponent[] | undefined | null,
+  prevSubs: LineItemComponent[] | undefined | null
+): LineItemComponent[] | undefined {
+  if (freshSubs === undefined || freshSubs === null) {
+    return Array.isArray(prevSubs) && prevSubs.length > 0 ? prevSubs : undefined;
+  }
+  if (!Array.isArray(prevSubs) || prevSubs.length === 0 || freshSubs.length === 0) {
+    return freshSubs;
+  }
+
+  const matchedPrevIndexByFreshIndex = new Map<number, number>();
+  const usedPrevIndices = new Set<number>();
+
+  // Pass 1: Exact ID match
+  freshSubs.forEach((freshSub, fIdx) => {
+    const freshId = String(freshSub?.id || '').trim();
+    if (!freshId) return;
+    const pIdx = prevSubs.findIndex(
+      (prev, idx) => !usedPrevIndices.has(idx) && String(prev?.id || '').trim() === freshId
+    );
+    if (pIdx !== -1) {
+      matchedPrevIndexByFreshIndex.set(fIdx, pIdx);
+      usedPrevIndices.add(pIdx);
+    }
+  });
+
+  // Pass 2: Exact case-insensitive item_name match (prefer same index if duplicated)
+  freshSubs.forEach((freshSub, fIdx) => {
+    if (matchedPrevIndexByFreshIndex.has(fIdx)) return;
+    const freshName = String(freshSub?.item_name || '').trim().toLowerCase();
+    if (!freshName) return;
+
+    let chosenIdx = -1;
+    if (
+      fIdx < prevSubs.length &&
+      !usedPrevIndices.has(fIdx) &&
+      String(prevSubs[fIdx]?.item_name || '').trim().toLowerCase() === freshName
+    ) {
+      chosenIdx = fIdx;
+    } else {
+      chosenIdx = prevSubs.findIndex(
+        (prev, idx) =>
+          !usedPrevIndices.has(idx) &&
+          String(prev?.item_name || '').trim().toLowerCase() === freshName
+      );
+    }
+
+    if (chosenIdx !== -1) {
+      matchedPrevIndexByFreshIndex.set(fIdx, chosenIdx);
+      usedPrevIndices.add(chosenIdx);
+    }
+  });
+
+  // Pass 3: Unambiguous positional index fallback
+  freshSubs.forEach((_freshSub, fIdx) => {
+    if (matchedPrevIndexByFreshIndex.has(fIdx)) return;
+    if (fIdx < prevSubs.length && !usedPrevIndices.has(fIdx)) {
+      matchedPrevIndexByFreshIndex.set(fIdx, fIdx);
+      usedPrevIndices.add(fIdx);
+    }
+  });
+
+  return freshSubs.map((freshSub, fIdx) => {
+    const prevIdx = matchedPrevIndexByFreshIndex.get(fIdx);
+    if (prevIdx === undefined) {
+      return freshSub;
+    }
+    const prevSub = prevSubs[prevIdx];
+    const resolvedImageStorageKey =
+      trimOrUndefined((freshSub as any).image_storage_key) ??
+      trimOrUndefined((prevSub as any).image_storage_key);
+
+    return {
+      ...prevSub,
+      ...freshSub,
+      id: prevSub.id || freshSub.id,
+      // Preserve Studio presentation & layout overrides when not explicitly set on fresh Enquiry sub-item
+      show_attributes: freshSub.show_attributes ?? prevSub.show_attributes,
+      show_image: freshSub.show_image ?? prevSub.show_image,
+      remark: trimOrUndefined(freshSub.remark) ?? prevSub.remark,
+      row_note: trimOrUndefined(freshSub.row_note) ?? prevSub.row_note,
+      row_highlight: freshSub.row_highlight ?? prevSub.row_highlight,
+      row_bold: freshSub.row_bold ?? prevSub.row_bold,
+      hide_row_price: freshSub.hide_row_price ?? prevSub.hide_row_price,
+      page_break_after: freshSub.page_break_after ?? prevSub.page_break_after,
+      row_spacer_after_mm: freshSub.row_spacer_after_mm ?? prevSub.row_spacer_after_mm,
+      // Preserve Studio-populated metadata when Enquiry's field is blank/undefined
+      brand_make: trimOrUndefined(freshSub.brand_make) ?? prevSub.brand_make,
+      model_part_no: trimOrUndefined(freshSub.model_part_no) ?? prevSub.model_part_no,
+      country_of_origin: trimOrUndefined(freshSub.country_of_origin) ?? prevSub.country_of_origin,
+      image_url: trimOrUndefined(freshSub.image_url) ?? prevSub.image_url,
+      image_caption: trimOrUndefined(freshSub.image_caption) ?? prevSub.image_caption,
+      image_adjustments: freshSub.image_adjustments ?? prevSub.image_adjustments,
+      ...(resolvedImageStorageKey !== undefined ? { image_storage_key: resolvedImageStorageKey } : {}),
+      description: trimOrUndefined(freshSub.description) ?? prevSub.description,
+      attributes:
+        Array.isArray(freshSub.attributes) && freshSub.attributes.length > 0
+          ? freshSub.attributes
+          : prevSub.attributes
+    };
+  });
+}
+
+export interface VariantSwitchCleanupParams {
+  existingItem: any;
+  catalogProduct: Product;
+  resolvedVariantProduct?: Product | null;
+  specVariant?: ProductSpecVariant | Product | null;
+  scaledSubs?: LineItemComponent[];
+  isVariantSwitch?: boolean;
+}
+
+/**
+ * Computes clean composite BOM, media, and lead-time fields when pulling catalog defaults
+ * or switching variants via `VariantFamilyBar` (P0-7).
+ *
+ * Guarantees:
+ * - Composite reset: if the target variant has no `sub_components`, explicitly clears
+ *   `is_composite_set: false`, `sub_components: undefined`, and `package_pricing_mode: undefined`.
+ * - Media reset on variant switch: never carries over previous sibling `image_url`,
+ *   `secondary_image_url`, `image_storage_key`, `secondary_image_storage_key`,
+ *   `image_display_override`, or `image_adjustments`.
+ * - Lead time hygiene: never writes empty string `""` into `lead_time_note` or `availability`.
+ */
+export function buildVariantSwitchLineItemFields(params: VariantSwitchCleanupParams): {
+  lead_time_note: string | undefined;
+  availability: string | undefined;
+  targetLeadForSpecs: string | undefined;
+  image_url: string | undefined;
+  secondary_image_url: string | undefined;
+  image_storage_key: string | undefined;
+  secondary_image_storage_key: string | undefined;
+  image_caption: string | undefined;
+  secondary_image_caption: string | undefined;
+  image_adjustments: any;
+  image_display_override: any;
+  datasheet_attachment: any;
+  is_composite_set: boolean;
+  sub_components: LineItemComponent[] | undefined;
+  package_pricing_mode: any;
+  option_scope_notes?: string;
+} {
+  const {
+    existingItem,
+    catalogProduct,
+    resolvedVariantProduct,
+    specVariant,
+    scaledSubs,
+    isVariantSwitch
+  } = params;
+
+  const targetProductId = (specVariant as Product)?.product_type
+    ? (specVariant as Product).id
+    : catalogProduct.id;
+  const targetVariantId = (specVariant as ProductSpecVariant)?.variant_name
+    ? specVariant?.id
+    : undefined;
+
+  const isSwitchingTarget =
+    Boolean(isVariantSwitch) ||
+    (Boolean(existingItem?.product_id) && existingItem.product_id !== targetProductId) ||
+    (Boolean(existingItem?.variant_id || targetVariantId) &&
+      existingItem?.variant_id !== targetVariantId);
+
+  const mediaSource = resolvedVariantProduct || catalogProduct;
+
+  const targetImageUrl =
+    trimOrUndefined(specVariant?.image_url) ?? trimOrUndefined(mediaSource?.image_url);
+  const targetSecondaryImageUrl =
+    trimOrUndefined((specVariant as Product)?.secondary_image_url) ??
+    trimOrUndefined(mediaSource?.secondary_image_url);
+  const targetImageStorageKey =
+    trimOrUndefined((specVariant as any)?.image_storage_key) ??
+    trimOrUndefined((mediaSource as any)?.image_storage_key);
+  const targetSecondaryImageStorageKey =
+    trimOrUndefined((specVariant as any)?.secondary_image_storage_key) ??
+    trimOrUndefined((mediaSource as any)?.secondary_image_storage_key);
+  const targetImageCaption =
+    trimOrUndefined((specVariant as Product)?.image_caption) ??
+    trimOrUndefined(mediaSource?.image_caption);
+  const targetSecondaryImageCaption =
+    trimOrUndefined((specVariant as Product)?.secondary_image_caption) ??
+    trimOrUndefined(mediaSource?.secondary_image_caption);
+  const targetImageAdjustments =
+    (specVariant as Product)?.image_adjustments || mediaSource?.image_adjustments || undefined;
+  const targetDatasheet =
+    (specVariant as Product)?.datasheet_attachment || mediaSource?.datasheet_attachment || undefined;
+
+  const targetLead =
+    trimOrUndefined((specVariant as ProductSpecVariant)?.lead_time_note) ??
+    trimOrUndefined((specVariant as Product)?.default_availability) ??
+    trimOrUndefined(mediaSource?.default_availability);
+  const existingLead =
+    trimOrUndefined(existingItem?.lead_time_note) ?? trimOrUndefined(existingItem?.availability);
+  const resolvedLeadTime = targetLead ?? existingLead;
+
+  const hasScaledSubs = Array.isArray(scaledSubs) && scaledSubs.length > 0;
+
+  return {
+    lead_time_note: resolvedLeadTime,
+    availability: resolvedLeadTime,
+    targetLeadForSpecs: targetLead,
+    image_url: isSwitchingTarget
+      ? targetImageUrl
+      : targetImageUrl ?? trimOrUndefined(existingItem?.image_url),
+    secondary_image_url: isSwitchingTarget
+      ? targetSecondaryImageUrl
+      : targetSecondaryImageUrl ?? trimOrUndefined(existingItem?.secondary_image_url),
+    image_storage_key: isSwitchingTarget
+      ? targetImageStorageKey
+      : targetImageStorageKey ?? trimOrUndefined(existingItem?.image_storage_key),
+    secondary_image_storage_key: isSwitchingTarget
+      ? targetSecondaryImageStorageKey
+      : targetSecondaryImageStorageKey ?? trimOrUndefined(existingItem?.secondary_image_storage_key),
+    image_caption: isSwitchingTarget
+      ? targetImageCaption
+      : targetImageCaption ?? trimOrUndefined(existingItem?.image_caption),
+    secondary_image_caption: isSwitchingTarget
+      ? targetSecondaryImageCaption
+      : targetSecondaryImageCaption ?? trimOrUndefined(existingItem?.secondary_image_caption),
+    image_adjustments: isSwitchingTarget
+      ? targetImageAdjustments
+      : targetImageAdjustments ?? existingItem?.image_adjustments,
+    image_display_override: isSwitchingTarget ? undefined : existingItem?.image_display_override,
+    datasheet_attachment: isSwitchingTarget
+      ? targetDatasheet
+      : targetDatasheet ?? existingItem?.datasheet_attachment,
+    ...(hasScaledSubs
+      ? {
+          is_composite_set: true,
+          sub_components: scaledSubs,
+          package_pricing_mode:
+            specVariant?.package_pricing_mode || catalogProduct.package_pricing_mode || 'itemized',
+          option_scope_notes:
+            specVariant?.option_scope_notes ||
+            catalogProduct.option_scope_notes ||
+            existingItem?.option_scope_notes
+        }
+      : {
+          is_composite_set: false,
+          sub_components: undefined,
+          package_pricing_mode: undefined
+        })
+  };
+}
+
 

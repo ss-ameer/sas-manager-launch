@@ -17,7 +17,9 @@ import { MetadataRepository } from '../services/repositories/MetadataRepository'
 import LineItemImageOptionsPopover from './common/LineItemImageOptionsPopover';
 import {
   resolveSelectedVariantId,
+  resolveSafeVariantSelectKey,
   formatCustomLineItemVariantSummary,
+  buildVariantSwitchLineItemFields,
   VARIANT_SELECT_PARENT,
   VARIANT_SELECT_CUSTOM
 } from '../utils/catalogVariantUtils';
@@ -1124,7 +1126,8 @@ export function pullCatalogDefaultsToLineItem(
   currency?: string,
   specVariant?: ProductSpecVariant | Product | null,
   isVendorCostDoc?: boolean,
-  allProducts?: Product[]
+  allProducts?: Product[],
+  options?: { isVariantSwitch?: boolean }
 ): any {
   const catalogProduct = resolveEffectiveCatalogProduct(rawCatalogProduct, allProducts);
   const resolvedVariantProduct =
@@ -1174,11 +1177,14 @@ export function pullCatalogDefaultsToLineItem(
         })
       : undefined;
 
-  const sourceLead =
-    (specVariant as ProductSpecVariant)?.lead_time_note ||
-    (specVariant as Product)?.default_availability ||
-    catalogProduct.default_availability ||
-    '';
+  const switchCleanedFields = buildVariantSwitchLineItemFields({
+    existingItem,
+    catalogProduct,
+    resolvedVariantProduct,
+    specVariant,
+    scaledSubs,
+    isVariantSwitch: options?.isVariantSwitch
+  });
 
   const sourceName =
     (specVariant as Product)?.name ||
@@ -1198,8 +1204,8 @@ export function pullCatalogDefaultsToLineItem(
       specsRecord[attr.key.trim()] = attr.value.trim();
     }
   }
-  if (sourceLead) {
-    specsRecord['Delivery'] = sourceLead;
+  if (switchCleanedFields.targetLeadForSpecs) {
+    specsRecord['Delivery'] = switchCleanedFields.targetLeadForSpecs;
   }
 
   return {
@@ -1219,23 +1225,24 @@ export function pullCatalogDefaultsToLineItem(
     model_part_no: specVariant?.model_part_no || catalogProduct.model_part_no || existingItem?.model_part_no,
     country_of_origin: (specVariant as Product)?.country_of_origin || catalogProduct.country_of_origin || existingItem?.country_of_origin,
     hs_code: (specVariant as Product)?.hs_code || catalogProduct.hs_code || existingItem?.hs_code,
-    lead_time_note: sourceLead,
-    availability: sourceLead,
-    image_url: specVariant?.image_url || catalogProduct.image_url || existingItem?.image_url,
-    secondary_image_url: catalogProduct.secondary_image_url || existingItem?.secondary_image_url,
-    image_caption: catalogProduct.image_caption || existingItem?.image_caption,
-    secondary_image_caption: catalogProduct.secondary_image_caption || existingItem?.secondary_image_caption,
-    image_adjustments: catalogProduct.image_adjustments || existingItem?.image_adjustments,
-    datasheet_attachment: catalogProduct.datasheet_attachment || existingItem?.datasheet_attachment,
+    lead_time_note: switchCleanedFields.lead_time_note,
+    availability: switchCleanedFields.availability,
+    image_url: switchCleanedFields.image_url,
+    secondary_image_url: switchCleanedFields.secondary_image_url,
+    image_storage_key: switchCleanedFields.image_storage_key,
+    secondary_image_storage_key: switchCleanedFields.secondary_image_storage_key,
+    image_caption: switchCleanedFields.image_caption,
+    secondary_image_caption: switchCleanedFields.secondary_image_caption,
+    image_adjustments: switchCleanedFields.image_adjustments,
+    image_display_override: switchCleanedFields.image_display_override,
+    datasheet_attachment: switchCleanedFields.datasheet_attachment,
     attributes: sourceAttrs.map((a) => ({ ...a })),
     specifications: Object.keys(specsRecord).length > 0 ? specsRecord : existingItem?.specifications,
-    ...(scaledSubs
-      ? {
-          is_composite_set: true,
-          sub_components: scaledSubs,
-          package_pricing_mode: specVariant?.package_pricing_mode || catalogProduct.package_pricing_mode || 'itemized',
-          option_scope_notes: specVariant?.option_scope_notes || catalogProduct.option_scope_notes || existingItem?.option_scope_notes
-        }
+    is_composite_set: switchCleanedFields.is_composite_set,
+    sub_components: switchCleanedFields.sub_components,
+    package_pricing_mode: switchCleanedFields.package_pricing_mode,
+    ...(switchCleanedFields.option_scope_notes !== undefined
+      ? { option_scope_notes: switchCleanedFields.option_scope_notes }
       : {})
   };
 }
@@ -2300,17 +2307,28 @@ export const VariantFamilyBar: React.FC<VariantFamilyBarProps> = ({
       });
     }
 
+    // Defensive invariant check: guarantee activeKey ALWAYS matches a rendered <option value>
+    // (or explicit __parent__ / __custom__ sentinel) so <select> can never silently show options[0]
+    const activeKey = resolveSafeVariantSelectKey(
+      resolvedActiveKey,
+      options.map((o) => o.key),
+      rootParent.id
+    );
+    for (const opt of options) {
+      opt.isCurrent = activeKey === opt.key;
+    }
+
     const isSentinelSelection =
-      resolvedActiveKey === VARIANT_SELECT_PARENT || resolvedActiveKey === VARIANT_SELECT_CUSTOM;
+      activeKey === VARIANT_SELECT_PARENT || activeKey === VARIANT_SELECT_CUSTOM;
     const customSummary =
-      resolvedActiveKey === VARIANT_SELECT_CUSTOM
+      activeKey === VARIANT_SELECT_CUSTOM
         ? formatCustomLineItemVariantSummary(item, effectiveCurr)
         : '';
 
     const currentVariantBadge =
-      resolvedActiveKey === VARIANT_SELECT_PARENT
+      activeKey === VARIANT_SELECT_PARENT
         ? 'Master Parent'
-        : resolvedActiveKey === VARIANT_SELECT_CUSTOM
+        : activeKey === VARIANT_SELECT_CUSTOM
         ? `Custom (${customSummary})`
         : item?.variant_name ||
           (matchedProduct as any).variant_label ||
@@ -2331,7 +2349,7 @@ export const VariantFamilyBar: React.FC<VariantFamilyBarProps> = ({
       isChildVariant,
       currentVariantBadge,
       options,
-      activeKey: resolvedActiveKey,
+      activeKey,
       isSentinelSelection,
       customSummary
     };
@@ -2349,7 +2367,8 @@ export const VariantFamilyBar: React.FC<VariantFamilyBarProps> = ({
       currency,
       chosen.targetInlineVariant || chosen.targetProduct || null,
       isVendorCostDoc,
-      products
+      products,
+      { isVariantSwitch: true }
     );
     onSwitchVariant(nextItem, chosen.label);
     if (triggerToast) {

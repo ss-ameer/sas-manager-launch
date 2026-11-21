@@ -10,6 +10,7 @@ import GoogleSearchButton from './common/GoogleSearchButton';
 import HoverScrollText from './common/HoverScrollText';
 import { FieldLabel } from './common/FieldHelpHint';
 import { buildCatalogVariantAnalysisMap } from '../utils/productVariantFormat';
+import { mergeFreshSubComponentsIntoStudioSubs } from '../utils/catalogVariantUtils';
 import { useActivityLauncher, InitiateActivityOptions } from '../context/ActivityLauncherContext';
 import { useEntityEdit } from '../context/EntityEditContext';
 import { getWhatsAppUrl } from '../utils/defaults';
@@ -1256,7 +1257,13 @@ export default function EnquiryDetail({
       image_aspect_override: freshIt.image_aspect_override ?? prevIt?.image_aspect_override,
       datasheet_attachment: freshIt.datasheet_attachment || prevIt?.datasheet_attachment,
       include_datasheet_in_quote:
-        freshIt.include_datasheet_in_quote ?? prevIt?.include_datasheet_in_quote ?? true
+        freshIt.include_datasheet_in_quote ?? prevIt?.include_datasheet_in_quote ?? true,
+      is_composite_set: freshIt.is_composite_set ?? prevIt?.is_composite_set,
+      sub_components: mergeFreshSubComponentsIntoStudioSubs(
+        freshIt.sub_components,
+        prevIt?.sub_components
+      ),
+      package_pricing_mode: freshIt.package_pricing_mode ?? prevIt?.package_pricing_mode
     } as QuotationLineItem;
   };
 

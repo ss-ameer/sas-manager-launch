@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { sanitizeAuditPayload } from '../utils/sanitizeAuditLog';
+import { mergeFreshSubComponentsIntoStudioSubs } from '../utils/catalogVariantUtils';
 import {
   prepareAttachmentsForSave,
   resolveAttachmentUrl,
@@ -5610,7 +5611,10 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 option_scope_notes: li.option_scope_notes ?? existingQuoteItem?.option_scope_notes,
                 is_optional: resolvedIsOptional,
                 is_composite_set: li.is_composite_set ?? existingQuoteItem?.is_composite_set,
-                sub_components: li.sub_components ?? existingQuoteItem?.sub_components,
+                sub_components: mergeFreshSubComponentsIntoStudioSubs(
+                  li.sub_components,
+                  existingQuoteItem?.sub_components
+                ),
                 package_pricing_mode: li.package_pricing_mode ?? existingQuoteItem?.package_pricing_mode,
                 specifications: li.specifications,
                 attributes: Array.isArray(li.attributes)

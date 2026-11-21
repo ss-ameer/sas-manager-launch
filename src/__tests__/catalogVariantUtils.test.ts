@@ -6,7 +6,7 @@
  * Execute directly via `npx tsx src/__tests__/catalogVariantUtils.test.ts`.
  */
 
-import type { Product } from '../types';
+import type { Product, LineItemComponent } from '../types';
 import {
   suggestParentBaseSku,
   normalizeVariantSkuToken,
@@ -20,7 +20,10 @@ import {
   recomputeBulkVariantMatrixSkus,
   parseBulkVariantPasteLines,
   resolveSelectedVariantId,
+  resolveSafeVariantSelectKey,
   formatCustomLineItemVariantSummary,
+  mergeFreshSubComponentsIntoStudioSubs,
+  buildVariantSwitchLineItemFields,
   VARIANT_SELECT_PARENT,
   VARIANT_SELECT_CUSTOM,
   BulkVariantMatrixRow
@@ -585,6 +588,251 @@ describe('VariantFamilyBar Exact-Match Resolution', () => {
       childProducts: [child30, child36]
     });
     expect(resolved).toBe('prod_child_3072');
+  });
+
+  it('maps deduplicated inline variant (ivar_...) sharing a concrete child SKU directly to rendered prod_... option (P1-11)', () => {
+    const inlineVars = [
+      { id: 'iv_dup_30', variant_name: '30" × 72"', sku: 'AVE-MMF-3072', unit_price: 2850 },
+      { id: 'iv_only_42', variant_name: '42" × 72"', sku: 'AVE-MMF-4272', unit_price: 4950 }
+    ];
+    // Simulate exact rendered <option value> keys in VariantFamilyBar (inline iv_dup_30 is deduplicated by child30 SKU)
+    const renderedOptionKeys = ['prod_child_3072', 'prod_child_3672', 'ivar_iv_only_42'];
+
+    const resolvedDup = resolveSelectedVariantId({
+      item: {
+        product_id: 'parent_mmf',
+        variant_id: 'iv_dup_30',
+        variant_name: '30" × 72"',
+        sku: 'AVE-MMF-3072',
+        unit_price: 2850,
+        attributes: [{ key: 'Dimensions', value: '30" × 72"' }]
+      },
+      matchedProduct: rootParent,
+      rootParent,
+      childProducts: [child30, child36],
+      inlineVariants: inlineVars
+    });
+    expect(resolvedDup).toBe('prod_child_3072');
+    expect(renderedOptionKeys.includes(resolvedDup)).toBe(true);
+    expect(resolveSafeVariantSelectKey(resolvedDup, renderedOptionKeys, rootParent.id)).toBe('prod_child_3072');
+
+    // Non-deduplicated inline variant still resolves to its own ivar_... key
+    const resolvedUnique = resolveSelectedVariantId({
+      item: {
+        product_id: 'parent_mmf',
+        variant_id: 'iv_only_42',
+        variant_name: '42" × 72"',
+        sku: 'AVE-MMF-4272',
+        unit_price: 4950
+      },
+      matchedProduct: rootParent,
+      rootParent,
+      childProducts: [child30, child36],
+      inlineVariants: inlineVars
+    });
+    expect(resolvedUnique).toBe('ivar_iv_only_42');
+    expect(renderedOptionKeys.includes(resolvedUnique)).toBe(true);
+  });
+
+  it('aligns priced Master Parent selection with rendered prod_<parentId> option and defensive fallback catches unknown keys (P1-11)', () => {
+    const pricedParent = {
+      ...rootParent,
+      unit_price: 2500
+    } as unknown as Product;
+    // Priced parent IS included in rendered <option> list as prod_parent_mmf
+    const renderedOptionKeys = ['prod_parent_mmf', 'prod_child_3072', 'prod_child_3672'];
+
+    const resolved = resolveSelectedVariantId({
+      item: {
+        product_id: 'parent_mmf',
+        item_name: 'Multimedia Filter Vessel',
+        unit_price: 2500,
+        attributes: [{ key: 'Design Pressure', value: '10.5 bar' }]
+      },
+      matchedProduct: pricedParent,
+      rootParent: pricedParent,
+      childProducts: [child30, child36]
+    });
+    expect(resolved).toBe('prod_parent_mmf');
+    expect(renderedOptionKeys.includes(resolved)).toBe(true);
+
+    // Defensive invariant fallback maps any unrendered key cleanly to __custom__, never options[0]
+    expect(resolveSafeVariantSelectKey('ivar_missing_from_dom', renderedOptionKeys, pricedParent.id)).toBe(
+      VARIANT_SELECT_CUSTOM
+    );
+    expect(resolveSafeVariantSelectKey(VARIANT_SELECT_PARENT, renderedOptionKeys, pricedParent.id)).toBe(
+      'prod_parent_mmf'
+    );
+  });
+});
+
+// ==========================================
+// SUITE 5: DRAFT SUB_COMPONENTS MERGE (P0-4) & VARIANT SWITCH HYGIENE (P0-7)
+// ==========================================
+
+describe('Draft BOM sub_components Sync (P0-4) & Variant Switch Hygiene (P0-7)', () => {
+  it('mergeFreshSubComponentsIntoStudioSubs preserves Studio presentation & metadata when Enquiry updates qty/name (P0-4)', () => {
+    const prevStudioSubs: LineItemComponent[] = [
+      {
+        id: 'sub_vessel',
+        item_name: 'FRP Vessel 30" x 72"',
+        quantity: 1,
+        unit: 'Nos',
+        unit_price: 2850,
+        total_price: 2850,
+        brand_make: 'Aventura',
+        model_part_no: 'AV-3072',
+        country_of_origin: 'China',
+        image_url: 'https://cdn.example.com/vessel-3072.png',
+        show_attributes: true,
+        show_image: true,
+        remark: 'ASME certified tank',
+        row_note: 'Verify skid clearance',
+        row_highlight: true,
+        row_bold: true,
+        page_break_after: true,
+        row_spacer_after_mm: 12
+      },
+      {
+        id: 'sub_valve',
+        item_name: 'Automatic Multiport Valve',
+        quantity: 1,
+        unit: 'Nos',
+        unit_price: 1500,
+        total_price: 1500,
+        brand_make: 'Clack',
+        show_attributes: false,
+        show_image: false,
+        remark: 'WS2EI included'
+      }
+    ];
+
+    const freshEnquirySubs: LineItemComponent[] = [
+      {
+        id: 'sub_vessel',
+        item_name: 'FRP Vessel 30" x 72" (Updated)',
+        quantity: 2,
+        unit: 'Nos',
+        unit_price: 2900,
+        total_price: 5800,
+        brand_make: '',
+        model_part_no: undefined,
+        country_of_origin: '',
+        image_url: ''
+      },
+      {
+        id: 'sub_valve_new_id',
+        item_name: 'Automatic Multiport Valve',
+        quantity: 2,
+        unit: 'Nos',
+        unit_price: 1550,
+        total_price: 3100
+      }
+    ];
+
+    const merged = mergeFreshSubComponentsIntoStudioSubs(freshEnquirySubs, prevStudioSubs)!;
+    expect(merged.length).toBe(2);
+
+    // Sub 1: Enquiry commercial updates applied, Studio presentation & metadata preserved
+    expect(merged[0].item_name).toBe('FRP Vessel 30" x 72" (Updated)');
+    expect(merged[0].quantity).toBe(2);
+    expect(merged[0].unit_price).toBe(2900);
+    expect(merged[0].show_attributes).toBe(true);
+    expect(merged[0].show_image).toBe(true);
+    expect(merged[0].remark).toBe('ASME certified tank');
+    expect(merged[0].row_note).toBe('Verify skid clearance');
+    expect(merged[0].row_highlight).toBe(true);
+    expect(merged[0].row_bold).toBe(true);
+    expect(merged[0].page_break_after).toBe(true);
+    expect(merged[0].row_spacer_after_mm).toBe(12);
+    expect(merged[0].brand_make).toBe('Aventura');
+    expect(merged[0].model_part_no).toBe('AV-3072');
+    expect(merged[0].country_of_origin).toBe('China');
+    expect(merged[0].image_url).toBe('https://cdn.example.com/vessel-3072.png');
+
+    // Sub 2: Matched by item_name when ID changed, preserving Studio brand & visibility toggles
+    expect(merged[1].quantity).toBe(2);
+    expect(merged[1].unit_price).toBe(1550);
+    expect(merged[1].brand_make).toBe('Clack');
+    expect(merged[1].show_attributes).toBe(false);
+    expect(merged[1].show_image).toBe(false);
+    expect(merged[1].remark).toBe('WS2EI included');
+
+    // Undefined fresh subs preserves existing Studio sub_components intact
+    const preserved = mergeFreshSubComponentsIntoStudioSubs(undefined, prevStudioSubs);
+    expect(preserved?.length).toBe(2);
+    expect(preserved?.[0].row_note).toBe('Verify skid clearance');
+  });
+
+  it('buildVariantSwitchLineItemFields clears old composite BOM, sibling media/storage keys, and never writes empty lead_time_note (P0-7)', () => {
+    const existingCompositeItem = {
+      id: 'item_1',
+      product_id: 'child_composite_36',
+      sku: 'AVE-MMF-3672',
+      item_name: 'Multimedia Filter Package 36" x 72"',
+      quantity: 1,
+      unit_price: 5200,
+      image_url: 'https://cdn.example.com/old-3672.jpg',
+      secondary_image_url: 'https://cdn.example.com/old-3672-drawing.jpg',
+      image_storage_key: 'ws/media/old-3672.jpg',
+      secondary_image_storage_key: 'ws/media/old-3672-drawing.jpg',
+      image_display_override: 'hidden',
+      image_adjustments: { zoom: 1.25, offsetX: 0, offsetY: 0 },
+      is_composite_set: true,
+      package_pricing_mode: 'lump_sum',
+      sub_components: [
+        { id: 'sc_old', item_name: 'Old Sibling Media Bed', quantity: 1, unit: 'Set', unit_price: 500, total_price: 500 }
+      ]
+    };
+
+    const nonCompositeImagelessSibling = {
+      id: 'child_std_24',
+      name: 'Multimedia Filter Vessel 24" x 72"',
+      sku: 'AVE-MMF-2472',
+      product_type: 'Filtration Vessels',
+      unit: 'Nos',
+      unit_price: 2400,
+      description: 'Standard vessel only',
+      default_availability: '' // blank on catalog item
+    } as unknown as Product;
+
+    const cleaned = buildVariantSwitchLineItemFields({
+      existingItem: existingCompositeItem,
+      catalogProduct: nonCompositeImagelessSibling,
+      resolvedVariantProduct: nonCompositeImagelessSibling,
+      specVariant: nonCompositeImagelessSibling,
+      scaledSubs: undefined,
+      isVariantSwitch: true
+    });
+
+    // Composite BOM completely cleared (no stale leak)
+    expect(cleaned.is_composite_set).toBe(false);
+    expect(cleaned.sub_components).toBe(undefined);
+    expect(cleaned.package_pricing_mode).toBe(undefined);
+
+    // Sibling media & overrides completely cleared (no stale leak)
+    expect(cleaned.image_url).toBe(undefined);
+    expect(cleaned.secondary_image_url).toBe(undefined);
+    expect(cleaned.image_storage_key).toBe(undefined);
+    expect(cleaned.secondary_image_storage_key).toBe(undefined);
+    expect(cleaned.image_display_override).toBe(undefined);
+    expect(cleaned.image_adjustments).toBe(undefined);
+
+    // Lead time is undefined (NEVER empty string "") so Studio's fallback chain works
+    expect(cleaned.lead_time_note).toBe(undefined);
+    expect(cleaned.availability).toBe(undefined);
+
+    // Preserves existing non-empty lead_time_note when new sibling has blank default_availability
+    const cleanedWithExistingLead = buildVariantSwitchLineItemFields({
+      existingItem: { ...existingCompositeItem, lead_time_note: '4-6 Weeks' },
+      catalogProduct: nonCompositeImagelessSibling,
+      resolvedVariantProduct: nonCompositeImagelessSibling,
+      specVariant: nonCompositeImagelessSibling,
+      scaledSubs: undefined,
+      isVariantSwitch: true
+    });
+    expect(cleanedWithExistingLead.lead_time_note).toBe('4-6 Weeks');
+    expect(cleanedWithExistingLead.availability).toBe('4-6 Weeks');
   });
 });
 
