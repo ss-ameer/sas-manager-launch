@@ -6,6 +6,7 @@ import {
   normalizeSpecKey,
   cleanProductAttributesWithRescuedFields
 } from './siUnitFormatter';
+import { normalizeExtractedLineItems } from './aiExtractionNormalizer';
 
 export const getExtractionSystemPrompt = (salespersons: any[]) => {
   let salespersonExclusionPrompt = "";
@@ -54,6 +55,10 @@ REQUIRED JSON OUTPUT FORMAT:
       "product_type": null,
       "item_name": null,
       "description": null,
+      "brand_make": null,
+      "model_part_no": null,
+      "country_of_origin": null,
+      "lead_time_note": null,
       "option_designation": "Default / Included",
       "quantity": null,
       "unit": null,
@@ -71,7 +76,17 @@ REQUIRED JSON OUTPUT FORMAT:
           "unit": "Nos",
           "unit_price": 0,
           "is_included_accessory": true,
-          "technical_Highlight": "string"
+          "brand_make": null,
+          "model_part_no": null,
+          "country_of_origin": null,
+          "attributes": [
+            {
+              "key": "string",
+              "value": "string"
+            }
+          ],
+          "description": null,
+          "remark": null
         }
       ],
       "attributes": [
@@ -109,19 +124,36 @@ HIGH-PRECISION EXTRACTION RULES FOR ENTITIES, CONTACTS & COMMERCIAL TERMS:
 
 3. COMMERCIAL TERMS & VAT MODE:
    - price_basis: Extract Incoterms or Price Basis if mentioned (e.g., "Ex-Warehouse Ajman", "Ex-Works Warehouse", "DDP Client Site", "CIF", "FOB").
-   - delivery_period: Extract delivery lead time or period if mentioned (e.g., "12-14 Weeks", "Ex-Stock", "4-6 Weeks from advance").
+   - delivery_period: Extract global delivery lead time or period if mentioned (e.g., "12-14 Weeks", "Ex-Stock", "4-6 Weeks from advance", "As mentioned against each item").
    - payment_terms: Extract payment terms if mentioned (e.g., "50% advance, 50% immediate upon readiness at factory", "100% Advance against PI", "30 days PDC").
    - validity_days: Extract offer validity in numeric days if mentioned (e.g., "Validity: 30 days" -> 30).
    - tax_mode: If price mentions "+ VAT", "Excl. VAT", or "5% VAT Extra", set "taxes_extra". If "Incl. VAT" or "VAT Included", set "tax_calculated". If "0% VAT" or "Zero-Rated / Export", set "tax_exempt".
 
-4. CUSTOM ATTRIBUTE KEY-VALUE PAIRS, INCLUDED SUB-ITEMS & CURRENCY DETECTION FOR LINE ITEMS:
+4. LINE ITEMS, CORE FIELDS, FLOW RATE VS. VOLUME & COMPOSITE SUB-COMPONENTS:
    - currency: Detect the document's primary commercial currency ("USD" or "AED"). If table headers or values say "Unit Price (USD)", "Total Price (USD)", "USD", or "$", set "currency": "USD". Otherwise default to "AED".
    - unit_price & unit_price_aed: Extract the exact numeric unit rate shown in the document table or text (e.g. "Unit Price - AED 207,150.00 + VAT" -> 207150.00) into BOTH "unit_price" and "unit_price_aed" WITHOUT performing any currency conversion. NEVER set unit_price to 0 when the text or table shows a package price!
-   - item_name: Extract the primary bold heading or equipment name of the line item (e.g. "AUTOMATIC DUPLEX MMF SYSTEM 4.32m3/hr" or "RO PRESSURE VESSEL - 8\\" x 6E, 300PSI").
-   - is_composite_set & sub_components: When a line item description lists "Including with followings:", "Includes:", "Complete Skid Mounted", or sub-items/accessories with quantities (e.g. "2 x Top and bottom distribution system", "1 x Vacuum Breaker", "1 x Riser Pipe"), set "is_composite_set": true and extract each sub-item into "sub_components" with "unit_price": 0 and "is_included_accessory": true, while keeping the main package selling price in the parent item's "unit_price"!
-   - For every line item, extract ALL technical specifications, model specs, materials, and parameters into the 'attributes' array as explicit key-value objects: [{ "key": "Model", "value": "CCU-6300" }, { "key": "Make", "value": "OEM Standard" }, { "key": "Design Rating", "value": "10.5 Bar" }, { "key": "Material", "value": "SS316L" }].
-   - Common Attribute Keys to extract when found: "Model", "Make / Brand", "Design Rating", "Dimensions", "Material / Grade", "Operation", "Capacity", "Application", "Standard", "Lead Time / Delivery".
-   - BOTH 'key' and 'value' strings MUST be non-empty strings for each attribute object.
+   - item_name: Extract the primary bold heading or equipment name of the line item (e.g. "AUTOMATIC DUPLEX MMF SYSTEM 10 LPS" or "RO PRESSURE VESSEL - 8\\" x 6E, 300PSI").
+   - DEDICATED CORE FIELDS (NEVER DUPLICATE IN attributes):
+     * Route Brand / Make strictly into "brand_make", Model / Part No. into "model_part_no", Country of Origin into "country_of_origin", and item-level Availability / Delivery / Lead Time into "lead_time_note".
+     * NEVER place "Brand", "Make / Brand", "Model", "Origin", "Country of Origin", "Lead Time", "Delivery", or "Availability" inside the "attributes" array!
+     * PER-ITEM LEAD TIME: Extract each line item's own Availability / Delivery line (e.g. "8-10 Weeks", "Limited stock available, subject to prior sale", "Ex-Stock") into that item's "lead_time_note". NEVER copy generic footer phrases like "As mentioned against each item", "As per item", or "See table" into an item's "lead_time_note".
+   - FLOW RATE VS. VOLUME (CRITICAL):
+     * ALWAYS use the key "Flow Rate" for ANY value expressed in flow units: LPS, L/s, LPH, L/h, LPM, L/min, m³/hr, m3/hr, m³/h, m³/day, GPM, or USGPM (e.g. "10 LPS (36 m³/hr)", "9 LPS (32.4 m³/hr)", "4 LPS (14.4 m³/hr)"). NEVER label a flow rate as "Volume" or "Capacity"!
+     * Reserve "Volume" / "Capacity" strictly for static tank, vessel, resin, media, or storage volumes (e.g. "500 Ltrs", "350 Ltrs", "10 m³").
+   - STANDARDS VS. COUNTRY OF ORIGIN & OCR TYPO FIX:
+     * "Manufactured to USA ASME Standards" / "Made to USA ASME Standards" / "USA AMSE Standards" is a technical manufacturing STANDARD, NOT a Country of Origin! Put { "key": "Standard", "value": "USA ASME" } in "attributes" and NEVER set "country_of_origin": "USA" from an ASME standard clause.
+     * Always correct OCR typo "AMSE" to "ASME", and strip redundant "Standards" ("USA ASME Standards" -> "USA ASME").
+     * Only set "country_of_origin": "USA" when the source explicitly states origin (e.g. "Origin: USA", "Made in USA", "Clack (USA)").
+   - COMPOSITE SETS & PARENT ANTI-BLEED DISCIPLINE (is_composite_set & sub_components):
+     * When a line item lists "Including with followings:", "Includes:", "Complete Skid Mounted", or included components/accessories, set "is_composite_set": true and extract EVERY component into "sub_components" with "unit_price": 0 and "is_included_accessory": true (unless individually priced), keeping the package price in the parent item's "unit_price".
+     * On composite sets, keep parent "attributes" STRICTLY to system-level specs ("Flow Rate", "Arrangement", system-wide "Design Pressure"). Do NOT bleed sub-component valve models (e.g. "WS3"), multi-vendor brand blends (e.g. "AVENTURA / AQUAFIL / Clack (USA)"), sub-item origin, or vessel/valve-only specs onto the parent item when those components live in "sub_components"!
+     * Leave parent "description" null or "" on composite sets when the system is already structured in "sub_components" + "attributes" — do NOT synthesize a redundant narrative summary paragraph.
+   - STRUCTURED SUB-COMPONENTS & STRICT NO-FABRICATION:
+     * For EACH sub-component, populate dedicated "brand_make", "model_part_no", "country_of_origin", and structured "attributes": [{ "key": "...", "value": "..." }] whenever present in the source (e.g. Clack WS3 valve -> brand_make: "Clack", model_part_no: "WS3", country_of_origin: "USA", attributes: [{ "key": "In/Out Size", "value": "3\\"" }, { "key": "Installation", "value": "Top Mount" }, { "key": "Operation", "value": "Automatic, Programmable" }, { "key": "Application", "value": "Filtration" }]).
+     * Use sub-component "description" ONLY for genuine multi-line composition details that do not fit simple key-value pairs (e.g. multi-layer graded filter media breakdowns with Anthracite / Silica Sand / Gravel weights & bag counts).
+     * STRICT NO-FABRICATION RULE: Leave sub-component "remark" null or "" when the source has no remark. NEVER invent placeholder text like "Standard", "N/A", "Included", or "Standard accessory" on items like Vacuum Breaker, Flange Kits, or Riser Pipes!
+     * DUPLEX / MULTI-UNIT ACCURACY: Watch carefully for distinct hardware items like "MAV: 1 No." / "Motorized Alternating Valve", "Brine Tank", "Flow Meter", or "Control Valves", and extract each as its own sub-component with the EXACT per-set quantity stated in the source — NEVER halve duplex quantities (e.g. 2 Nos vessels stays quantity: 2) and NEVER fabricate counts.
+   - BOTH "key" and "value" strings MUST be non-empty strings for each attribute object.
 
 4. RAW EXCEL TAB-DELIMITED ROWS & COPY-PASTED TEXT RULES:
    - When data is tab-delimited or pipe-delimited Excel rows:
@@ -172,8 +204,8 @@ HIGH-PRECISION EXTRACTION RULES FOR ENTITIES, CONTACTS & COMMERCIAL TERMS:
    - currency: "AED"
    - package_value: 195500.00
    - line_items: [
-       { item_type: "product", product_type: "General Equipment", item_name: "Commercial Control Unit CCU-6300", description: "Commercial Control Unit CCU-6300 Design Rating 10.5 Bar", quantity: 5, unit: "Nos", unit_price: 12500, unit_price_aed: 12500, attributes: [{ key: "Model", value: "CCU-6300" }] },
-       { item_type: "charge", charge_type: "Transportation", product_type: "Service / Charge", item_name: "Transportation", description: "Transportation - Standard Delivery to Client Site", quantity: 1, unit: "LS", unit_price: 100, unit_price_aed: 100, attributes: [] }
+       { item_type: "product", product_type: "General Equipment", item_name: "Commercial Control Unit CCU-6300", description: "", brand_make: null, model_part_no: "CCU-6300", country_of_origin: null, lead_time_note: null, quantity: 5, unit: "Nos", unit_price: 12500, unit_price_aed: 12500, attributes: [{ key: "Design Pressure", value: "10.5 bar" }] },
+       { item_type: "charge", charge_type: "Transportation", product_type: "Service / Charge", item_name: "Transportation", description: "Standard Delivery to Client Site", quantity: 1, unit: "LS", unit_price: 100, unit_price_aed: 100, attributes: [] }
      ]
 
 Extract the details accurately into the requested JSON format.${salespersonExclusionPrompt}\n\n${JSON_FORMAT}`;
@@ -401,6 +433,11 @@ export async function extractEnquiryClientSide(
         parsed = JSON.parse(stripped);
       }
       if (parsed && typeof parsed === 'object') {
+        if (Array.isArray(parsed.line_items)) {
+          parsed.line_items = normalizeExtractedLineItems(parsed.line_items, {
+            globalDeliveryPeriod: parsed.delivery_period
+          });
+        }
         parsed._ai_model_used = modelName;
       }
       return parsed;

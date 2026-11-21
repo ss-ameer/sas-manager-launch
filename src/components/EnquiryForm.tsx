@@ -33,6 +33,11 @@ import {
   isOwnSignatoryContact
 } from '../utils/fuzzyMatch';
 import { extractEnquiryClientSide, AVAILABLE_GEMINI_MODELS } from '../utils/aiExtractionClient';
+import {
+  normalizeExtractedLineItems,
+  normalizeLineItemAttributeKey,
+  isGenericGlobalDeliveryPhrase
+} from '../utils/aiExtractionNormalizer';
 import { getUserWorkspaceRole, canEditEnquiry } from '../utils/permissions';
 import CompositePackageEditor from './quotations/CompositePackageEditor';
 import { cloneLineItemToNextOption, recalculateCompositeItemTotals, formatSlashSeparatedDescription } from '../utils/compositeBomUtils';
@@ -854,35 +859,9 @@ function getSafeBlobUrl(url: string): string {
   }
 }
 
-const CANONICAL_ATTRIBUTE_MAP: Record<string, string> = {
-  'brand': 'Brand / Make',
-  'make': 'Brand / Make',
-  'manufacturer': 'Brand / Make',
-  'brand / make': 'Brand / Make',
-  'model': 'Model',
-  'model no': 'Model',
-  'model number': 'Model',
-  'opening': 'Top/Bottom Opening',
-  'openings': 'Top/Bottom Opening',
-  'top/bottom opening': 'Top/Bottom Opening',
-  'top & bottom opening': 'Top/Bottom Opening',
-  'design pressure': 'Design Pressure',
-  'working pressure': 'Design Pressure',
-  'pressure': 'Design Pressure',
-  'standard': 'Standard',
-  'standards': 'Standard',
-  'dimensions': 'Dimensions',
-  'size': 'Dimensions',
-  'tank size': 'Dimensions',
-  'vessel size': 'Dimensions',
-  'volume': 'Volume',
-  'capacity': 'Volume',
-};
-
-const normalizeAttributeKey = (rawKey: string): string => {
+const normalizeAttributeKey = (rawKey: string, rawValue?: string): string => {
   if (!rawKey) return '';
-  const clean = rawKey.trim().toLowerCase();
-  return CANONICAL_ATTRIBUTE_MAP[clean] || rawKey.trim();
+  return normalizeLineItemAttributeKey(rawKey, rawValue);
 };
 
 interface CatalogItem {
@@ -4268,7 +4247,10 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
     }
 
     if (data.line_items && Array.isArray(data.line_items)) {
-      const formattedItems = data.line_items.map((item: any) => {
+      const normalizedAiItems = normalizeExtractedLineItems(data.line_items, {
+        globalDeliveryPeriod: resolvedDeliveryPeriod
+      });
+      const formattedItems = normalizedAiItems.map((item: any) => {
         const qty = Number(item.quantity) || 1;
         // Preserve the exact numeric rate from the document without dividing by 3.6725 when extracted in USD
         const rawPrice =
@@ -4279,27 +4261,14 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
           0;
         const price = rawPrice;
 
-        const rawExtracted: any[] = Array.isArray(item.attributes) ? item.attributes : [];
-        const normalizedAttrMap = new Map<string, string>(); // canonicalKey -> value
-
-        rawExtracted.forEach((attr: any) => {
-          if (!attr || !attr.key) return;
-          const val =
-            attr.value !== undefined && attr.value !== null
-              ? String(attr.value).replace(/^[•▪▸\-*]\s*/, '').trim()
-              : '';
-          if (!val) return;
-          const canonicalKey = normalizeAttributeKey(String(attr.key));
-          if (!canonicalKey) return;
-          if (!normalizedAttrMap.has(canonicalKey)) {
-            normalizedAttrMap.set(canonicalKey, val);
-          }
-        });
-
-        const mergedAttributes: ProductAttribute[] = Array.from(normalizedAttrMap.entries()).map(([key, value]) => ({
-          key,
-          value
-        }));
+        const mergedAttributes: ProductAttribute[] = Array.isArray(item.attributes)
+          ? item.attributes
+              .map((attr: any) => ({
+                key: normalizeAttributeKey(String(attr?.key || ''), String(attr?.value ?? '')),
+                value: String(attr?.value ?? '').replace(/^[•▪▸\-*]\s*/, '').trim()
+              }))
+              .filter((a: ProductAttribute) => Boolean(a.key && a.value))
+          : [];
 
         let productType = item.product_type || 'Other';
         let itemType: 'product' | 'charge' | 'discount' = item.item_type || 'product';
@@ -4334,14 +4303,9 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
         const rawDesc = String(item.description || '').trim();
         const rawName = String(item.item_name || item.name || '').trim();
         const parsedTitleSpec = parseLineItemTitleAndSpec(rawName, rawDesc);
-        const extractedBrand =
-          item.brand_make ||
-          normalizedAttrMap.get('Brand / Make') ||
-          '';
-        const extractedModel =
-          item.model_part_no ||
-          normalizedAttrMap.get('Model') ||
-          '';
+        const extractedBrand = String(item.brand_make || '').trim();
+        const extractedModel = String(item.model_part_no || '').trim();
+        const extractedOrigin = String(item.country_of_origin || '').trim();
 
         // Auto-match against workspace Products Catalog by SKU, Model, or Name
         const matchedCatalogProd = (products || []).find((p) => {
@@ -4380,21 +4344,31 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
               )
             : undefined;
 
-        // Extract any "2 x ..." or "1 x ..." included sub-items from raw description or item.sub_components
+        // Preserve all structured sub-component fields (brand, model, origin, attributes, description, remark)
         const rawSubList: any[] = Array.isArray(item.sub_components) ? item.sub_components : [];
         let extractedSubs = rawSubList
           .map((sub: any, sIdx: number) => ({
             id: sub.id || `sub_${Date.now()}_${sIdx + 1}`,
             sn: String(sIdx + 1),
             item_name: String(sub.item_name || sub.name || '').trim(),
-            remark: String(sub.remark || sub.technical_Highlight || '').trim(),
+            remark: String(sub.remark || '').trim(),
+            ...(sub.description ? { description: String(sub.description).trim() } : {}),
             quantity: Number(sub.quantity) || 1,
             unit: String(sub.unit || 'Nos').trim(),
             cost_price: Number(sub.cost_price) || 0,
             unit_price: Number(sub.unit_price) || 0,
             total_price: (Number(sub.quantity) || 1) * (Number(sub.unit_price) || 0),
             line_total: (Number(sub.quantity) || 1) * (Number(sub.unit_price) || 0),
-            is_included_accessory: (Number(sub.unit_price) || 0) <= 0
+            is_included_accessory:
+              sub.is_included_accessory !== undefined
+                ? Boolean(sub.is_included_accessory)
+                : (Number(sub.unit_price) || 0) <= 0,
+            ...(sub.brand_make ? { brand_make: String(sub.brand_make).trim() } : {}),
+            ...(sub.model_part_no ? { model_part_no: String(sub.model_part_no).trim() } : {}),
+            ...(sub.country_of_origin ? { country_of_origin: String(sub.country_of_origin).trim() } : {}),
+            ...(Array.isArray(sub.attributes) && sub.attributes.length > 0
+              ? { attributes: sub.attributes, show_attributes: sub.show_attributes !== false }
+              : {})
           }))
           .filter((sub: any) => Boolean(sub.item_name));
 
@@ -4431,15 +4405,21 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
           extractedSubs = extractedSubs.slice(1).map((s, idx) => ({ ...s, sn: String(idx + 1) }));
         }
 
-        return {
-          product_id: matchedCatalogProd?.id || undefined,
-          sku: item.sku || matchedCatalogProd?.sku || undefined,
-          item_name: parsedTitleSpec.title || matchedCatalogProd?.name || '',
-          item_type: itemType,
-          charge_type: chargeType,
-          product_type: matchedCatalogProd?.product_type || productType,
-          description:
-            compileDescriptionWithSpecs(
+        const isCompositeItem = extractedSubs.length > 0;
+        const catalogLeadTime =
+          matchedCatalogProd?.default_availability &&
+          !isGenericGlobalDeliveryPhrase(matchedCatalogProd.default_availability)
+            ? matchedCatalogProd.default_availability
+            : '';
+        const resolvedPerItemLeadTime =
+          item.lead_time_note && !isGenericGlobalDeliveryPhrase(item.lead_time_note)
+            ? String(item.lead_time_note).trim()
+            : catalogLeadTime;
+
+        // On composite sets, keep parent description clean (do NOT synthesize a redundant narrative blob from specs)
+        const resolvedDescription = isCompositeItem
+          ? rawDesc
+          : compileDescriptionWithSpecs(
               parsedTitleSpec.title || matchedCatalogProd?.name || '',
               parsedTitleSpec.spec || rawDesc || matchedCatalogProd?.description || '',
               mergedAttributes.length > 0 ? mergedAttributes : (matchedCatalogProd?.attributes || [])
@@ -4447,19 +4427,29 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
             parsedTitleSpec.spec ||
             rawDesc ||
             matchedCatalogProd?.description ||
-            '',
+            '';
+
+        return {
+          product_id: matchedCatalogProd?.id || undefined,
+          sku: item.sku || matchedCatalogProd?.sku || undefined,
+          item_name: parsedTitleSpec.title || matchedCatalogProd?.name || '',
+          item_type: itemType,
+          charge_type: chargeType,
+          product_type: matchedCatalogProd?.product_type || productType,
+          description: resolvedDescription,
           quantity: qty,
-          unit: item.unit || item.uom || matchedCatalogProd?.unit || (extractedSubs.length > 0 ? 'Set' : 'Nos'),
+          unit: item.unit || item.uom || matchedCatalogProd?.unit || (isCompositeItem ? 'Set' : 'Nos'),
           unit_price: finalUnitPrice,
           cost_price: finalCostPrice,
           total_price: Number((qty * finalUnitPrice).toFixed(2)),
-          is_composite_set: extractedSubs.length > 0 ? true : undefined,
-          sub_components: extractedSubs.length > 0 ? extractedSubs : undefined,
-          brand_make: extractedBrand || matchedCatalogProd?.brand_make || undefined,
-          model_part_no: extractedModel || matchedCatalogProd?.model_part_no || undefined,
-          country_of_origin: item.country_of_origin || matchedCatalogProd?.country_of_origin || undefined,
+          is_composite_set: isCompositeItem ? true : undefined,
+          sub_components: isCompositeItem ? extractedSubs : undefined,
+          brand_make: extractedBrand || (!isCompositeItem ? matchedCatalogProd?.brand_make : undefined) || undefined,
+          model_part_no: extractedModel || (!isCompositeItem ? matchedCatalogProd?.model_part_no : undefined) || undefined,
+          country_of_origin:
+            extractedOrigin || (!isCompositeItem ? matchedCatalogProd?.country_of_origin : undefined) || undefined,
           hs_code: item.hs_code || matchedCatalogProd?.hs_code || undefined,
-          lead_time_note: item.lead_time_note || matchedCatalogProd?.default_availability || '',
+          lead_time_note: resolvedPerItemLeadTime,
           image_url: item.image_url || matchedCatalogProd?.image_url || undefined,
           datasheet_attachment: item.datasheet_attachment || matchedProdDatasheetFallback(item, matchedCatalogProd),
           include_datasheet_in_quote:
@@ -5187,10 +5177,13 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       const cleanAttr: ProductAttribute[] = isServiceOrFee
         ? []
         : (item.attributes || [])
-            .map((a) => ({
-              key: normalizeAttributeKey(a.key.trim()),
-              value: String(a.value || '').replace(/^[•▪▸\-*]\s*/, '').trim()
-            }))
+            .map((a) => {
+              const cleanedVal = String(a.value || '').replace(/^[•▪▸\-*]\s*/, '').trim();
+              return {
+                key: normalizeAttributeKey(a.key.trim(), cleanedVal),
+                value: cleanedVal
+              };
+            })
             .filter((a) => a.key !== '' && a.value !== '');
       const optDes = ((item as any).option_designation || item.option || 'Default / Included').trim();
       const resolvedDelivery = isServiceOrFee
@@ -5473,13 +5466,13 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   ? QuotationRepository.roundCurrency(Number(li.total_price) || 0)
                   : QuotationRepository.roundCurrency(qty * uPrice);
               const deliveryVal =
-                (li.lead_time_note && li.lead_time_note !== 'Ex-Stock / Standard' ? li.lead_time_note : '') ||
-                ((li as any).delivery_time && (li as any).delivery_time !== 'Ex-Stock / Standard' ? (li as any).delivery_time : '') ||
-                ((li as any).lead_time && (li as any).lead_time !== 'Ex-Stock / Standard' ? (li as any).lead_time : '') ||
-                ((li as any).availability && (li as any).availability !== 'Ex-Stock / Standard' ? (li as any).availability : '') ||
+                (li.lead_time_note && !isGenericGlobalDeliveryPhrase(li.lead_time_note) ? li.lead_time_note : '') ||
+                ((li as any).delivery_time && !isGenericGlobalDeliveryPhrase((li as any).delivery_time) ? (li as any).delivery_time : '') ||
+                ((li as any).lead_time && !isGenericGlobalDeliveryPhrase((li as any).lead_time) ? (li as any).lead_time : '') ||
+                ((li as any).availability && !isGenericGlobalDeliveryPhrase((li as any).availability) ? (li as any).availability : '') ||
                 (li.specifications as any)?.['Delivery'] ||
                 (li.specifications as any)?.['Lead Time'] ||
-                (deliveryPeriod && deliveryPeriod.trim() ? deliveryPeriod.trim() : '') ||
+                (deliveryPeriod && !isGenericGlobalDeliveryPhrase(deliveryPeriod) ? deliveryPeriod.trim() : '') ||
                 existingQuoteItem?.availability ||
                 li.lead_time_note ||
                 'Ex-Stock / Standard';
@@ -8755,9 +8748,13 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                   {item.product_type || 'General'} · {shortOpt} ·{' '}
                                   {item.lead_time_note &&
                                   item.lead_time_note.trim() &&
-                                  item.lead_time_note.trim() !== 'Ex-Stock / Standard'
+                                  !isGenericGlobalDeliveryPhrase(item.lead_time_note)
                                     ? item.lead_time_note.trim()
-                                    : deliveryPeriod?.trim() || item.lead_time_note?.trim() || 'Standard'}
+                                    : (!isGenericGlobalDeliveryPhrase(deliveryPeriod)
+                                        ? deliveryPeriod?.trim()
+                                        : '') ||
+                                      item.lead_time_note?.trim() ||
+                                      'Standard'}
                                 </span>
                               </button>
 
