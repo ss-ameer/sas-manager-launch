@@ -26,7 +26,12 @@ import { previewNextEnquirySequence, claimNextEnquirySequence, syncSequenceHighW
 import { BRAND_CONFIG } from '../config';
 import DuplicateMatchModal from './DuplicateMatchModal';
 import GeminiKeyModal from './GeminiKeyModal';
-import { findDuplicateCompany } from '../utils/fuzzyMatch';
+import {
+  findDuplicateCompany,
+  findBestCompanyMatch,
+  findBestContactMatch,
+  isOwnSignatoryContact
+} from '../utils/fuzzyMatch';
 import { extractEnquiryClientSide, AVAILABLE_GEMINI_MODELS } from '../utils/aiExtractionClient';
 import { getUserWorkspaceRole, canEditEnquiry } from '../utils/permissions';
 import CompositePackageEditor from './quotations/CompositePackageEditor';
@@ -4053,85 +4058,170 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       }
     }
 
-    // Autofill company and contact using professional fuzzy matching
-    if (data.company_name) {
-      let bestCompanyMatch: any = null;
-      let highestCompanyScore = 0;
+    // Sender-vs-Recipient Guard: never pair our own workspace company or signatories as the client
+    const ownCompanyNames = Array.from(
+      new Set(
+        [
+          activeWorkspace?.name,
+          (activeWorkspace as any)?.company_name,
+          (activeWorkspace as any)?.settings?.company_name,
+          (activeWorkspace as any)?.settings?.legal_name,
+          'Aventura Components',
+          'Aventura Components FZE',
+          'Advanced Nirvana Water',
+          'Advanced Nirvana Water Treatment'
+        ]
+          .map((n) => String(n || '').trim())
+          .filter(Boolean)
+      )
+    );
+    const ownSignatoryNames = Array.from(
+      new Set(
+        [
+          ...(salespersons || []).map((s) => s.full_name),
+          user?.full_name,
+          user?.displayName,
+          'Nitin Srivastava',
+          'Pawan Verma'
+        ]
+          .map((n) => String(n || '').trim())
+          .filter(Boolean)
+      )
+    );
+    const ownSignatoryEmails = Array.from(
+      new Set(
+        [
+          user?.email,
+          (activeWorkspace as any)?.email,
+          (activeWorkspace as any)?.settings?.email
+        ]
+          .map((e) => String(e || '').trim().toLowerCase())
+          .filter(Boolean)
+      )
+    );
 
-      companies.forEach(c => {
-        const names = [c.canonical_name, c.display_name].filter(Boolean) as string[];
-        names.forEach(n => {
-          const score = getFuzzySimilarity(n, data.company_name);
-          if (score > highestCompanyScore) {
-            highestCompanyScore = score;
-            bestCompanyMatch = c;
-          }
-        });
+    const rawExtractedContactName = String(data.contact_name || '').trim();
+    const rawExtractedContactEmail = String(data.contact_email || data.email || '').trim();
+    const rawExtractedContactPhone = String(data.contact_phone || data.mobile || data.phone || '').trim();
+    const rawExtractedContactDesignation = String(data.contact_designation || '').trim();
+
+    const isExtractedContactOwnSignatory = isOwnSignatoryContact(
+      {
+        name: rawExtractedContactName,
+        email: rawExtractedContactEmail,
+        phone: rawExtractedContactPhone
+      },
+      ownSignatoryNames,
+      ownSignatoryEmails
+    );
+
+    const safeContactName = isExtractedContactOwnSignatory ? '' : rawExtractedContactName;
+    const safeContactEmail = isExtractedContactOwnSignatory ? '' : rawExtractedContactEmail;
+    const safeContactPhone = isExtractedContactOwnSignatory ? '' : rawExtractedContactPhone;
+    const safeContactDesignation = isExtractedContactOwnSignatory ? '' : rawExtractedContactDesignation;
+
+    let companyMatchConfidence: 'exact' | 'high' | 'medium' | 'none' = 'none';
+    let contactMatchConfidence: 'exact' | 'high' | 'medium' | 'none' = 'none';
+
+    // Autofill company and contact using Industry-Aware Distinctive-Token Guard
+    if (data.company_name && String(data.company_name).trim()) {
+      const extractedCompanyName = String(data.company_name).trim();
+      const companyMatchResult = findBestCompanyMatch(extractedCompanyName, companies, {
+        ownCompanyNames
       });
 
-      const companyMatched = highestCompanyScore >= 0.55 ? bestCompanyMatch : null;
-
-      if (companyMatched && companyMatched.id) {
+      if (companyMatchResult.blockedAsOwnCompany) {
+        // Blocked sender-as-client: never pair our own workspace company
+        setCompanyId('');
+        setContactId('');
+        setCompanySearch('');
+        setUnregisteredEntities(null);
+        companyMatchConfidence = 'none';
+        contactMatchConfidence = 'none';
+      } else if (companyMatchResult.match && companyMatchResult.match.id && companyMatchResult.confidence !== 'none') {
+        const companyMatched = companyMatchResult.match;
+        companyMatchConfidence = companyMatchResult.confidence;
         setCompanyId(companyMatched.id);
         setCompanySearch(companyMatched.display_name);
         if (companyMatched.country) setCountry(companyMatched.country);
         if (companyMatched.city) setProjectLocation(companyMatched.city);
 
-        const matchedContacts = contacts.filter(c => c.company_id === companyMatched.id);
-        let bestContactMatch: any = null;
-        let highestContactScore = 0;
+        const matchedContacts = contacts.filter((c) => c.company_id === companyMatched.id);
+        const contactMatchResult =
+          safeContactName || safeContactEmail || safeContactPhone
+            ? findBestContactMatch(
+                {
+                  name: safeContactName,
+                  email: safeContactEmail,
+                  phone: safeContactPhone
+                },
+                matchedContacts,
+                { ownSignatoryNames, ownSignatoryEmails }
+              )
+            : { match: null, confidence: 'none' as const, score: 0, reason: 'No contact extracted' };
 
-        if (data.contact_name) {
-          matchedContacts.forEach(c => {
-            const score = getFuzzySimilarity(c.full_name, data.contact_name);
-            if (score > highestContactScore) {
-              highestContactScore = score;
-              bestContactMatch = c;
-            }
-          });
-        }
-
-        const contactMatched = highestContactScore >= 0.55 ? bestContactMatch : (matchedContacts[0] || null);
-        if (contactMatched && contactMatched.id) {
-          setContactId(contactMatched.id);
-        } else if (data.contact_name) {
-          // Company matched, but contact is new/unregistered!
-          setUnregisteredEntities({
-            companyName: companyMatched.display_name,
-            legalSuffix: companyMatched.legal_suffix || 'None / To Be Added Later',
-            city: companyMatched.city || '',
-            country: companyMatched.country || 'UAE',
-            contactName: data.contact_name || '',
-            contactDesignation: data.contact_designation || '',
-            contactEmail: data.contact_email || data.email || '',
-            contactMobile: data.contact_phone || data.mobile || data.phone || '',
-            generalPhone: data.contact_phone || data.phone || '',
-            generalEmail: data.contact_email || data.email || '',
-            salespersonName: data.salesperson || '',
-            emailDestination: 'contact',
-            phoneDestination: 'contact'
-          });
+        if (contactMatchResult.match && contactMatchResult.match.id && contactMatchResult.confidence !== 'none') {
+          setContactId(contactMatchResult.match.id);
+          contactMatchConfidence = contactMatchResult.confidence;
+          setUnregisteredEntities(null);
+        } else {
+          // Contact Integrity Rule: NEVER auto-default to an unrelated existing contact on the company
+          setContactId('');
+          contactMatchConfidence = 'none';
+          if (safeContactName) {
+            setSubContactName(safeContactName);
+            setSubContactDesignation(safeContactDesignation);
+            setSubContactEmail(safeContactEmail);
+            setSubContactMobile(safeContactPhone);
+            setUnregisteredEntities({
+              companyName: companyMatched.display_name,
+              legalSuffix: companyMatched.legal_suffix || 'None / To Be Added Later',
+              city: companyMatched.city || data.project_location || '',
+              country: companyMatched.country || data.country || 'UAE',
+              contactName: safeContactName,
+              contactDesignation: safeContactDesignation,
+              contactEmail: safeContactEmail,
+              contactMobile: safeContactPhone,
+              generalPhone: safeContactPhone,
+              generalEmail: safeContactEmail,
+              salespersonName: data.salesperson || '',
+              emailDestination: 'contact',
+              phoneDestination: 'contact'
+            });
+          } else {
+            setUnregisteredEntities(null);
+          }
         }
       } else {
-        setSubCompanyName(data.company_name);
+        // Honest Unmatched Handling: keep companyId & contactId empty, pre-fill search & New Client prompt
+        companyMatchConfidence = 'none';
+        contactMatchConfidence = 'none';
+        setCompanyId('');
+        setContactId('');
+        setCompanySearch(extractedCompanyName);
+
+        setSubCompanyName(extractedCompanyName);
         setSubLegalSuffix(data.legal_suffix || 'None / To Be Added Later');
-        setSubCountry(data.country || data.project_location || 'UAE');
+        setSubCountry(data.country || 'UAE');
         setSubCity(data.project_location || '');
-        setSubContactName(data.contact_name || '');
-        setSubContactEmail(data.contact_email || data.email || '');
-        if (data.contact_phone || data.mobile || data.phone) setSubGeneralPhone(data.contact_phone || data.mobile || data.phone);
+        setSubContactName(safeContactName);
+        setSubContactDesignation(safeContactDesignation);
+        setSubContactEmail(safeContactEmail);
+        setSubContactMobile(safeContactPhone);
+        setSubGeneralPhone(safeContactPhone);
+        setSubGeneralEmail(safeContactEmail);
 
         setUnregisteredEntities({
-          companyName: data.company_name,
+          companyName: extractedCompanyName,
           legalSuffix: data.legal_suffix || 'None / To Be Added Later',
           city: data.project_location || '',
           country: data.country || 'UAE',
-          contactName: data.contact_name || '',
-          contactDesignation: data.contact_designation || '',
-          contactEmail: data.contact_email || data.email || '',
-          contactMobile: data.contact_phone || data.mobile || data.phone || '',
-          generalPhone: data.contact_phone || data.phone || '',
-          generalEmail: data.contact_email || data.email || '',
+          contactName: safeContactName,
+          contactDesignation: safeContactDesignation,
+          contactEmail: safeContactEmail,
+          contactMobile: safeContactPhone,
+          generalPhone: safeContactPhone,
+          generalEmail: safeContactEmail,
           salespersonName: data.salesperson || '',
           emailDestination: 'contact',
           phoneDestination: 'contact'
@@ -4141,7 +4231,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
     if (data.confidence_scores) {
       const scores: any = {};
-      Object.keys(data.confidence_scores).forEach(key => {
+      Object.keys(data.confidence_scores).forEach((key) => {
         let val = data.confidence_scores[key];
         if (typeof val === 'string') {
           val = val.toLowerCase().trim();
@@ -4156,6 +4246,24 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
           scores[key] = 'low';
         }
       });
+
+      // Calibrate company & contact confidence strictly to actual registry match verification
+      if (companyMatchConfidence === 'none') {
+        delete scores.company_name;
+      } else if (companyMatchConfidence === 'medium') {
+        scores.company_name = 'medium';
+      } else {
+        scores.company_name = 'high';
+      }
+
+      if (contactMatchConfidence === 'none') {
+        delete scores.contact_name;
+      } else if (contactMatchConfidence === 'medium') {
+        scores.contact_name = 'medium';
+      } else {
+        scores.contact_name = 'high';
+      }
+
       setAiConfidence(scores);
     }
 
@@ -6795,14 +6903,29 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                         type="button"
                         onClick={() => {
                           setCompanyMenuOpen(false);
-                          setSubCompanyName(companySearch);
-                          setSubLegalSuffix('None / To Be Added Later');
+                          const hasExtracted = Boolean(!companyId && unregisteredEntities?.companyName);
+                          setSubCompanyName(
+                            hasExtracted ? unregisteredEntities!.companyName : companySearch
+                          );
+                          setSubLegalSuffix(
+                            hasExtracted
+                              ? unregisteredEntities!.legalSuffix || 'None / To Be Added Later'
+                              : 'None / To Be Added Later'
+                          );
                           setSubCompanyCode('');
                           setSubCountryCode('');
-                          setSubCity('');
-                          setSubCountry('UAE');
-                          setSubGeneralPhone('');
-                          setSubGeneralEmail('');
+                          setSubCity(hasExtracted ? unregisteredEntities!.city || projectLocation || '' : '');
+                          setSubCountry(hasExtracted ? unregisteredEntities!.country || country || 'UAE' : 'UAE');
+                          setSubGeneralPhone(
+                            hasExtracted ? unregisteredEntities!.generalPhone || unregisteredEntities!.contactMobile || '' : ''
+                          );
+                          setSubGeneralEmail(
+                            hasExtracted ? unregisteredEntities!.generalEmail || unregisteredEntities!.contactEmail || '' : ''
+                          );
+                          setSubContactName(hasExtracted ? unregisteredEntities!.contactName || '' : '');
+                          setSubContactDesignation(hasExtracted ? unregisteredEntities!.contactDesignation || '' : '');
+                          setSubContactMobile(hasExtracted ? unregisteredEntities!.contactMobile || '' : '');
+                          setSubContactEmail(hasExtracted ? unregisteredEntities!.contactEmail || '' : '');
                           setSubNotes('');
                           setIsEditingCompany(false);
                           setNewCompanyModal(true);
@@ -6852,6 +6975,38 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                       </button>
                     )}
                   </div>
+
+                  {!companyId && unregisteredEntities?.companyName && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCompanyMenuOpen(false);
+                        setShowCompanyList(false);
+                        setSubCompanyName(unregisteredEntities.companyName);
+                        setSubLegalSuffix(unregisteredEntities.legalSuffix || 'None / To Be Added Later');
+                        setSubCompanyCode('');
+                        setSubCountryCode('');
+                        setSubCity(unregisteredEntities.city || projectLocation || '');
+                        setSubCountry(unregisteredEntities.country || country || 'UAE');
+                        setSubGeneralPhone(unregisteredEntities.generalPhone || unregisteredEntities.contactMobile || '');
+                        setSubGeneralEmail(unregisteredEntities.generalEmail || unregisteredEntities.contactEmail || '');
+                        setSubContactName(unregisteredEntities.contactName || '');
+                        setSubContactDesignation(unregisteredEntities.contactDesignation || '');
+                        setSubContactMobile(unregisteredEntities.contactMobile || '');
+                        setSubContactEmail(unregisteredEntities.contactEmail || '');
+                        setSubNotes('');
+                        setIsEditingCompany(false);
+                        setNewCompanyModal(true);
+                      }}
+                      className="mt-1.5 w-full text-left px-2.5 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100/90 dark:bg-amber-950/40 dark:hover:bg-amber-900/50 border border-amber-300/90 dark:border-amber-700 text-amber-900 dark:text-amber-200 text-[11px] font-semibold flex items-center justify-between gap-2 transition cursor-pointer"
+                      title="Open New Company modal pre-filled with AI-extracted company and contact details"
+                    >
+                      <span className="truncate">
+                        New Client Detected: <strong>&ldquo;{unregisteredEntities.companyName}&rdquo;</strong> — Click + New to Create
+                      </span>
+                      <Plus className="w-3.5 h-3.5 shrink-0 text-amber-700 dark:text-amber-300" />
+                    </button>
+                  )}
 
                   {showCompanyList && companySearch.trim().length > 0 && (
                     <div className="absolute top-full left-0 right-0 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl mt-1.5 max-h-52 overflow-y-auto z-50 shadow-2xl divide-y divide-slate-100 dark:divide-slate-800">
@@ -6966,11 +7121,11 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                             }
                             return;
                           }
-                          setSubContactName('');
-                          setSubContactDesignation('');
-                          setSubContactMobile('');
-                          setSubContactEmail('');
-                          setSubContactIsPrimary(false);
+                          setSubContactName(unregisteredEntities?.contactName || customContactInput.trim() || '');
+                          setSubContactDesignation(unregisteredEntities?.contactDesignation || '');
+                          setSubContactMobile(unregisteredEntities?.contactMobile || '');
+                          setSubContactEmail(unregisteredEntities?.contactEmail || '');
+                          setSubContactIsPrimary(companyContacts.length === 0);
                           setIsEditingContact(false);
                           setShowNewContactModal(true);
                         }}
@@ -7017,6 +7172,35 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                           </button>
                         )}
                       </div>
+                    )}
+                    {!contactId && unregisteredEntities?.contactName && (
+                      companyId ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSubContactName(unregisteredEntities.contactName || '');
+                            setSubContactDesignation(unregisteredEntities.contactDesignation || '');
+                            setSubContactMobile(unregisteredEntities.contactMobile || '');
+                            setSubContactEmail(unregisteredEntities.contactEmail || '');
+                            setSubContactIsPrimary(companyContacts.length === 0);
+                            setIsEditingContact(false);
+                            setShowNewContactModal(true);
+                          }}
+                          className="w-full text-left px-2.5 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100/90 dark:bg-amber-950/40 dark:hover:bg-amber-900/50 border border-amber-300/90 dark:border-amber-700 text-amber-900 dark:text-amber-200 text-[11px] font-semibold flex items-center justify-between gap-2 transition cursor-pointer"
+                          title="Open New Contact modal pre-filled with AI-extracted contact details"
+                        >
+                          <span className="truncate">
+                            New Contact Detected: <strong>&ldquo;{unregisteredEntities.contactName}&rdquo;</strong>
+                            {unregisteredEntities.contactDesignation ? ` (${unregisteredEntities.contactDesignation})` : ''} — Click + New to Create
+                          </span>
+                          <UserPlus className="w-3.5 h-3.5 shrink-0 text-amber-700 dark:text-amber-300" />
+                        </button>
+                      ) : (
+                        <div className="px-2.5 py-1.5 rounded-lg bg-slate-100/90 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 text-[11px] truncate">
+                          Extracted Contact: <strong className="text-slate-800 dark:text-slate-100">{unregisteredEntities.contactName}</strong>
+                          {unregisteredEntities.contactDesignation ? ` (${unregisteredEntities.contactDesignation})` : ''} — pre-fills on + New Company
+                        </div>
+                      )
                     )}
                   </div>
                 </div>
@@ -10616,6 +10800,65 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none font-sans"
                 />
               </div>
+
+              {!isEditingCompany && (
+                <div className="pt-3 border-t border-slate-200 space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-600">
+                      Primary Contact (Optional)
+                    </span>
+                    {subContactName.trim() && (
+                      <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
+                        Pre-filled from Scan
+                      </span>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <MarqueeLabel>Contact Name</MarqueeLabel>
+                      <input
+                        type="text"
+                        placeholder="e.g. Mr. Nihad Saleem"
+                        value={subContactName}
+                        onChange={(e) => setSubContactName(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-xl py-2 px-3 text-xs text-slate-800 focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <MarqueeLabel>Designation / Role</MarqueeLabel>
+                      <input
+                        type="text"
+                        placeholder="e.g. Sales Engineer"
+                        value={subContactDesignation}
+                        onChange={(e) => setSubContactDesignation(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-xl py-2 px-3 text-xs text-slate-800 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <MarqueeLabel>Contact Mobile</MarqueeLabel>
+                      <input
+                        type="text"
+                        placeholder="+971 50 ..."
+                        value={subContactMobile}
+                        onChange={(e) => setSubContactMobile(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-xl py-2 px-3 text-xs font-mono text-slate-800 focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <MarqueeLabel>Contact Email</MarqueeLabel>
+                      <input
+                        type="email"
+                        placeholder="contact@company.com"
+                        value={subContactEmail}
+                        onChange={(e) => setSubContactEmail(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-xl py-2 px-3 text-xs font-mono text-slate-800 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="p-4 bg-slate-50 border-t border-slate-100 flex space-x-3">
@@ -10752,6 +10995,42 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     if (cleanSubCode && quoteRefNo.includes('[COMPANY_CODE]')) {
                       setQuoteRefNo((prev) => prev.replace(/\[COMPANY_CODE\]/g, cleanSubCode));
                     }
+
+                    // If an initial primary contact was pre-filled/entered, create & auto-select it right away
+                    if (subContactName.trim()) {
+                      const initContactPayload = {
+                        workspace_id: activeWorkspace.id,
+                        company_id: docId.id,
+                        full_name: subContactName.trim(),
+                        designation: subContactDesignation.trim() || undefined,
+                        mobile: subContactMobile.trim() || undefined,
+                        email: subContactEmail.trim() || undefined,
+                        is_primary: true,
+                        created_by_uid: user?.uid || '',
+                        created_by_name: user?.username || user?.full_name || user?.email || 'Unknown User',
+                        last_modified_by_uid: user?.uid || '',
+                        last_modified_by_name: user?.username || user?.full_name || user?.email || 'Unknown User',
+                        createdAt: new Date().toISOString(),
+                        updatedAt: new Date().toISOString()
+                      };
+                      const cDoc = await safeAddDoc('contacts', initContactPayload);
+                      await logAudit(cDoc.id, 'contact', 'create', null, initContactPayload, []);
+                      const createdContactObj: Contact = {
+                        id: cDoc.id,
+                        company_id: docId.id,
+                        full_name: subContactName.trim(),
+                        designation: subContactDesignation.trim() || undefined,
+                        mobile: subContactMobile.trim() || undefined,
+                        email: subContactEmail.trim() || undefined,
+                        is_primary: true,
+                        createdAt: new Date().toISOString()
+                      };
+                      if (setContacts) {
+                        setContacts((prev) => [createdContactObj, ...prev]);
+                      }
+                      setContactId(cDoc.id);
+                    }
+                    setUnregisteredEntities(null);
                     
                     // Reset fields
                     setSubCompanyName('');
@@ -10761,6 +11040,10 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     setSubCountry('UAE');
                     setSubGeneralPhone('');
                     setSubGeneralEmail('');
+                    setSubContactName('');
+                    setSubContactDesignation('');
+                    setSubContactMobile('');
+                    setSubContactEmail('');
                     setSubNotes('');
                     setNewCompanyModal(false);
                   } catch (err) {
@@ -10944,6 +11227,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     }
 
                     setContactId(docId.id);
+                    setUnregisteredEntities(null);
                     if (triggerToast) {
                       triggerToast(`Contact "${subContactName.trim()}" added successfully.`, 'success');
                     }
