@@ -2087,14 +2087,20 @@ export class QuotationRepository {
     const existing = await this.getQuotationById(id);
     if (!existing) return null;
 
+    const normalizedHeaderConfig = updates.header_config
+      ? this.mergeHeaderConfigReplacingOverrides(existing.header_config, updates.header_config)
+      : undefined;
+
     const updatedQuote: Quotation = this.sanitizePayloadForFirestoreLimit({
       ...existing,
       ...updates,
+      ...(normalizedHeaderConfig ? { header_config: normalizedHeaderConfig } : {}),
       updatedAt: new Date().toISOString()
     });
 
     const sanitizedUpdates = this.sanitizePayloadForFirestoreLimit({
       ...updates,
+      ...(normalizedHeaderConfig ? { header_config: normalizedHeaderConfig } : {}),
       updatedAt: updatedQuote.updatedAt
     });
 

@@ -4902,6 +4902,31 @@ describe('Suite 26: Fix F5 — PageHeaderOverrides Non-Resurrection (P0-3), Base
     );
     expect(hydratedCleared.headerConfig.logoHeightPx).toBe(60);
     expect(hydratedCleared.headerConfig.pageHeaderOverrides).toBe(undefined);
+
+    // 5. sanitizePayloadForFirestoreLimit & serializePresetSnapshot preserve remaining overrides and never resurrect deleted body_2
+    const sanitizedProfile = QuotationRepository.sanitizePayloadForFirestoreLimit(updatedProfile);
+    expect(sanitizedProfile.header_config?.pageHeaderOverrides?.body_2).toBe(undefined);
+    expect(sanitizedProfile.header_config?.pageHeaderOverrides?.annex_1?.mode).toBe('none');
+
+    const sanitizedClearedProfile = QuotationRepository.sanitizePayloadForFirestoreLimit(clearedProfile);
+    expect(sanitizedClearedProfile.header_config?.pageHeaderOverrides).toBe(undefined);
+
+    const updatedPresetSnapshot = QuotationRepository.sanitizePayloadForFirestoreLimit(
+      QuotationRepository.serializePresetSnapshot({
+        workspace_id: 'ws_26',
+        preset_name: 'Updated Preset',
+        default_tax_mode: 'taxes_extra',
+        default_validity_days: 30,
+        signatory_mode: 'single',
+        visible_columns: { brand: true, model: true, origin: true, availability: true, unit_price: true },
+        header_config: QuotationRepository.mergeHeaderConfigReplacingOverrides(existingHeader, {
+          logoHeightPx: 54,
+          pageHeaderOverrides: { annex_1: { mode: 'none' } }
+        })
+      })
+    );
+    expect(updatedPresetSnapshot.header_config?.pageHeaderOverrides?.body_2).toBe(undefined);
+    expect(updatedPresetSnapshot.header_config?.pageHeaderOverrides?.annex_1?.mode).toBe('none');
   });
 
   it('26b. Baseline enquiry drafts preserve defaultPreset.header_config (including pageHeaderOverrides) while saved quotes honor their own header_config (P1-4)', () => {
