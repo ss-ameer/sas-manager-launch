@@ -23,7 +23,7 @@ export interface OptionalTotalsResult {
   grandTotalWithOptionals: number;
 }
 
-type OptionalCheckableLineItem = Partial<QuotationLineItem> & {
+export type OptionalCheckableLineItem = Partial<QuotationLineItem> & {
   option_designation?: string;
   classification?: string;
 };
@@ -32,6 +32,68 @@ const DEFAULT_BASELINE_OPT_RE =
   /^(default\s*\/\s*included|baseline\s*\/\s*included|default|standard|included|baseline\s*\/\s*all|all)$/i;
 
 const OPTIONAL_OR_ADDON_RE = /optional|add-?on/i;
+
+function getSelectedOptionRegexForDisplayMode(optionDisplayMode?: string): RegExp | null {
+  if (optionDisplayMode === 'option_a_only') return /^option\s*(a|1)\b/i;
+  if (optionDisplayMode === 'option_b_only') return /^option\s*(b|2)\b/i;
+  if (optionDisplayMode === 'option_c_only') return /^option\s*(c|3)\b/i;
+  return null;
+}
+
+/**
+ * Single-source-of-truth option display filter shared by QuotationDocument,
+ * QuotationStudioModal, and quotationTokenResolver.
+ *
+ * In `option_a_only` / `option_b_only` / `option_c_only` modes:
+ * - Keeps items matching the selected lettered option AND baseline / default / optional add-on items.
+ * - Excludes other lettered option groups (e.g. Option B/C when `option_a_only`).
+ * - Clears `is_optional` ONLY on items belonging to the promoted selected option group,
+ *   preserving genuine `is_optional: true` flags on baseline / optional add-on items.
+ */
+export function filterLineItemsForOptionDisplayMode<T extends OptionalCheckableLineItem>(
+  lineItems: T[] | undefined | null,
+  optionDisplayMode: string = 'all_separate_tables'
+): T[] {
+  const raw = Array.isArray(lineItems) ? lineItems.filter(Boolean) : [];
+  const selectedOptionRe = getSelectedOptionRegexForDisplayMode(optionDisplayMode);
+  if (!selectedOptionRe) {
+    return raw;
+  }
+
+  return raw
+    .filter((it) => {
+      const opt = String(it.option || it.option_group || it.option_designation || '').trim();
+      return (
+        !opt ||
+        DEFAULT_BASELINE_OPT_RE.test(opt) ||
+        OPTIONAL_OR_ADDON_RE.test(opt) ||
+        selectedOptionRe.test(opt)
+      );
+    })
+    .map((it) => {
+      const opt = String(it.option || it.option_group || it.option_designation || '').trim();
+      if (selectedOptionRe.test(opt) && it.is_optional) {
+        return { ...it, is_optional: false };
+      }
+      return it;
+    });
+}
+
+/**
+ * Determines whether row-level option-group pills (e.g. `[Option A]`) should be suppressed.
+ * Suppresses the pill whenever tables are split across multiple options OR whenever the
+ * current table group already displays an explicit section banner (`group.optionBannerTitle`),
+ * preventing duplicate `[OPTION A]` badges under an `"OPTION A — ..."` banner.
+ */
+export function shouldSuppressRowOptionGroupBadge(
+  shouldSplitByOptionTables: boolean,
+  groupOptionBannerTitle?: string | null
+): boolean {
+  return Boolean(
+    shouldSplitByOptionTables ||
+      (typeof groupOptionBannerTitle === 'string' && groupOptionBannerTitle.trim().length > 0)
+  );
+}
 
 function roundCurrency(val: number): number {
   if (!Number.isFinite(val)) return 0;
@@ -62,7 +124,7 @@ export function isOptionalQuotationLineItem(item: OptionalCheckableLineItem): bo
  */
 export function resolveLineItemOptionBadges(
   item: OptionalCheckableLineItem,
-  shouldSplitByOptionTables: boolean
+  suppressOptionGroupBadge: boolean
 ): LineItemOptionBadges {
   const rawOptLabel = String(
     item.option || item.option_group || item.option_designation || ''
@@ -71,9 +133,9 @@ export function resolveLineItemOptionBadges(
   const optLabelIsOptional = !isDefaultBaselineOpt && OPTIONAL_OR_ADDON_RE.test(rawOptLabel);
   const isOptional = Boolean(item.is_optional) || optLabelIsOptional;
 
-  // Non-optional option group badge (e.g. "Option A", "Option B") — hidden when split into its own option table
+  // Non-optional option group badge (e.g. "Option A", "Option B") — hidden when split into its own labeled option table
   const optionGroupBadge =
-    !isDefaultBaselineOpt && !optLabelIsOptional && !shouldSplitByOptionTables
+    !isDefaultBaselineOpt && !optLabelIsOptional && !suppressOptionGroupBadge
       ? rawOptLabel
       : null;
 

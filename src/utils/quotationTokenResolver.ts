@@ -9,7 +9,10 @@ import {
   Contact
 } from '../types';
 import { amountToWords } from './numberToWords';
-import { calculateOptionalItemsTotals } from './optionalTotals';
+import {
+  calculateOptionalItemsTotals,
+  filterLineItemsForOptionDisplayMode
+} from './optionalTotals';
 
 /**
  * Detects whether a reference string is a raw internal database or synthetic standalone ID
@@ -1448,8 +1451,16 @@ export function buildQuotationTokenMap(ctx?: QuotationTokenContext | null): Reco
   const freightAmount = `${currency} ${formatAmount(q.freight_amount)}`;
   const vatAmount = `${currency} ${formatAmount(rawTaxAmount)}`;
   const grandTotal = `${currency} ${formatAmount(rawGrandTotal)}`;
-  const optionalTotalsCalc = calculateOptionalItemsTotals({
+  const effectiveOptionDisplayMode =
+    q.option_display_mode ||
+    (q as any).presentation_preset?.option_display_mode ||
+    'all_separate_tables';
+  const filteredLineItemsForOptionals = filterLineItemsForOptionDisplayMode(
     lineItems,
+    effectiveOptionDisplayMode
+  );
+  const optionalTotalsCalc = calculateOptionalItemsTotals({
+    lineItems: filteredLineItemsForOptionals,
     baselineGrandTotal: Number(rawGrandTotal) || 0,
     taxMode: effectiveTaxMode,
     taxRatePercent: taxRateNum
@@ -1992,6 +2003,35 @@ export function findUnknownAtTokensInQuotation(
   addFromText(quotation.custom_notes, 'Terms & Clauses / Cover Note');
   addFromText(quotation.footer_config?.forAndOnBehalfText, 'Signatory Header');
   addFromText(quotation.footer_config?.customDisclaimer, 'Footer Disclaimer');
+  addFromText((quotation.footer_config as any)?.customDisclaimerText, 'Footer Disclaimer');
+  addFromText(quotation.footer_config?.footerPrefixText, 'Footer Prefix');
+  addFromText(quotation.footer_config?.systemTaglineText, 'Footer Tagline');
+  addFromText(
+    (quotation.footer_config as any)?.alternateTotalWithOptionalsLabel,
+    'Alternate Total Label'
+  );
+  addFromText((quotation.footer_config as any)?.vatNoteOverride, 'VAT Note Override');
+
+  if (Array.isArray(quotation.header_config?.headerFields)) {
+    quotation.header_config!.headerFields!.forEach((field) => {
+      if (field && field.enabled !== false) {
+        addFromText(field.label, 'Header Field');
+        addFromText(field.valueOverride, 'Header Field');
+      }
+    });
+  }
+
+  if (
+    quotation.header_config?.pageHeaderOverrides &&
+    typeof quotation.header_config.pageHeaderOverrides === 'object'
+  ) {
+    Object.entries(quotation.header_config.pageHeaderOverrides).forEach(([pageKey, override]) => {
+      if (!override || typeof override !== 'object') return;
+      const loc = `Page ${pageKey} Header Override`;
+      addFromText(override.customTitle, loc);
+      addFromText(override.customRightText, loc);
+    });
+  }
 
   if (Array.isArray(quotation.recipient_config?.recipientFieldRows)) {
     quotation.recipient_config!.recipientFieldRows!.forEach((row) => {
@@ -2031,6 +2071,8 @@ export function findUnknownAtTokensInQuotation(
       addFromText(block.subtitleOverride, `${bTitle} Subtitle`);
       addFromText(block.customNote, `${bTitle} Note`);
       addFromText(block.acceptanceStatementOverride, 'Acceptance Statement');
+      addFromText(block.alternateTotalWithOptionalsLabel, `${bTitle} Alternate Total Label`);
+      addFromText(block.vatNoteOverride, `${bTitle} VAT Note Override`);
       if (Array.isArray(block.customRows)) {
         block.customRows.forEach((row) => {
           if (row.enabled !== false) {

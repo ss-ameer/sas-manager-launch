@@ -60,6 +60,8 @@ import {
   hasDynamicAtTag,
   sanitizePresetDynamicTemplate,
   resolveQuotationTokens,
+  buildQuotationTokenMap,
+  findUnknownAtTokensInQuotation,
   QUOTATION_AT_TAGS
 } from '../utils/quotationTokenResolver';
 import {
@@ -81,6 +83,8 @@ import {
 } from '../utils/inlineQuickEdit';
 import {
   resolveLineItemOptionBadges,
+  shouldSuppressRowOptionGroupBadge,
+  filterLineItemsForOptionDisplayMode,
   isOptionalQuotationLineItem,
   calculateOptionalItemsTotals,
   shouldShowAlternateTotalWithOptionals,
@@ -5076,6 +5080,303 @@ describe('Suite 26: Fix F5 — PageHeaderOverrides Non-Resurrection (P0-3), Base
     expect(canonicalSpecAttributeKey('Country of Origin')).toBe('origin');
     expect(canonicalSpecAttributeKey('Delivery / Lead Time')).toBe('delivery');
     expect(canonicalSpecAttributeKey('Availability')).toBe('delivery');
+  });
+});
+
+// ==========================================
+// 27. FIX F10 REGRESSION SUITE (P1-8, P1-9, P1-10, P2-1, P2-2)
+// ==========================================
+describe('27. Fix F10 — Option Badges, Filtered Optional Totals, @tag Scanner & Excluded Page 1', () => {
+  it('27a. filterLineItemsForOptionDisplayMode preserves baseline is_optional flags while promoting selected lettered option (P1-9)', () => {
+    const items: QuotationLineItem[] = [
+      {
+        id: 'base_std',
+        item_name: 'Standard Installation',
+        description: 'Base scope',
+        quantity: 1,
+        unit: 'Lot',
+        unit_price: 2000,
+        total_price: 2000,
+        option: 'Default / Included',
+        is_optional: false
+      },
+      {
+        id: 'base_opt',
+        item_name: 'Extended 2-Year AMC',
+        description: 'Baseline optional add-on',
+        quantity: 1,
+        unit: 'Lot',
+        unit_price: 1500,
+        total_price: 1500,
+        option: 'Default / Included',
+        is_optional: true
+      },
+      {
+        id: 'addon_opt',
+        item_name: 'Spare Parts Kit',
+        description: 'Optional add-on spares',
+        quantity: 1,
+        unit: 'Set',
+        unit_price: 800,
+        total_price: 800,
+        option: 'Optional / Add-On',
+        is_optional: true
+      },
+      {
+        id: 'opt_a',
+        item_name: 'Option A — FRP Vessel',
+        description: 'Option A equipment',
+        quantity: 1,
+        unit: 'Nos',
+        unit_price: 10000,
+        total_price: 10000,
+        option: 'Option A',
+        is_optional: true
+      },
+      {
+        id: 'opt_b',
+        item_name: 'Option B — SS316 Vessel',
+        description: 'Option B equipment',
+        quantity: 1,
+        unit: 'Nos',
+        unit_price: 18000,
+        total_price: 18000,
+        option: 'Option B',
+        is_optional: true
+      }
+    ];
+
+    const filteredA = prepareOptionFilteredLineItems(items, 'option_a_only');
+    expect(filteredA.map((i) => i.id)).toEqual(['base_std', 'base_opt', 'addon_opt', 'opt_a']);
+    // Baseline optional item MUST retain is_optional: true
+    expect(filteredA.find((i) => i.id === 'base_opt')?.is_optional).toBe(true);
+    expect(filteredA.find((i) => i.id === 'addon_opt')?.is_optional).toBe(true);
+    // Promoted Option A item is promoted to active non-optional
+    expect(filteredA.find((i) => i.id === 'opt_a')?.is_optional).toBe(false);
+    // Option B is completely excluded
+    expect(filteredA.some((i) => i.id === 'opt_b')).toBe(false);
+
+    // QuotationRepository.calculateTotals agrees: baseline (2000) + Option A (10000) = 12000; excludes baseline optional (1500) & add-on (800)
+    const totalsA = QuotationRepository.calculateTotals(filteredA, 0, 'taxes_extra', 5, 'option_a_only');
+    expect(totalsA.subtotal).toBe(12000);
+    expect(totalsA.tax_amount).toBe(600);
+    expect(totalsA.grand_total).toBe(12600);
+  });
+
+  it('27b. shouldSuppressRowOptionGroupBadge eliminates duplicate [Option A] badge under labeled single-option banner (P1-9)', () => {
+    const optAItem: Partial<QuotationLineItem> = {
+      id: 'a1',
+      item_name: 'Booster Pump',
+      option: 'Option A',
+      is_optional: false
+    };
+    const baseOptItem: Partial<QuotationLineItem> = {
+      id: 'b_opt',
+      item_name: 'AMC Optional',
+      option: 'Default / Included',
+      is_optional: true
+    };
+
+    // Single lettered option + baseline: shouldSplitByOptionTables is false, but group.optionBannerTitle is set
+    const suppressWithBanner = shouldSuppressRowOptionGroupBadge(false, 'OPTION A — PRIMARY OFFER');
+    expect(suppressWithBanner).toBe(true);
+    const badgesUnderBanner = resolveLineItemOptionBadges(optAItem, suppressWithBanner);
+    expect(badgesUnderBanner.optionGroupBadge).toBe(null);
+    expect(badgesUnderBanner.optionalBadge).toBe(null);
+
+    // Combined table (no banner, not split): row-level [Option A] badge MUST still appear
+    const suppressInCombined = shouldSuppressRowOptionGroupBadge(false, undefined);
+    expect(suppressInCombined).toBe(false);
+    const badgesInCombined = resolveLineItemOptionBadges(optAItem, suppressInCombined);
+    expect(badgesInCombined.optionGroupBadge).toBe('Option A');
+
+    // Baseline optional item ALWAYS keeps its amber [Optional] badge regardless of banner suppression
+    const optBadges = resolveLineItemOptionBadges(baseOptItem, suppressWithBanner);
+    expect(optBadges.optionGroupBadge).toBe(null);
+    expect(optBadges.optionalBadge).toBe('Optional');
+  });
+
+  it('27c. buildQuotationTokenMap computes @optional_total and @grand_total_with_optionals strictly over active optionDisplayMode (P1-10)', () => {
+    const quotation: Partial<Quotation> = {
+      id: 'q_f10_opt',
+      quote_number: 'QT-2026-010',
+      formatted_quote_ref: 'QT-2026-010',
+      currency: 'AED',
+      tax_mode: 'taxes_extra',
+      tax_rate_percent: 5,
+      option_display_mode: 'option_a_only',
+      subtotal: 10000,
+      tax_amount: 500,
+      grand_total: 10500,
+      line_items: [
+        {
+          id: 'opt_a_main',
+          item_name: 'Option A Main',
+          description: 'Included Option A',
+          quantity: 1,
+          unit: 'Set',
+          unit_price: 10000,
+          total_price: 10000,
+          option: 'Option A',
+          is_optional: false
+        },
+        {
+          id: 'base_optional',
+          item_name: 'Baseline Optional Spares',
+          description: 'Optional add-on for baseline',
+          quantity: 1,
+          unit: 'Lot',
+          unit_price: 1000,
+          total_price: 1000,
+          option: 'Default / Included',
+          is_optional: true
+        },
+        {
+          id: 'opt_b_optional',
+          item_name: 'Option B Exclusive Optional',
+          description: 'Must NOT leak into Option A Only totals',
+          quantity: 1,
+          unit: 'Lot',
+          unit_price: 5000,
+          total_price: 5000,
+          option: 'Option B',
+          is_optional: true
+        }
+      ]
+    };
+
+    const tokenMap = buildQuotationTokenMap({ quotation });
+    // Only base_optional (1,000) is active in option_a_only; Option B optional (5,000) is excluded!
+    expect(tokenMap.optional_total).toBe('AED 1,000.00');
+    // 10,500 baseline grand + (1,000 + 50 VAT) = 11,550.00
+    expect(tokenMap.grand_total_with_optionals).toBe('AED 11,550.00');
+
+    // Verify filterLineItemsForOptionDisplayMode + calculateOptionalItemsTotals match tokenMap
+    const inspectorFiltered = filterLineItemsForOptionDisplayMode(
+      quotation.line_items,
+      'option_a_only'
+    );
+    const inspectorCalc = calculateOptionalItemsTotals({
+      lineItems: inspectorFiltered,
+      baselineGrandTotal: 10500,
+      taxMode: 'taxes_extra',
+      taxRatePercent: 5
+    });
+    expect(inspectorCalc.optionalSubtotal).toBe(1000);
+    expect(inspectorCalc.grandTotalWithOptionals).toBe(11550);
+  });
+
+  it('27d. findUnknownAtTokensInQuotation scans headerFields, pageHeaderOverrides, alternateTotalWithOptionalsLabel, vatNoteOverride, and validates @vat_mode clean resolution (P1-8, P2-1)', () => {
+    const quotationWithTypos: Partial<Quotation> = {
+      id: 'q_f10_scan',
+      subject: 'Valid @vat_mode supply',
+      tax_mode: 'taxes_extra',
+      tax_rate_percent: 5,
+      header_config: {
+        headerFields: [
+          {
+            id: 'custom_hdr_1',
+            label: 'Ref @bad_hdr_label',
+            valueOverride: 'Code @bad_hdr_val',
+            enabled: true,
+            zone: 'contact_block'
+          }
+        ],
+        pageHeaderOverrides: {
+          body_2: {
+            mode: 'compact',
+            customTitle: 'Section @bad_page_title',
+            customRightText: 'Meta @bad_page_right'
+          }
+        }
+      },
+      footer_config: {
+        alternateTotalWithOptionalsLabel: 'Alt @bad_footer_alt',
+        vatNoteOverride: 'Tax @bad_footer_vat'
+      } as any,
+      layout_blocks: [
+        {
+          id: 'totals',
+          type: 'totals',
+          title: 'Totals',
+          enabled: true,
+          alternateTotalWithOptionalsLabel: 'Total @bad_block_alt',
+          vatNoteOverride: 'VAT @bad_block_vat'
+        },
+        {
+          id: 'terms',
+          type: 'terms',
+          title: 'Terms',
+          enabled: true,
+          customRows: [
+            { id: 'vat_good', label: 'VAT', value: '@vat_mode', enabled: true },
+            { id: 'vat_bad', label: 'Typo', value: '@unrecognized_vat_token', enabled: true }
+          ]
+        }
+      ]
+    };
+
+    const warnings = findUnknownAtTokensInQuotation(quotationWithTypos);
+    const tokens = warnings.map((w) => w.token);
+    expect(tokens.includes('@bad_hdr_label')).toBe(true);
+    expect(tokens.includes('@bad_hdr_val')).toBe(true);
+    expect(tokens.includes('@bad_page_title')).toBe(true);
+    expect(tokens.includes('@bad_page_right')).toBe(true);
+    expect(tokens.includes('@bad_footer_alt')).toBe(true);
+    expect(tokens.includes('@bad_footer_vat')).toBe(true);
+    expect(tokens.includes('@bad_block_alt')).toBe(true);
+    expect(tokens.includes('@bad_block_vat')).toBe(true);
+    expect(tokens.includes('@unrecognized_vat_token')).toBe(true);
+    // Valid @vat_mode MUST NOT be flagged and MUST resolve without trailing _label leak
+    expect(tokens.includes('@vat_mode')).toBe(false);
+    const resolvedVatMode = resolveQuotationTokens('@vat_mode', { quotation: quotationWithTypos });
+    expect(resolvedVatMode.includes('@')).toBe(false);
+    expect(resolvedVatMode.includes('_label')).toBe(false);
+    expect(resolvedVatMode.length > 0).toBe(true);
+  });
+
+  it('27e. Excluded Page 1 yields displayPageNumber null and suppresses page number in Page 1 compact header override (P2-2)', () => {
+    const blocks: QuotationBlockConfig[] = [
+      { id: 'totals', type: 'totals', enabled: true },
+      { id: 'break_body', type: 'page_break', enabled: true, is_visible: true },
+      { id: 'terms', type: 'terms', enabled: true }
+    ];
+    const pagination = resolveDocumentPaginationWithAnnexes(blocks, [], [], true, {
+      excludedBodyPageIndices: [1]
+    });
+    expect(pagination.totalDocumentPages).toBe(1);
+    expect(pagination.mainSheets[0].displayPageNumber).toBe(null);
+    expect(pagination.mainSheets[0].excludedFromPageCount).toBe(true);
+    expect(pagination.mainSheets[1].displayPageNumber).toBe(1);
+
+    const page1DisplayNum = pagination.mainSheets[0].displayPageNumber;
+    const headerConfig: QuotationHeaderConfig = {
+      ...DEFAULT_HEADER_CONFIG,
+      pageHeaderOverrides: {
+        [getBodyPageHeaderKey(1)]: {
+          mode: 'compact',
+          showDate: true,
+          showQuoteRef: true,
+          showPageNumber: true
+        }
+      }
+    };
+    const headerBranding = resolveHeaderBrandingConfig(headerConfig, undefined);
+    const effectivePage1Header = resolveEffectivePageHeader({
+      sheetKind: 'body_first',
+      bodyPageNumber: 1,
+      headerConfig,
+      headerBranding,
+      showPageNumbersGlobal: true,
+      displayPageNumber: page1DisplayNum,
+      totalDocumentPages: pagination.totalDocumentPages,
+      defaultDateText: '10 May 2026',
+      defaultQuoteRef: 'QT-2026-010'
+    });
+    expect(effectivePage1Header.mode).toBe('compact');
+    expect(effectivePage1Header.canRenderPageNumber).toBe(false);
+    expect(effectivePage1Header.rightMetadataText).toBe('10 May 2026 • QT-2026-010');
+    expect(effectivePage1Header.rightMetadataText.includes('Page')).toBe(false);
   });
 });
 

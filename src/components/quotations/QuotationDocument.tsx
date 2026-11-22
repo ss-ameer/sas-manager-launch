@@ -50,6 +50,8 @@ import {
 } from '../../utils/inlineQuickEdit';
 import {
   resolveLineItemOptionBadges,
+  shouldSuppressRowOptionGroupBadge,
+  filterLineItemsForOptionDisplayMode,
   isOptionalQuotationLineItem,
   calculateOptionalItemsTotals,
   shouldShowAlternateTotalWithOptionals,
@@ -851,31 +853,7 @@ export function prepareOptionFilteredLineItems(
     });
   });
 
-  if (optionDisplayMode === 'option_a_only') {
-    return tagged
-      .filter((it) => {
-        const opt = String(it.option || it.option_group || '').trim();
-        return !opt || opt === 'Default / Included' || /^option\s*a\b/i.test(opt) || /^option\s*1\b/i.test(opt);
-      })
-      .map((it) => ({ ...it, is_optional: false }));
-  }
-  if (optionDisplayMode === 'option_b_only') {
-    return tagged
-      .filter((it) => {
-        const opt = String(it.option || it.option_group || '').trim();
-        return !opt || opt === 'Default / Included' || /^option\s*b\b/i.test(opt) || /^option\s*2\b/i.test(opt);
-      })
-      .map((it) => ({ ...it, is_optional: false }));
-  }
-  if (optionDisplayMode === 'option_c_only') {
-    return tagged
-      .filter((it) => {
-        const opt = String(it.option || it.option_group || '').trim();
-        return !opt || opt === 'Default / Included' || /^option\s*c\b/i.test(opt) || /^option\s*3\b/i.test(opt);
-      })
-      .map((it) => ({ ...it, is_optional: false }));
-  }
-  return tagged;
+  return filterLineItemsForOptionDisplayMode(tagged, optionDisplayMode);
 }
 
 export function resolveCanonicalLineItemIndex(
@@ -4113,9 +4091,13 @@ const EditableCanvasText: React.FC<EditableCanvasTextProps> = ({
 
   React.useEffect(() => {
     if (!canEdit && editing) {
+      if (!cancelledRef.current && draft !== seedValue && onCommit) {
+        onCommit(fieldKey, draft);
+      }
+      cancelledRef.current = false;
       setEditing(false);
     }
-  }, [canEdit, editing]);
+  }, [canEdit, editing, draft, seedValue, onCommit, fieldKey]);
 
   const displayNode = renderedDisplay !== undefined ? renderedDisplay : value;
 
@@ -6885,6 +6867,47 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                 blockConfig,
                 optionalTotalsCalc
               );
+              const alternateTotalRowNode = showAlternateTotalRow ? (
+                <div className="mt-2 px-2.5 py-1.5 rounded-md bg-amber-50/80 border border-amber-200/90 space-y-0.5">
+                  <div className="flex justify-between items-baseline gap-2">
+                    <span className="font-bold text-amber-950 text-[calc(var(--block-base)*1.02)] tracking-tight">
+                      {(() => {
+                        const rawAltLabel =
+                          blockConfig?.alternateTotalWithOptionalsLabel?.trim() ||
+                          DEFAULT_ALTERNATE_TOTAL_WITH_OPTIONALS_LABEL;
+                        const resolvedAltLabel = resolveQuotationTokens(
+                          rawAltLabel,
+                          tokenContext
+                        );
+                        return `${resolvedAltLabel}${
+                          resolvedAltLabel.trim().endsWith(':') ? '' : ':'
+                        }`;
+                      })()}
+                    </span>
+                    <span className="font-mono tabular-nums font-extrabold text-amber-950 text-[calc(var(--block-base)*1.12)] whitespace-nowrap">
+                      {formatCurrency(optionalTotalsCalc.grandTotalWithOptionals)}
+                    </span>
+                  </div>
+                  <div className="text-[calc(var(--block-base)*0.82)] text-amber-800/90 font-medium">
+                    {(() => {
+                      const optCountLabel =
+                        optionalTotalsCalc.optionalItemCount === 1
+                          ? 'optional item'
+                          : `${optionalTotalsCalc.optionalItemCount} optional items`;
+                      if (taxMode === 'taxes_extra' && optionalTotalsCalc.optionalVat > 0) {
+                        return `Includes +${formatCurrency(optionalTotalsCalc.optionalSubtotal)} (${optCountLabel}) + ${formatCurrency(optionalTotalsCalc.optionalVat)} VAT (${taxRate}%)`;
+                      }
+                      if (taxMode === 'tax_calculated' && taxRate > 0) {
+                        return `Includes +${formatCurrency(optionalTotalsCalc.optionalSubtotal)} (${optCountLabel}, incl. ${taxRate}% VAT)`;
+                      }
+                      if (taxMode === 'vat_excluded_extra' && taxRate > 0) {
+                        return `Includes +${formatCurrency(optionalTotalsCalc.optionalSubtotal)} (${optCountLabel}, VAT ${taxRate}% extra as applicable)`;
+                      }
+                      return `Includes +${formatCurrency(optionalTotalsCalc.optionalSubtotal)} (${optCountLabel})`;
+                    })()}
+                  </div>
+                </div>
+              ) : null;
 
               return (
                 <>
@@ -7202,47 +7225,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                         )}
 
                       {/* Auto-Calculated Alternate Total (Including Optional Items) — auto-hides when 0 optional items */}
-                      {showAlternateTotalRow && (
-                        <div className="mt-2 px-2.5 py-1.5 rounded-md bg-amber-50/80 border border-amber-200/90 space-y-0.5">
-                          <div className="flex justify-between items-baseline gap-2">
-                            <span className="font-bold text-amber-950 text-[calc(var(--block-base)*1.02)] tracking-tight">
-                              {(() => {
-                                const rawAltLabel =
-                                  blockConfig?.alternateTotalWithOptionalsLabel?.trim() ||
-                                  DEFAULT_ALTERNATE_TOTAL_WITH_OPTIONALS_LABEL;
-                                const resolvedAltLabel = resolveQuotationTokens(
-                                  rawAltLabel,
-                                  tokenContext
-                                );
-                                return `${resolvedAltLabel}${
-                                  resolvedAltLabel.trim().endsWith(':') ? '' : ':'
-                                }`;
-                              })()}
-                            </span>
-                            <span className="font-mono tabular-nums font-extrabold text-amber-950 text-[calc(var(--block-base)*1.12)] whitespace-nowrap">
-                              {formatCurrency(optionalTotalsCalc.grandTotalWithOptionals)}
-                            </span>
-                          </div>
-                          <div className="text-[calc(var(--block-base)*0.82)] text-amber-800/90 font-medium">
-                            {(() => {
-                              const optCountLabel =
-                                optionalTotalsCalc.optionalItemCount === 1
-                                  ? 'optional item'
-                                  : `${optionalTotalsCalc.optionalItemCount} optional items`;
-                              if (taxMode === 'taxes_extra' && optionalTotalsCalc.optionalVat > 0) {
-                                return `Includes +${formatCurrency(optionalTotalsCalc.optionalSubtotal)} (${optCountLabel}) + ${formatCurrency(optionalTotalsCalc.optionalVat)} VAT (${taxRate}%)`;
-                              }
-                              if (taxMode === 'tax_calculated' && taxRate > 0) {
-                                return `Includes +${formatCurrency(optionalTotalsCalc.optionalSubtotal)} (${optCountLabel}, incl. ${taxRate}% VAT)`;
-                              }
-                              if (taxMode === 'vat_excluded_extra' && taxRate > 0) {
-                                return `Includes +${formatCurrency(optionalTotalsCalc.optionalSubtotal)} (${optCountLabel}, VAT ${taxRate}% extra as applicable)`;
-                              }
-                              return `Includes +${formatCurrency(optionalTotalsCalc.optionalSubtotal)} (${optCountLabel})`;
-                            })()}
-                          </div>
-                        </div>
-                      )}
+                      {alternateTotalRowNode}
 
                       {/* Custom Financial Rows Below Grand Total (e.g. Less Advance, Net Payable, Rebate) */}
                       {(blockConfig?.customRows || [])
@@ -7290,6 +7273,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                       )}
                     </>
                   )}
+                  {!showCombinedGrandTotal && alternateTotalRowNode}
                 </>
               );
             })()}
@@ -12812,7 +12796,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
           : page1Header.mode === 'none'
           ? null
           : renderCompactRunningHeader(
-              page1DisplayNum ?? 1,
+              page1DisplayNum,
               totalDocumentPages,
               '',
               page1Header,
@@ -13730,7 +13714,10 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                                           const { optionGroupBadge, optionalBadge } =
                                             resolveLineItemOptionBadges(
                                               item,
-                                              shouldSplitByOptionTables
+                                              shouldSuppressRowOptionGroupBadge(
+                                                shouldSplitByOptionTables,
+                                                group.optionBannerTitle
+                                              )
                                             );
                                           return (
                                             <>

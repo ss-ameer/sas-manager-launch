@@ -92,6 +92,7 @@ import LineItemImageOptionsPopover from '../common/LineItemImageOptionsPopover';
 import { formatProductVariantSelectorLabel } from '../../utils/productVariantFormat';
 import {
   calculateOptionalItemsTotals,
+  filterLineItemsForOptionDisplayMode,
   DEFAULT_ALTERNATE_TOTAL_WITH_OPTIONALS_LABEL
 } from '../../utils/optionalTotals';
 import { safeGetDocs, safeAddDoc, safeUpdateDoc } from '../../firebase';
@@ -7321,35 +7322,17 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
 
   // Calculate live financial figures based on active optionDisplayMode
   const financialTotals = useMemo(() => {
-    const itemsForTotals =
-      optionDisplayMode === 'option_c_only'
-        ? quotationLineItems
-            .filter((it) => {
-              const opt = String(it.option || it.option_group || '').trim();
-              return !opt || opt === 'Default / Included' || /^option\s*c\b/i.test(opt) || /^option\s*3\b/i.test(opt);
-            })
-            .map((it) => ({ ...it, is_optional: false }))
-        : optionDisplayMode === 'option_b_only'
-        ? quotationLineItems
-            .filter((it) => {
-              const opt = String(it.option || it.option_group || '').trim();
-              return !opt || opt === 'Default / Included' || /^option\s*b\b/i.test(opt) || /^option\s*2\b/i.test(opt);
-            })
-            .map((it) => ({ ...it, is_optional: false }))
-        : optionDisplayMode === 'option_a_only'
-        ? quotationLineItems
-            .filter((it) => {
-              const opt = String(it.option || it.option_group || '').trim();
-              return !opt || opt === 'Default / Included' || /^option\s*a\b/i.test(opt) || /^option\s*1\b/i.test(opt);
-            })
-            .map((it) => ({ ...it, is_optional: false }))
-        : quotationLineItems;
+    const itemsForTotals = filterLineItemsForOptionDisplayMode(
+      quotationLineItems,
+      optionDisplayMode
+    );
 
     const calc = QuotationRepository.calculateTotals(
       itemsForTotals,
       freightAmount,
       taxMode,
-      taxRatePercent
+      taxRatePercent,
+      optionDisplayMode
     );
     const activeTotalsBlock = layoutBlocks.find(
       (b) => b.id === 'totals' && b.enabled !== false && b.is_visible !== false
@@ -8775,13 +8758,18 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       footer_disclaimer:
         footerConfig.customDisclaimerText || footerConfig.customDisclaimer || ''
     };
-    if (Array.isArray(headerConfig.headerFields)) {
-      headerConfig.headerFields.forEach((f) => {
-        if (f.id && typeof f.valueOverride === 'string' && f.valueOverride.length > 0) {
-          rawMap[`header_field:${f.id}`] = f.valueOverride;
-        }
-      });
-    }
+    const sourceHeaderFields =
+      Array.isArray(headerConfig.headerFields) && headerConfig.headerFields.length > 0
+        ? headerConfig.headerFields
+        : Array.isArray(activeProfile?.header_config?.headerFields) &&
+          activeProfile.header_config.headerFields.length > 0
+        ? activeProfile.header_config.headerFields
+        : [];
+    sourceHeaderFields.forEach((f) => {
+      if (f.id && typeof f.valueOverride === 'string' && f.valueOverride.length > 0) {
+        rawMap[`header_field:${f.id}`] = f.valueOverride;
+      }
+    });
     return rawMap;
   }, [
     recipientConfig.offerHeadingOverride,
@@ -8803,7 +8791,8 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     secondarySignatoryTitle,
     footerConfig.customDisclaimerText,
     footerConfig.customDisclaimer,
-    headerConfig.headerFields
+    headerConfig.headerFields,
+    activeProfile?.header_config?.headerFields
   ]);
 
   // Direct On-Canvas Click-to-Edit Handler for Quick-Edit Mode
@@ -8812,8 +8801,15 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       if (fieldKey.startsWith('header_field:')) {
         const targetId = fieldKey.replace('header_field:', '');
         setHeaderConfig((prev) => {
+          const effectiveHeaderConfig: QuotationHeaderConfig =
+            Array.isArray(prev.headerFields) && prev.headerFields.length > 0
+              ? prev
+              : Array.isArray(activeProfile?.header_config?.headerFields) &&
+                activeProfile.header_config.headerFields.length > 0
+              ? { ...prev, headerFields: activeProfile.header_config.headerFields }
+              : prev;
           const currentFields = resolveHeaderFields(
-            prev,
+            effectiveHeaderConfig,
             activeProfile,
             liveQuotation.sender_snapshot
           ).allFields;
@@ -9363,13 +9359,13 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         parent_quotation_id: liveQuotation.parent_quotation_id || liveQuotation.parent_quote_id,
         status: effectiveStatus,
         client_snapshot: liveQuotation.client_snapshot,
-        client_contact_person: liveQuotation.client_contact_person || clientContactPerson,
-        client_address: liveQuotation.client_address || clientAddressOverride || undefined,
-        client_phone: liveQuotation.client_phone || clientPhoneOverride || undefined,
-        client_email: liveQuotation.client_email || clientEmailOverride || undefined,
-        client_trn: liveQuotation.client_trn || clientTrnOverride || undefined,
-        prepared_by: liveQuotation.prepared_by || preparedBy,
-        subject: liveQuotation.subject || quotationSubject,
+        client_contact_person: clientContactPerson || liveQuotation.client_contact_person,
+        client_address: clientAddressOverride || liveQuotation.client_address || undefined,
+        client_phone: clientPhoneOverride || liveQuotation.client_phone || undefined,
+        client_email: clientEmailOverride || liveQuotation.client_email || undefined,
+        client_trn: clientTrnOverride || liveQuotation.client_trn || undefined,
+        prepared_by: preparedBy || liveQuotation.prepared_by,
+        subject: quotationSubject || liveQuotation.subject,
         sender_snapshot: liveQuotation.sender_snapshot,
         line_items: stripCatalogRedundantLineItemMedia(liveQuotation.line_items, workspaceProducts),
         option_display_mode: optionDisplayMode,
@@ -9381,10 +9377,10 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         tax_rate_percent: liveQuotation.tax_rate_percent,
         tax_amount: liveQuotation.tax_amount,
         grand_total: liveQuotation.grand_total,
-        price_basis: liveQuotation.price_basis || priceBasis,
-        payment_terms: liveQuotation.payment_terms || paymentTerms,
-        custom_notes: liveQuotation.custom_notes || customNotes,
-        applied_terms: liveQuotation.applied_terms || customNotes,
+        price_basis: priceBasis || liveQuotation.price_basis,
+        payment_terms: paymentTerms || liveQuotation.payment_terms,
+        custom_notes: customNotes || liveQuotation.custom_notes,
+        applied_terms: customNotes || liveQuotation.applied_terms,
         applied_bank_account: liveQuotation.applied_bank_account,
         remittanceBankId: selectedBankId,
         remittance_bank_id: selectedBankId,
@@ -9557,7 +9553,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
             return { ...row, value: '@payment_terms' };
           }
           if (rowIdNorm === 'vat' || labelNorm.includes('vat') || labelNorm.includes('tax')) {
-            return { ...row, value: '@tax_mode_label' };
+            return { ...row, value: '@vat_mode' };
           }
           return row;
         });
@@ -25932,7 +25928,10 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                   {/* Alternate Total Including Optional Items Toggle */}
                                   {(() => {
                                     const inspectorOptCalc = calculateOptionalItemsTotals({
-                                      lineItems: liveQuotation.line_items || [],
+                                      lineItems: filterLineItemsForOptionDisplayMode(
+                                        liveQuotation.line_items || [],
+                                        optionDisplayMode
+                                      ),
                                       baselineGrandTotal: Number(liveQuotation.grand_total) || 0,
                                       taxMode,
                                       taxRatePercent
