@@ -24,6 +24,9 @@ import {
   formatCustomLineItemVariantSummary,
   mergeFreshSubComponentsIntoStudioSubs,
   buildVariantSwitchLineItemFields,
+  omitUndefinedDeep,
+  splitFirestoreSyncPatch,
+  mergeProductsIntoOfflineCache,
   VARIANT_SELECT_PARENT,
   VARIANT_SELECT_CUSTOM,
   BulkVariantMatrixRow
@@ -833,6 +836,125 @@ describe('Draft BOM sub_components Sync (P0-4) & Variant Switch Hygiene (P0-7)',
     });
     expect(cleanedWithExistingLead.lead_time_note).toBe('4-6 Weeks');
     expect(cleanedWithExistingLead.availability).toBe('4-6 Weeks');
+  });
+});
+
+// ==========================================
+// SUITE 6: FIX F7 — PAYLOAD SANITIZATION (P0-10) & MULTI-WORKSPACE CACHE SAFETY (P1-15)
+// ==========================================
+
+describe('Fix F7: Payload Sanitization (P0-10) & Multi-Workspace Offline Cache Merge (P1-15)', () => {
+  it('omitUndefinedDeep strips top-level and nested undefined keys without turning any field into null while preserving 0, false, and ""', () => {
+    const raw = {
+      name: 'Multimedia Filter 30" x 72"',
+      unit_price: 0,
+      is_composite_set: false,
+      description: '',
+      brand_make: undefined,
+      image_url: undefined,
+      nested: {
+        zoom: 1,
+        rotation: 0,
+        caption: undefined,
+        deep: { a: '', b: undefined }
+      },
+      sub_components: [
+        { id: 'c1', item_name: 'Valve', unit_price: 0, remark: undefined },
+        undefined as any,
+        { id: 'c2', item_name: 'Vessel', unit_price: 2500, model_part_no: undefined }
+      ]
+    };
+
+    const cleaned = omitUndefinedDeep(raw) as Record<string, any>;
+    expect(cleaned.unit_price).toBe(0);
+    expect(cleaned.is_composite_set).toBe(false);
+    expect(cleaned.description).toBe('');
+    expect('brand_make' in cleaned).toBe(false);
+    expect('image_url' in cleaned).toBe(false);
+    expect(cleaned.nested.rotation).toBe(0);
+    expect('caption' in cleaned.nested).toBe(false);
+    expect(cleaned.nested.deep.a).toBe('');
+    expect('b' in cleaned.nested.deep).toBe(false);
+    expect(cleaned.sub_components.length).toBe(2);
+    expect('remark' in cleaned.sub_components[0]).toBe(false);
+    expect('model_part_no' in cleaned.sub_components[1]).toBe(false);
+    // Guarantee zero accidental null conversions
+    expect(JSON.stringify(cleaned).includes('null')).toBe(false);
+  });
+
+  it('splitFirestoreSyncPatch separates intentionally cleared parent sync fields into clearedKeys while keeping localPatch free of undefined/null', () => {
+    const parentWithClearedFields: Partial<Product> = {
+      id: 'parent_1',
+      name: 'FRP Pressure Vessel',
+      product_type: 'Filtration Vessels',
+      brand_make: '', // intentionally cleared
+      country_of_origin: 'China',
+      image_url: '', // intentionally cleared
+      secondary_image_url: '',
+      datasheet_attachment: undefined,
+      is_composite_set: false,
+      sub_components: undefined
+    };
+
+    const existingChild: Partial<Product> = {
+      id: 'child_1',
+      name: 'FRP Pressure Vessel',
+      sku: 'AVE-MMF-3072',
+      brand_make: 'OldBrand',
+      image_url: 'https://cdn.example.com/old.jpg',
+      datasheet_url: 'https://cdn.example.com/old.pdf',
+      is_composite_set: true
+    };
+
+    const patch = buildParentToVariantSyncPatch(
+      parentWithClearedFields,
+      existingChild,
+      ['brand_make', 'country_of_origin', 'media', 'datasheet', 'sub_components'],
+      [existingChild]
+    );
+
+    const { localPatch, clearedKeys } = splitFirestoreSyncPatch(patch);
+
+    // Populated fields remain in localPatch with concrete values
+    expect(localPatch.country_of_origin).toBe('China');
+    expect(localPatch.is_composite_set).toBe(false);
+
+    // Cleared fields are routed to clearedKeys (for Firestore deleteField()) and omitted from localPatch
+    expect(clearedKeys.includes('brand_make')).toBe(true);
+    expect(clearedKeys.includes('brand')).toBe(true);
+    expect(clearedKeys.includes('image_url')).toBe(true);
+    expect(clearedKeys.includes('datasheet_attachment')).toBe(true);
+    expect(clearedKeys.includes('sub_components')).toBe(true);
+
+    // localPatch contains ZERO undefined and ZERO null values
+    for (const [k, v] of Object.entries(localPatch)) {
+      expect(v !== undefined).toBe(true);
+      expect(v !== null).toBe(true);
+      expect(clearedKeys.includes(k)).toBe(false);
+    }
+  });
+
+  it('mergeProductsIntoOfflineCache updates and inserts Workspace A products without deleting Workspace B cached products (P1-15)', () => {
+    const existingCache: Product[] = [
+      { id: 'prod_A1', workspace_id: 'ws_A', name: 'Vessel Old', unit_price: 1000 } as Product,
+      { id: 'prod_B1', workspace_id: 'ws_B', name: 'Pump WS-B', unit_price: 4500 } as Product,
+      { id: 'prod_B2', workspace_id: 'ws_B', name: 'Membrane WS-B', unit_price: 1850 } as Product
+    ];
+
+    const updatedWsA: Product[] = [
+      { id: 'prod_A1', workspace_id: 'ws_A', name: 'Vessel Updated', unit_price: 1250 } as Product,
+      { id: 'prod_A2', workspace_id: 'ws_A', name: 'Softener New', unit_price: 8900 } as Product
+    ];
+
+    const merged = mergeProductsIntoOfflineCache(existingCache, updatedWsA);
+
+    expect(merged.length).toBe(4);
+    expect(merged.find((p) => p.id === 'prod_A1')?.name).toBe('Vessel Updated');
+    expect(merged.find((p) => p.id === 'prod_A1')?.unit_price).toBe(1250);
+    expect(merged.find((p) => p.id === 'prod_A2')?.name).toBe('Softener New');
+    // Workspace B products strictly preserved untouched
+    expect(merged.find((p) => p.id === 'prod_B1')?.name).toBe('Pump WS-B');
+    expect(merged.find((p) => p.id === 'prod_B2')?.name).toBe('Membrane WS-B');
   });
 });
 

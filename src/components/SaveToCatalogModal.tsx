@@ -20,6 +20,7 @@ import {
   resolveSafeVariantSelectKey,
   formatCustomLineItemVariantSummary,
   buildVariantSwitchLineItemFields,
+  mergeProductsIntoOfflineCache,
   VARIANT_SELECT_PARENT,
   VARIANT_SELECT_CUSTOM
 } from '../utils/catalogVariantUtils';
@@ -44,6 +45,19 @@ import {
   RefreshCw,
   Search
 } from 'lucide-react';
+
+function persistProductsToOfflineCacheSafe(updatedProducts: Product[]) {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return;
+    const raw = window.localStorage.getItem('omni_products');
+    const existingCached: Product[] = raw ? JSON.parse(raw) : [];
+    const merged = mergeProductsIntoOfflineCache(
+      Array.isArray(existingCached) ? existingCached : [],
+      updatedProducts
+    );
+    window.localStorage.setItem('omni_products', JSON.stringify(merged));
+  } catch (_) {}
+}
 
 const AVAILABILITY_PRESETS = [
   'Ex-Stock',
@@ -1579,26 +1593,13 @@ export async function saveLineItemAsSpecVariant(params: {
 
   await MetadataRepository.upsertLocalProduct(updatedParentProduct).catch(() => {});
   await MetadataRepository.upsertLocalProduct(createdVariantProduct).catch(() => {});
+  persistProductsToOfflineCacheSafe([updatedParentProduct, createdVariantProduct]);
 
   if (typeof setProducts === 'function') {
     setProducts((prev: Product[]) => {
       const updatedList = (prev || []).map((p) => (p.id === parentProduct.id ? updatedParentProduct : p));
-      const finalList = [createdVariantProduct, ...updatedList.filter((p) => p.id !== targetVariantProdId)];
-      try {
-        if (typeof window !== 'undefined' && window.localStorage) {
-          window.localStorage.setItem('omni_products', JSON.stringify(finalList));
-        }
-      } catch (_) {}
-      return finalList;
+      return [createdVariantProduct, ...updatedList.filter((p) => p.id !== targetVariantProdId)];
     });
-  } else if (Array.isArray(products)) {
-    try {
-      const updatedList = products.map((p) => (p.id === parentProduct.id ? updatedParentProduct : p));
-      const finalList = [createdVariantProduct, ...updatedList.filter((p) => p.id !== targetVariantProdId)];
-      if (typeof window !== 'undefined' && window.localStorage) {
-        window.localStorage.setItem('omni_products', JSON.stringify(finalList));
-      }
-    } catch (_) {}
   }
 
   if (triggerToast) {
@@ -3087,11 +3088,7 @@ export default function SaveToCatalogModal({
         if (setProducts) {
           setProducts(nextProductsList);
         }
-        try {
-          if (typeof window !== 'undefined' && window.localStorage) {
-            window.localStorage.setItem('omni_products', JSON.stringify(nextProductsList));
-          }
-        } catch (_) {}
+        persistProductsToOfflineCacheSafe([updatedProduct]);
 
         if (triggerToast) {
           triggerToast(
@@ -3153,11 +3150,7 @@ export default function SaveToCatalogModal({
       if (setProducts) {
         setProducts(nextProductsList);
       }
-      try {
-        if (typeof window !== 'undefined' && window.localStorage) {
-          window.localStorage.setItem('omni_products', JSON.stringify(nextProductsList));
-        }
-      } catch (_) {}
+      persistProductsToOfflineCacheSafe([createdProduct]);
 
       if (triggerToast) {
         triggerToast(

@@ -16,7 +16,8 @@ import {
   LineItemComponent,
   ImageAdjustmentConfig
 } from '../types';
-import { safeAddDoc, safeUpdateDoc } from '../firebase';
+import { db, safeAddDoc, safeUpdateDoc } from '../firebase';
+import { writeBatch, doc, collection, deleteField } from 'firebase/firestore';
 import { MetadataRepository } from '../services/repositories/MetadataRepository';
 import { generateProductSearchTerms } from '../utils/defaults';
 import { UNIVERSAL_UNITS, UNIVERSAL_CATEGORIES } from '../constants';
@@ -91,7 +92,9 @@ import {
   buildParentToVariantSyncPatch,
   detectDefaultDifferentiatingSpecKey,
   recomputeBulkVariantMatrixSkus,
-  parseBulkVariantPasteLines
+  parseBulkVariantPasteLines,
+  omitUndefinedDeep,
+  splitFirestoreSyncPatch
 } from '../utils/catalogVariantUtils';
 import {
   compileDescriptionWithSpecs,
@@ -1517,7 +1520,11 @@ export default function ProductManager({
     setIsSyncingVariants(true);
     try {
       const liveParent = buildLiveParentSyncSnapshot();
-      const updatedMap = new Map<string, Product>();
+      const preparedUpdates: Array<{
+        id: string;
+        firestoreUpdate: Record<string, any>;
+        updatedChild: Product;
+      }> = [];
 
       for (const child of linkedChildren) {
         if (!child.id) continue;
@@ -1529,15 +1536,50 @@ export default function ProductManager({
         );
         if (Object.keys(patch).length === 0) continue;
 
-        const updatedChild: Product = {
-          ...child,
-          ...patch,
-          id: child.id
-        } as Product;
+        const { localPatch, clearedKeys } = splitFirestoreSyncPatch(patch);
+        const sanitizedLocalPatch = omitUndefinedDeep(sanitizeFirestorePayload(localPatch));
+        const firestoreUpdate: Record<string, any> = { ...sanitizedLocalPatch };
+        for (const key of clearedKeys) {
+          firestoreUpdate[key] = deleteField();
+        }
 
-        await safeUpdateDoc('products', child.id, sanitizeFirestorePayload(updatedChild));
-        await MetadataRepository.upsertLocalProduct(updatedChild).catch(() => {});
-        updatedMap.set(child.id, updatedChild);
+        const nextChild: Record<string, any> = {
+          ...child,
+          ...sanitizedLocalPatch,
+          id: child.id
+        };
+        for (const key of clearedKeys) {
+          delete nextChild[key];
+        }
+
+        preparedUpdates.push({
+          id: child.id,
+          firestoreUpdate,
+          updatedChild: omitUndefinedDeep(nextChild) as Product
+        });
+      }
+
+      if (preparedUpdates.length === 0) {
+        setShowParentSyncModal(false);
+        return;
+      }
+
+      // Atomic Firestore batch commit (chunked <= 450 ops per batch) so partial sync never leaks
+      const BATCH_CHUNK_SIZE = 450;
+      for (let offset = 0; offset < preparedUpdates.length; offset += BATCH_CHUNK_SIZE) {
+        const chunk = preparedUpdates.slice(offset, offset + BATCH_CHUNK_SIZE);
+        const batch = writeBatch(db);
+        for (const entry of chunk) {
+          batch.update(doc(db, 'products', entry.id), entry.firestoreUpdate);
+        }
+        await batch.commit();
+      }
+
+      // Only persist locally & mutate React state AFTER Firestore batch commit succeeds
+      const updatedMap = new Map<string, Product>();
+      for (const entry of preparedUpdates) {
+        await MetadataRepository.upsertLocalProduct(entry.updatedChild).catch(() => {});
+        updatedMap.set(entry.id, entry.updatedChild);
       }
 
       if (setProducts && updatedMap.size > 0) {
@@ -1670,15 +1712,24 @@ export default function ProductManager({
 
     setIsSavingBulkVariants(true);
     try {
+      // P1-16: Always inherit from live edited parent snapshot merged onto editingProduct
       const liveParent = buildLiveParentSyncSnapshot();
+      const effectiveParent: Partial<Product> = {
+        ...editingProduct,
+        ...liveParent
+      };
       const parentId = editingProduct.id;
-      const parentName = (liveParent.name || editingProduct.name || 'Product').trim();
-      const familyName = (editingProduct.product_family || formProductFamily || parentName).trim();
+      const parentName = (effectiveParent.name || 'Product').trim();
+      const familyName = (
+        formProductFamily.trim() ||
+        effectiveParent.product_family ||
+        parentName
+      ).trim();
       const cleanSpecKey = bulkVariantSpecKey.trim() || 'Dimensions';
       const cleanSpecKeyLower = cleanSpecKey.toLowerCase();
 
-      // Shared non-blank baseline specs from parent (excluding the differentiating spec key being populated per row)
-      const sharedParentAttrs: ProductAttribute[] = (liveParent.attributes || [])
+      // Shared non-blank baseline specs from live parent (excluding the differentiating spec key being populated per row)
+      const sharedParentAttrs: ProductAttribute[] = (effectiveParent.attributes || [])
         .map((a) => ({ key: String(a?.key || '').trim(), value: String(a?.value || '').trim() }))
         .filter(
           (a) =>
@@ -1688,9 +1739,14 @@ export default function ProductManager({
         );
 
       const takenSkus: string[] = [...getActiveCatalogSkus()];
-      const effectiveParentSku = (formSku.trim() || editingProduct.sku || '').trim();
-      const createdChildren: Product[] = [];
+      const effectiveParentSku = (formSku.trim() || effectiveParent.sku || '').trim();
       const nowIso = new Date().toISOString();
+
+      const preparedChildren: Array<{
+        ref: ReturnType<typeof doc>;
+        firestorePayload: Record<string, any>;
+        savedChild: Product;
+      }> = [];
 
       for (let i = 0; i < validRows.length; i += 1) {
         const row = validRows[i];
@@ -1710,7 +1766,7 @@ export default function ProductManager({
           row.sku.trim() ||
           buildSmartVariantSku(
             effectiveParentSku,
-            liveParent,
+            effectiveParent,
             {
               variant_label: variantLabel,
               model_part_no: rawModel || undefined,
@@ -1730,31 +1786,34 @@ export default function ProductManager({
         const finalSell = !isNaN(parsedSell) && parsedSell > 0 ? parsedSell : 0;
 
         const clonedSubComponents =
-          liveParent.is_composite_set && Array.isArray(liveParent.sub_components)
-            ? liveParent.sub_components.map((c, cIdx) => ({
-                ...c,
-                id: `comp_${Date.now()}_${i}_${cIdx}`,
-                attributes: Array.isArray(c.attributes)
-                  ? c.attributes.map((a) => ({ ...a }))
-                  : undefined
-              }))
+          effectiveParent.is_composite_set && Array.isArray(effectiveParent.sub_components)
+            ? effectiveParent.sub_components.map((c, cIdx) =>
+                omitUndefinedDeep({
+                  ...c,
+                  id: `comp_${Date.now()}_${i}_${cIdx}`,
+                  attributes: Array.isArray(c.attributes)
+                    ? c.attributes.map((a) => ({ ...a }))
+                    : undefined
+                })
+              )
             : undefined;
 
         const compiledDesc =
-          compileDescriptionWithSpecs(parentName, liveParent.description || '', childAttrs) ||
-          liveParent.description ||
+          compileDescriptionWithSpecs(parentName, effectiveParent.description || '', childAttrs) ||
+          effectiveParent.description ||
           parentName;
 
-        const childPayload: Partial<Product> & Record<string, any> = {
+        // P0-10: Omit undefined optional fields cleanly (no undefined -> null Firestore drift)
+        const rawChildPayload: Partial<Product> & Record<string, any> = {
           workspace_id: activeWorkspace.id,
           name: parentName,
-          product_type: liveParent.product_type || editingProduct.product_type || 'General',
+          product_type: effectiveParent.product_type || 'General',
           description: compiledDesc,
           unit:
             formUnit ||
-            editingProduct.unit ||
-            (liveParent.is_composite_set ? 'SET' : 'Nos'),
-          currency: editingProduct.currency || 'AED',
+            effectiveParent.unit ||
+            (effectiveParent.is_composite_set ? 'SET' : 'Nos'),
+          currency: effectiveParent.currency || 'AED',
           unit_price: finalSell,
           cost_price: finalCost,
           sku: finalSku,
@@ -1762,31 +1821,32 @@ export default function ProductManager({
           parent_product_id: parentId,
           variant_label: variantLabel,
           product_family: familyName,
-          brand_make: liveParent.brand_make || undefined,
-          brand: liveParent.brand_make || undefined,
+          brand_make: effectiveParent.brand_make || undefined,
+          brand: effectiveParent.brand_make || undefined,
           model_part_no: rawModel || undefined,
-          default_availability: liveParent.default_availability || undefined,
-          country_of_origin: liveParent.country_of_origin || undefined,
-          hs_code: formHsCode.trim() || editingProduct.hs_code || undefined,
-          image_url: liveParent.image_url || (null as any),
-          secondary_image_url: liveParent.secondary_image_url || (null as any),
-          image_caption: liveParent.image_caption || undefined,
-          secondary_image_caption: liveParent.secondary_image_caption || undefined,
-          image_adjustments: liveParent.image_adjustments
-            ? { ...liveParent.image_adjustments }
+          default_availability: effectiveParent.default_availability || undefined,
+          country_of_origin: effectiveParent.country_of_origin || undefined,
+          hs_code: formHsCode.trim() || effectiveParent.hs_code || undefined,
+          image_url: effectiveParent.image_url || undefined,
+          secondary_image_url: effectiveParent.secondary_image_url || undefined,
+          image_caption: effectiveParent.image_caption || undefined,
+          secondary_image_caption: effectiveParent.secondary_image_caption || undefined,
+          image_adjustments: effectiveParent.image_adjustments
+            ? { ...effectiveParent.image_adjustments }
             : undefined,
-          datasheet_attachment: liveParent.datasheet_attachment
-            ? { ...liveParent.datasheet_attachment }
-            : (null as any),
-          datasheet_url: liveParent.datasheet_url || liveParent.datasheet_attachment?.url || undefined,
+          datasheet_attachment: effectiveParent.datasheet_attachment
+            ? { ...effectiveParent.datasheet_attachment }
+            : undefined,
+          datasheet_url:
+            effectiveParent.datasheet_url || effectiveParent.datasheet_attachment?.url || undefined,
           attributes: childAttrs,
-          is_composite_set: Boolean(liveParent.is_composite_set),
+          is_composite_set: Boolean(effectiveParent.is_composite_set),
           sub_components: clonedSubComponents,
-          package_pricing_mode: liveParent.is_composite_set
-            ? liveParent.package_pricing_mode || 'itemized'
+          package_pricing_mode: effectiveParent.is_composite_set
+            ? effectiveParent.package_pricing_mode || 'itemized'
             : undefined,
-          option_scope_notes: liveParent.is_composite_set
-            ? liveParent.option_scope_notes || undefined
+          option_scope_notes: effectiveParent.is_composite_set
+            ? effectiveParent.option_scope_notes || undefined
             : undefined,
           is_inventoried: Boolean(formIsInventoried),
           stock_on_hand: formIsInventoried ? 0 : undefined,
@@ -1798,30 +1858,64 @@ export default function ProductManager({
               : undefined,
           search_terms: generateProductSearchTerms(
             `${parentName} ${variantLabel}`.trim(),
-            String(liveParent.product_type || editingProduct.product_type || 'General'),
+            String(effectiveParent.product_type || 'General'),
             finalSku || '',
-            liveParent.brand_make || rawModel || variantLabel || undefined
+            effectiveParent.brand_make || rawModel || variantLabel || undefined
           ),
           createdAt: nowIso,
           updatedAt: nowIso
         };
 
-        const sanitized = sanitizeFirestorePayload(childPayload);
-        const res = await safeAddDoc('products', sanitized);
-        const newId = res?.id || `prod_${Date.now()}_${i}`;
-        const savedChild: Product = { ...childPayload, id: newId } as Product;
-        await MetadataRepository.upsertLocalProduct(savedChild).catch(() => {});
-        createdChildren.push(savedChild);
+        const childRef = doc(collection(db, 'products'));
+        const cleanChildPayload = omitUndefinedDeep(sanitizeFirestorePayload(rawChildPayload));
+        const savedChild: Product = {
+          ...cleanChildPayload,
+          id: childRef.id
+        } as Product;
+
+        preparedChildren.push({
+          ref: childRef,
+          firestorePayload: cleanChildPayload,
+          savedChild
+        });
       }
 
-      // Ensure parent record is marked as Master Parent with has_variants: true
-      const updatedParent: Product = {
-        ...editingProduct,
+      // P0-9: Commit ALL new child variants + parent `has_variants: true` atomically in writeBatch(db)
+      const parentRef = doc(db, 'products', parentId);
+      const parentBatchPatch = omitUndefinedDeep({
         has_variants: true,
         product_family: familyName,
-        updatedAt: new Date().toISOString()
-      } as Product;
-      await safeUpdateDoc('products', parentId, sanitizeFirestorePayload(updatedParent)).catch(() => {});
+        updatedAt: nowIso,
+        updated_at: nowIso
+      });
+
+      const BATCH_CHUNK_SIZE = 449; // reserve 1 slot for parent update in final batch
+      for (let offset = 0; offset < preparedChildren.length; offset += BATCH_CHUNK_SIZE) {
+        const chunk = preparedChildren.slice(offset, offset + BATCH_CHUNK_SIZE);
+        const isFinalChunk = offset + BATCH_CHUNK_SIZE >= preparedChildren.length;
+        const batch = writeBatch(db);
+        for (const item of chunk) {
+          batch.set(item.ref, item.firestorePayload);
+        }
+        if (isFinalChunk) {
+          batch.update(parentRef, parentBatchPatch);
+        }
+        await batch.commit();
+      }
+
+      // Only persist locally & mutate React state AFTER atomic Firestore commit resolves
+      const createdChildren = preparedChildren.map((item) => item.savedChild);
+      const updatedParent: Product = omitUndefinedDeep({
+        ...effectiveParent,
+        id: parentId,
+        has_variants: true,
+        product_family: familyName,
+        updatedAt: nowIso
+      }) as Product;
+
+      for (const child of createdChildren) {
+        await MetadataRepository.upsertLocalProduct(child).catch(() => {});
+      }
       await MetadataRepository.upsertLocalProduct(updatedParent).catch(() => {});
 
       if (setProducts) {

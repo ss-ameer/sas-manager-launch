@@ -533,9 +533,7 @@ export function buildParentToVariantSyncPatch(
   if (fieldSet.has('brand_make')) {
     const resolvedBrand = (parent.brand_make || parent.brand || '').trim() || undefined;
     patch.brand_make = resolvedBrand;
-    if (resolvedBrand !== undefined) {
-      patch.brand = resolvedBrand;
-    }
+    patch.brand = resolvedBrand;
   }
 
   if (fieldSet.has('country_of_origin')) {
@@ -553,20 +551,20 @@ export function buildParentToVariantSyncPatch(
   if (fieldSet.has('media')) {
     const primaryUrl = (parent.image_url || '').trim();
     const secondaryUrl = (parent.secondary_image_url || '').trim();
-    patch.image_url = primaryUrl || (null as any);
-    patch.secondary_image_url = secondaryUrl || (null as any);
+    patch.image_url = primaryUrl || undefined;
+    patch.secondary_image_url = secondaryUrl || undefined;
     patch.image_caption = (parent.image_caption || '').trim() || undefined;
     patch.secondary_image_caption = (parent.secondary_image_caption || '').trim() || undefined;
     patch.image_adjustments = parent.image_adjustments
-      ? { ...parent.image_adjustments }
+      ? omitUndefinedDeep({ ...parent.image_adjustments })
       : undefined;
     if (!primaryUrl) {
-      patch.image_storage_key = null as any;
+      patch.image_storage_key = undefined;
     } else if ((parent as any).image_storage_key) {
       patch.image_storage_key = (parent as any).image_storage_key;
     }
     if (!secondaryUrl) {
-      patch.secondary_image_storage_key = null as any;
+      patch.secondary_image_storage_key = undefined;
     } else if ((parent as any).secondary_image_storage_key) {
       patch.secondary_image_storage_key = (parent as any).secondary_image_storage_key;
     }
@@ -574,7 +572,7 @@ export function buildParentToVariantSyncPatch(
 
   if (fieldSet.has('datasheet')) {
     if (parent.datasheet_attachment) {
-      patch.datasheet_attachment = { ...parent.datasheet_attachment };
+      patch.datasheet_attachment = omitUndefinedDeep({ ...parent.datasheet_attachment });
       patch.datasheet_url = parent.datasheet_url || parent.datasheet_attachment.url || undefined;
       if ((parent as any).datasheet_storage_key) {
         patch.datasheet_storage_key = (parent as any).datasheet_storage_key;
@@ -582,9 +580,9 @@ export function buildParentToVariantSyncPatch(
     } else if ((parent.datasheet_url || '').trim()) {
       patch.datasheet_url = (parent.datasheet_url || '').trim();
     } else {
-      patch.datasheet_attachment = null as any;
-      patch.datasheet_url = null as any;
-      patch.datasheet_storage_key = null as any;
+      patch.datasheet_attachment = undefined;
+      patch.datasheet_url = undefined;
+      patch.datasheet_storage_key = undefined;
     }
   }
 
@@ -635,7 +633,9 @@ export function buildParentToVariantSyncPatch(
   if (fieldSet.has('sub_components')) {
     const isComposite = Boolean(parent.is_composite_set);
     patch.is_composite_set = isComposite;
-    patch.sub_components = isComposite ? cloneSubComponents(parent.sub_components) || [] : undefined;
+    patch.sub_components = isComposite
+      ? omitUndefinedDeep(cloneSubComponents(parent.sub_components) || [])
+      : undefined;
     patch.package_pricing_mode = isComposite
       ? parent.package_pricing_mode || 'itemized'
       : undefined;
@@ -1555,5 +1555,104 @@ export function buildVariantSwitchLineItemFields(params: VariantSwitchCleanupPar
         })
   };
 }
+
+// ============================================================================
+// FIX F7: PAYLOAD SANITIZATION (P0-10) & MULTI-WORKSPACE OFFLINE CACHE (P1-15)
+// ============================================================================
+
+/**
+ * Recursively strips keys with `undefined` values from plain objects and filters `undefined`
+ * items from arrays without ever converting `undefined` into literal `null`.
+ * Preserves valid falsy primitives (`0`, `false`, `""`).
+ */
+export function omitUndefinedDeep<T>(value: T): T {
+  if (value === null || value === undefined) return value;
+  if (Array.isArray(value)) {
+    return value
+      .filter((item) => item !== undefined)
+      .map((item) => omitUndefinedDeep(item)) as unknown as T;
+  }
+  if (typeof value === 'object') {
+    const proto = Object.getPrototypeOf(value);
+    if (proto !== Object.prototype && proto !== null) {
+      return value;
+    }
+    const cleaned: Record<string, any> = {};
+    for (const [k, v] of Object.entries(value as Record<string, any>)) {
+      if (v === undefined) continue;
+      cleaned[k] = omitUndefinedDeep(v);
+    }
+    return cleaned as T;
+  }
+  return value;
+}
+
+export interface SplitFirestoreSyncPatchResult {
+  localPatch: Record<string, any>;
+  clearedKeys: string[];
+}
+
+/**
+ * Splits a sync patch into:
+ * - `localPatch`: keys with concrete values (recursively stripped of `undefined` keys), and
+ * - `clearedKeys`: keys intentionally cleared (`undefined` or `null` on a sync patch) so Firestore
+ *   updates can apply `deleteField()` cleanly while local state deletes those keys instead of drifting to `null`.
+ */
+export function splitFirestoreSyncPatch(
+  patch: Record<string, any>
+): SplitFirestoreSyncPatchResult {
+  const localPatch: Record<string, any> = {};
+  const clearedKeys: string[] = [];
+
+  for (const [key, val] of Object.entries(patch || {})) {
+    if (val === undefined || val === null) {
+      clearedKeys.push(key);
+    } else {
+      localPatch[key] = omitUndefinedDeep(val);
+    }
+  }
+
+  return { localPatch, clearedKeys };
+}
+
+/**
+ * Merges updated or newly created products by `id` into an existing multi-workspace offline cache
+ * without ever deleting cached products belonging to other workspaces.
+ */
+export function mergeProductsIntoOfflineCache(
+  existingCached: Product[],
+  updatedProducts: Product[]
+): Product[] {
+  const safeExisting = Array.isArray(existingCached) ? existingCached : [];
+  const safeUpdates = Array.isArray(updatedProducts) ? updatedProducts : [];
+  if (safeUpdates.length === 0) return [...safeExisting];
+
+  const updateById = new Map<string, Product>();
+  for (const prod of safeUpdates) {
+    if (prod && prod.id) {
+      updateById.set(prod.id, prod);
+    }
+  }
+
+  const handledIds = new Set<string>();
+  const mergedExisting = safeExisting.map((existing) => {
+    if (existing?.id && updateById.has(existing.id)) {
+      handledIds.add(existing.id);
+      return updateById.get(existing.id)!;
+    }
+    return existing;
+  });
+
+  const brandNew: Product[] = [];
+  for (const prod of safeUpdates) {
+    if (prod?.id && !handledIds.has(prod.id)) {
+      handledIds.add(prod.id);
+      brandNew.push(prod);
+    }
+  }
+
+  return [...brandNew, ...mergedExisting];
+}
+
 
 
