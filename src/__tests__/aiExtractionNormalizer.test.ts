@@ -8,20 +8,31 @@ import {
   isPlaceholderSubRemark,
   parseStructuredSubComponent
 } from '../utils/aiExtractionNormalizer';
+import {
+  extractTextFromXlsxBuffer,
+  excelColRefToIndex,
+  compareXlsxSheetPaths,
+  parseXlsxSheetXmlRows,
+  decodeXmlEntities,
+  inferMimeTypeFromFileName
+} from '../utils/aiExtractionClient';
 
 let passed = 0;
 let failed = 0;
+const pendingAsyncTests: Array<() => Promise<void>> = [];
 
-function test(name: string, fn: () => void) {
-  try {
-    fn();
-    passed++;
-    console.log(`  ✓ ${name}`);
-  } catch (err: any) {
-    failed++;
-    console.error(`  ✗ ${name}`);
-    console.error(`    ${err?.message || err}`);
-  }
+function test(name: string, fn: () => void | Promise<void>) {
+  pendingAsyncTests.push(async () => {
+    try {
+      await fn();
+      passed++;
+      console.log(`  ✓ ${name}`);
+    } catch (err: any) {
+      failed++;
+      console.error(`  ✗ ${name}`);
+      console.error(`    ${err?.message || err}`);
+    }
+  });
 }
 
 console.log('\nRunning AI Extraction Normalizer (Track S2) Tests...\n');
@@ -452,7 +463,237 @@ test('normalizes realistic Veolia Duplex MMF + Simplex Softener extraction clean
   assert.strictEqual(normalizedAgain[1].lead_time_note, softener.lead_time_note);
 });
 
-console.log(`\nAI Extraction Normalizer Tests Complete: ${passed} passed, ${failed} failed.\n`);
-if (failed > 0) {
-  process.exit(1);
+// ---------------------------------------------------------------------------
+// 6. Fix F6 — OpenXML .xlsx Parser (P1-14) & Extension MIME Inference (P0-8)
+// ---------------------------------------------------------------------------
+
+/**
+ * Builds a valid in-memory uncompressed (STORE method 0) ZIP archive with Local File Headers,
+ * Central Directory records, and End of Central Directory record for testing extractTextFromXlsxBuffer.
+ */
+function buildUncompressedZipBuffer(entries: Array<{ name: string; content: string }>): ArrayBuffer {
+  const encoder = new TextEncoder();
+  const localParts: Uint8Array[] = [];
+  const cdParts: Uint8Array[] = [];
+  let offset = 0;
+
+  for (const entry of entries) {
+    const nameBytes = encoder.encode(entry.name);
+    const dataBytes = encoder.encode(entry.content);
+
+    // Local File Header (30 bytes + name + data)
+    const lfh = new Uint8Array(30 + nameBytes.length + dataBytes.length);
+    const lfhView = new DataView(lfh.buffer);
+    lfhView.setUint32(0, 0x04034b50, true); // signature
+    lfhView.setUint16(4, 20, true); // version needed
+    lfhView.setUint16(6, 0, true); // flags
+    lfhView.setUint16(8, 0, true); // compression = 0 (STORE)
+    lfhView.setUint32(18, dataBytes.length, true); // compressed size
+    lfhView.setUint32(22, dataBytes.length, true); // uncompressed size
+    lfhView.setUint16(26, nameBytes.length, true); // file name length
+    lfhView.setUint16(28, 0, true); // extra length
+    lfh.set(nameBytes, 30);
+    lfh.set(dataBytes, 30 + nameBytes.length);
+    localParts.push(lfh);
+
+    // Central Directory Header (46 bytes + name)
+    const cd = new Uint8Array(46 + nameBytes.length);
+    const cdView = new DataView(cd.buffer);
+    cdView.setUint32(0, 0x02014b50, true); // signature
+    cdView.setUint16(4, 20, true); // version made by
+    cdView.setUint16(6, 20, true); // version needed
+    cdView.setUint16(8, 0, true); // flags
+    cdView.setUint16(10, 0, true); // compression = 0 (STORE)
+    cdView.setUint32(20, dataBytes.length, true); // compressed size
+    cdView.setUint32(24, dataBytes.length, true); // uncompressed size
+    cdView.setUint16(28, nameBytes.length, true); // file name length
+    cdView.setUint16(30, 0, true); // extra length
+    cdView.setUint16(32, 0, true); // comment length
+    cdView.setUint32(42, offset, true); // relative offset of local header
+    cd.set(nameBytes, 46);
+    cdParts.push(cd);
+
+    offset += lfh.length;
+  }
+
+  const cdOffset = offset;
+  const cdSize = cdParts.reduce((sum, part) => sum + part.length, 0);
+
+  // End of Central Directory Record (22 bytes)
+  const eocd = new Uint8Array(22);
+  const eocdView = new DataView(eocd.buffer);
+  eocdView.setUint32(0, 0x06054b50, true); // signature
+  eocdView.setUint16(8, entries.length, true); // entries on this disk
+  eocdView.setUint16(10, entries.length, true); // total entries
+  eocdView.setUint32(12, cdSize, true); // size of central directory
+  eocdView.setUint32(16, cdOffset, true); // offset of central directory
+
+  const totalSize = cdOffset + cdSize + eocd.length;
+  const result = new Uint8Array(totalSize);
+  let cursor = 0;
+  for (const part of localParts) {
+    result.set(part, cursor);
+    cursor += part.length;
+  }
+  for (const part of cdParts) {
+    result.set(part, cursor);
+    cursor += part.length;
+  }
+  result.set(eocd, cursor);
+  return result.buffer;
 }
+
+test('sorts OpenXML worksheet paths numerically so sheet2.xml precedes sheet10.xml (P1-14)', () => {
+  const unsorted = [
+    'xl/worksheets/sheet10.xml',
+    'xl/worksheets/sheet2.xml',
+    'xl/worksheets/sheet1.xml',
+    'xl/worksheets/sheet11.xml',
+    'xl/worksheets/sheet3.xml'
+  ];
+  const sorted = [...unsorted].sort(compareXlsxSheetPaths);
+  assert.deepStrictEqual(sorted, [
+    'xl/worksheets/sheet1.xml',
+    'xl/worksheets/sheet2.xml',
+    'xl/worksheets/sheet3.xml',
+    'xl/worksheets/sheet10.xml',
+    'xl/worksheets/sheet11.xml'
+  ]);
+});
+
+test('converts Excel column letters to 0-based indices and preserves sparse tab-aligned columns (P1-14)', () => {
+  assert.strictEqual(excelColRefToIndex('A1'), 0);
+  assert.strictEqual(excelColRefToIndex('C5'), 2);
+  assert.strictEqual(excelColRefToIndex('Z10'), 25);
+  assert.strictEqual(excelColRefToIndex('AA1'), 26);
+  assert.strictEqual(excelColRefToIndex('AB12'), 27);
+  assert.strictEqual(excelColRefToIndex(''), -1);
+
+  const sparseSheetXml = `
+    <worksheet><sheetData>
+      <row r="1">
+        <c r="A1" t="inlineStr"><is><t>Duplex MMF</t></is></c>
+        <c r="C1"><v>2</v></c>
+        <c r="E1"><v>49960</v></c>
+        <c r="F1"/>
+      </row>
+      <row r="2"/>
+      <row r="3">
+        <c r="A3" t="inlineStr"><is><t>Softener</t></is></c>
+        <c r="B3"/>
+        <c r="D3"><v>29400</v></c>
+      </row>
+    </sheetData></worksheet>
+  `;
+  const rows = parseXlsxSheetXmlRows(sparseSheetXml, []);
+  assert.deepStrictEqual(rows, [
+    'Duplex MMF\t\t2\t\t49960',
+    'Softener\t\t\t29400'
+  ]);
+});
+
+test('concatenates all multi-run <is> rich-text <t> segments and decodes XML entities cleanly (P1-14)', () => {
+  assert.strictEqual(decodeXmlEntities('MMF &amp; Softener &amp;lt;3&quot;'), 'MMF & Softener &lt;3"');
+
+  const richTextSheetXml = `
+    <worksheet><sheetData>
+      <row r="1">
+        <c r="A1" t="inlineStr">
+          <is>
+            <r><rPr><b/></rPr><t xml:space="preserve">Duplex </t></r>
+            <r><t>MMF &amp; Softener</t></r>
+          </is>
+        </c>
+        <c r="B1"><v>1</v></c>
+      </row>
+    </sheetData></worksheet>
+  `;
+  const rows = parseXlsxSheetXmlRows(richTextSheetXml, []);
+  assert.deepStrictEqual(rows, ['Duplex MMF & Softener\t1']);
+});
+
+test('extractTextFromXlsxBuffer parses an in-memory STORE .xlsx ZIP with numeric sheet order, shared strings, sparse columns, and rich text (P1-14)', async () => {
+  const sharedStringsXml = `<?xml version="1.0" encoding="UTF-8"?>
+    <sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="2" uniqueCount="2">
+      <si><t>Duplex MMF</t></si>
+      <si><r><t xml:space="preserve">Summary </t></r><r><t>&amp; Notes</t></r></si>
+    </sst>`;
+
+  const sheet2Xml = `<?xml version="1.0" encoding="UTF-8"?>
+    <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+      <sheetData>
+        <row r="1">
+          <c r="A1" t="s"><v>0</v></c>
+          <c r="C1"><v>2</v></c>
+          <c r="E1"><v>49960</v></c>
+        </row>
+        <row r="2">
+          <c r="A2" t="inlineStr"><is><r><t xml:space="preserve">Duplex </t></r><r><t>MMF &amp; Softener</t></r></is></c>
+          <c r="C2"><v>1</v></c>
+        </row>
+      </sheetData>
+    </worksheet>`;
+
+  const sheet10Xml = `<?xml version="1.0" encoding="UTF-8"?>
+    <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+      <sheetData>
+        <row r="1">
+          <c r="A1" t="s"><v>1</v></c>
+          <c r="B1"><v>78500</v></c>
+        </row>
+      </sheetData>
+    </worksheet>`;
+
+  // Intentionally place sheet10.xml BEFORE sheet2.xml inside the ZIP to prove numeric sorting
+  const zipBuffer = buildUncompressedZipBuffer([
+    { name: 'xl/sharedStrings.xml', content: sharedStringsXml },
+    { name: 'xl/worksheets/sheet10.xml', content: sheet10Xml },
+    { name: 'xl/worksheets/sheet2.xml', content: sheet2Xml }
+  ]);
+
+  const extracted = await extractTextFromXlsxBuffer(zipBuffer);
+  const idxSheet2 = extracted.indexOf('--- Sheet (sheet2.xml) ---');
+  const idxSheet10 = extracted.indexOf('--- Sheet (sheet10.xml) ---');
+
+  assert.ok(idxSheet2 >= 0, 'Expected sheet2.xml header in extracted output');
+  assert.ok(idxSheet10 >= 0, 'Expected sheet10.xml header in extracted output');
+  assert.ok(idxSheet2 < idxSheet10, 'Expected sheet2.xml to sort before sheet10.xml');
+  assert.ok(extracted.includes('Duplex MMF\t\t2\t\t49960'), 'Expected sparse columns preserved verbatim');
+  assert.ok(extracted.includes('Duplex MMF & Softener\t\t1'), 'Expected multi-run inline rich text and sparse C2 column preserved');
+  assert.ok(extracted.includes('Summary & Notes\t78500'), 'Expected multi-run shared string decoded cleanly');
+});
+
+test('inferMimeTypeFromFileName resolves missing/generic MIME types by extension without defaulting .xlsx to PDF (P0-8)', () => {
+  assert.strictEqual(
+    inferMimeTypeFromFileName('BOQ_Veolia.xlsx', ''),
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  );
+  assert.strictEqual(
+    inferMimeTypeFromFileName('BOQ_Veolia.XLSX', 'application/octet-stream'),
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  );
+  assert.strictEqual(inferMimeTypeFromFileName('items.csv', ''), 'text/csv');
+  assert.strictEqual(
+    inferMimeTypeFromFileName('spec.docx', ''),
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+  );
+  assert.strictEqual(inferMimeTypeFromFileName('legacy.xls', ''), 'application/vnd.ms-excel');
+  assert.strictEqual(inferMimeTypeFromFileName('rfq.eml', ''), 'message/rfc822');
+  assert.strictEqual(inferMimeTypeFromFileName('notes.txt', ''), 'text/plain');
+  assert.strictEqual(inferMimeTypeFromFileName('drawing.png', ''), 'image/png');
+  assert.strictEqual(inferMimeTypeFromFileName('photo.jpeg', ''), 'image/jpeg');
+  assert.strictEqual(inferMimeTypeFromFileName('scan.webp', ''), 'image/webp');
+  assert.strictEqual(inferMimeTypeFromFileName('quote.pdf', ''), 'application/pdf');
+  assert.strictEqual(inferMimeTypeFromFileName('unknown.bin', ''), 'application/octet-stream');
+  assert.strictEqual(inferMimeTypeFromFileName('anything.bin', 'image/png'), 'image/png');
+});
+
+(async () => {
+  for (const run of pendingAsyncTests) {
+    await run();
+  }
+  console.log(`\nAI Extraction Normalizer & XLSX Parser Tests Complete: ${passed} passed, ${failed} failed.\n`);
+  if (failed > 0) {
+    process.exit(1);
+  }
+})();

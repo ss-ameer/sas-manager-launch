@@ -786,24 +786,182 @@ REQUIRED JSON OUTPUT FORMAT:
 };
 
 /**
+ * Infers a concrete MIME type from a filename extension when browser-provided `file.type`
+ * is missing, empty, or generic `application/octet-stream` (never blindly defaulting to PDF).
+ */
+export function inferMimeTypeFromFileName(fileName: string, rawType?: string): string {
+  const trimmedType = String(rawType || '').trim();
+  const normalizedType = trimmedType.toLowerCase();
+  if (normalizedType && normalizedType !== 'application/octet-stream') {
+    return trimmedType;
+  }
+  const lower = String(fileName || '').trim().toLowerCase();
+  if (lower.endsWith('.xlsx')) {
+    return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  }
+  if (lower.endsWith('.xls')) {
+    return 'application/vnd.ms-excel';
+  }
+  if (lower.endsWith('.csv')) {
+    return 'text/csv';
+  }
+  if (lower.endsWith('.docx')) {
+    return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  }
+  if (lower.endsWith('.txt')) {
+    return 'text/plain';
+  }
+  if (lower.endsWith('.eml')) {
+    return 'message/rfc822';
+  }
+  if (lower.endsWith('.png')) {
+    return 'image/png';
+  }
+  if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) {
+    return 'image/jpeg';
+  }
+  if (lower.endsWith('.webp')) {
+    return 'image/webp';
+  }
+  if (lower.endsWith('.pdf')) {
+    return 'application/pdf';
+  }
+  return trimmedType || 'application/octet-stream';
+}
+
+/**
+ * Decodes standard XML entities (named & numeric), decoding `&amp;` last to prevent double-unescaping.
+ */
+export function decodeXmlEntities(text: string): string {
+  if (!text) return '';
+  return text
+    .replace(/&#x([0-9a-fA-F]+);/g, (match, hex) => {
+      const code = parseInt(hex, 16);
+      return Number.isFinite(code) ? String.fromCodePoint(code) : match;
+    })
+    .replace(/&#(\d+);/g, (match, dec) => {
+      const code = parseInt(dec, 10);
+      return Number.isFinite(code) ? String.fromCodePoint(code) : match;
+    })
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, '&');
+}
+
+/**
+ * Converts an Excel cell reference (e.g. "A1", "C5", "AA12") into a 0-based column index
+ * (A -> 0, C -> 2, Z -> 25, AA -> 26). Returns -1 if no leading column letters exist.
+ */
+export function excelColRefToIndex(cellRef: string): number {
+  const match = String(cellRef || '').trim().match(/^([A-Za-z]+)/);
+  if (!match) return -1;
+  const letters = match[1].toUpperCase();
+  let col = 0;
+  for (let i = 0; i < letters.length; i++) {
+    col = col * 26 + (letters.charCodeAt(i) - 64);
+  }
+  return col - 1;
+}
+
+/**
+ * Natural numeric comparator for OpenXML worksheet paths (`sheet1.xml`, `sheet2.xml`, ..., `sheet10.xml`).
+ */
+export function compareXlsxSheetPaths(a: string, b: string): number {
+  const matchA = a.match(/sheet(\d+)\.xml$/i);
+  const matchB = b.match(/sheet(\d+)\.xml$/i);
+  if (matchA && matchB) {
+    const numA = parseInt(matchA[1], 10);
+    const numB = parseInt(matchB[1], 10);
+    if (numA !== numB) return numA - numB;
+  }
+  return a.localeCompare(b);
+}
+
+/**
+ * Parses OpenXML worksheet `<row>` / `<c>` cells into tab-separated lines while preserving exact
+ * sparse column positions (e.g. A1, C1, E1 -> "A\t\tC\t\tE") and concatenating all `<t>` runs inside `<is>`.
+ */
+export function parseXlsxSheetXmlRows(xml: string, sharedStrings: string[] = []): string[] {
+  const rowMatches = xml.match(/<row\b[^>]*?(?:\/>|>[\s\S]*?<\/row>)/g) || [];
+  const lines: string[] = [];
+
+  for (const rowXml of rowMatches) {
+    const cellMatches = rowXml.match(/<c\b[^>]*?(?:\/>|>[\s\S]*?<\/c>)/g) || [];
+    const rowCells: string[] = [];
+    let fallbackColIdx = 0;
+
+    for (const cellXml of cellMatches) {
+      const refMatch = cellXml.match(/\br="([A-Za-z]+\d+)"/);
+      const explicitColIdx = refMatch ? excelColRefToIndex(refMatch[1]) : -1;
+      const colIdx = explicitColIdx >= 0 ? explicitColIdx : fallbackColIdx;
+      fallbackColIdx = colIdx + 1;
+
+      const typeMatch = cellXml.match(/\bt="([^"]+)"/);
+      const cellType = typeMatch ? typeMatch[1] : '';
+      const vMatch = cellXml.match(/<v>([\s\S]*?)<\/v>/);
+      const isBlockMatch = cellXml.match(/<is\b[^>]*>([\s\S]*?)<\/is>/);
+
+      let val = '';
+      if (cellType === 's' && vMatch) {
+        const idx = parseInt(vMatch[1], 10);
+        val =
+          !isNaN(idx) && sharedStrings[idx] !== undefined
+            ? sharedStrings[idx]
+            : decodeXmlEntities(vMatch[1]);
+      } else if (isBlockMatch) {
+        const parts: string[] = [];
+        const tRegex = /<t\b[^>]*>([\s\S]*?)<\/t>/g;
+        let tMatch: RegExpExecArray | null;
+        while ((tMatch = tRegex.exec(isBlockMatch[1])) !== null) {
+          parts.push(tMatch[1]);
+        }
+        val = decodeXmlEntities(parts.join(''));
+      } else if (vMatch) {
+        val = decodeXmlEntities(vMatch[1]);
+      }
+
+      val = val.replace(/\s+/g, ' ').trim();
+      if (val !== '') {
+        while (rowCells.length < colIdx) {
+          rowCells.push('');
+        }
+        rowCells[colIdx] = val;
+      }
+    }
+
+    while (rowCells.length > 0 && rowCells[rowCells.length - 1] === '') {
+      rowCells.pop();
+    }
+    if (rowCells.length > 0) {
+      lines.push(rowCells.join('\t'));
+    }
+  }
+
+  return lines;
+}
+
+/**
  * Lightweight zero-dependency browser .xlsx (OpenXML ZIP) parser using native DecompressionStream('deflate-raw').
  * Extracts sharedStrings.xml and worksheet XML cells into tab-separated text lines for AI consumption.
  */
-async function extractTextFromXlsxBuffer(arrayBuffer: ArrayBuffer): Promise<string> {
+export async function extractTextFromXlsxBuffer(arrayBuffer: ArrayBuffer): Promise<string> {
   const bytes = new Uint8Array(arrayBuffer);
   const view = new DataView(arrayBuffer);
   const decoder = new TextDecoder('utf-8');
   const entries = new Map<string, Uint8Array>();
+
+  const isTargetEntry = (name: string) =>
+    name === 'xl/sharedStrings.xml' ||
+    (name.startsWith('xl/worksheets/sheet') && name.endsWith('.xml'));
 
   const decompressEntryIfTarget = async (
     entryName: string,
     compression: number,
     rawSlice: Uint8Array
   ) => {
-    if (
-      entryName !== 'xl/sharedStrings.xml' &&
-      !entryName.startsWith('xl/worksheets/sheet')
-    ) {
+    if (!isTargetEntry(entryName)) {
       return;
     }
     if (compression === 0) {
@@ -851,7 +1009,7 @@ async function extractTextFromXlsxBuffer(arrayBuffer: ArrayBuffer): Promise<stri
       const entryName = decoder.decode(bytes.subarray(ptr + 46, ptr + 46 + fileNameLen));
 
       if (
-        (entryName === 'xl/sharedStrings.xml' || entryName.startsWith('xl/worksheets/sheet')) &&
+        isTargetEntry(entryName) &&
         localHeaderOffset + 30 <= bytes.length &&
         view.getUint32(localHeaderOffset, true) === 0x04034b50
       ) {
@@ -899,62 +1057,28 @@ async function extractTextFromXlsxBuffer(arrayBuffer: ArrayBuffer): Promise<stri
   const sharedBytes = entries.get('xl/sharedStrings.xml');
   if (sharedBytes) {
     const xml = decoder.decode(sharedBytes);
-    const siMatches = xml.match(/<si[\s\S]*?<\/si>/g) || [];
+    const siMatches = xml.match(/<si\b[\s\S]*?<\/si>/g) || [];
     for (const si of siMatches) {
-      const tMatches = si.match(/<t[^>]*>([\s\S]*?)<\/t>/g) || [];
-      const combined = tMatches
-        .map((t) => t.replace(/<[^>]+>/g, ''))
-        .join('')
-        .replace(/&amp;/g, '&')
-        .replace(/&lt;/g, '<')
-        .replace(/&gt;/g, '>')
-        .replace(/&quot;/g, '"')
-        .replace(/&#39;/g, "'");
-      sharedStrings.push(combined);
+      const parts: string[] = [];
+      const tRegex = /<t\b[^>]*>([\s\S]*?)<\/t>/g;
+      let tMatch: RegExpExecArray | null;
+      while ((tMatch = tRegex.exec(si)) !== null) {
+        parts.push(tMatch[1]);
+      }
+      sharedStrings.push(decodeXmlEntities(parts.join('')));
     }
   }
 
   const sheetTexts: string[] = [];
   const sortedSheets = Array.from(entries.keys())
-    .filter((k) => k.startsWith('xl/worksheets/sheet'))
-    .sort();
+    .filter((k) => k.startsWith('xl/worksheets/sheet') && k.endsWith('.xml'))
+    .sort(compareXlsxSheetPaths);
 
   for (const sheetKey of sortedSheets) {
     const sheetBytes = entries.get(sheetKey);
     if (!sheetBytes) continue;
     const xml = decoder.decode(sheetBytes);
-    const rowMatches = xml.match(/<row[\s\S]*?<\/row>/g) || [];
-    const lines: string[] = [];
-    for (const rowXml of rowMatches) {
-      const cellMatches = rowXml.match(/<c\b[^>]*?(?:\/>|>[\s\S]*?<\/c>)/g) || [];
-      const rowCells: string[] = [];
-      for (const cellXml of cellMatches) {
-        const typeMatch = cellXml.match(/\bt="([^"]+)"/);
-        const cellType = typeMatch ? typeMatch[1] : '';
-        const vMatch = cellXml.match(/<v>([\s\S]*?)<\/v>/);
-        const isMatch = cellXml.match(/<is>[\s\S]*?<t[^>]*>([\s\S]*?)<\/t>[\s\S]*?<\/is>/);
-        let val = '';
-        if (cellType === 's' && vMatch) {
-          const idx = parseInt(vMatch[1], 10);
-          val = !isNaN(idx) && sharedStrings[idx] !== undefined ? sharedStrings[idx] : vMatch[1];
-        } else if (isMatch) {
-          val = isMatch[1];
-        } else if (vMatch) {
-          val = vMatch[1];
-        }
-        val = val
-          .replace(/&amp;/g, '&')
-          .replace(/&lt;/g, '<')
-          .replace(/&gt;/g, '>')
-          .replace(/&quot;/g, '"')
-          .replace(/\s+/g, ' ')
-          .trim();
-        if (val) rowCells.push(val);
-      }
-      if (rowCells.length > 0) {
-        lines.push(rowCells.join('\t'));
-      }
-    }
+    const lines = parseXlsxSheetXmlRows(xml, sharedStrings);
     if (lines.length > 0) {
       sheetTexts.push(`--- Sheet (${sheetKey.replace('xl/worksheets/', '')}) ---\n${lines.join('\n')}`);
     }

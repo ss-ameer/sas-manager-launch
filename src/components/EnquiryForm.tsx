@@ -33,7 +33,12 @@ import {
   findBestContactMatch,
   isOwnSignatoryContact
 } from '../utils/fuzzyMatch';
-import { extractEnquiryClientSide, AVAILABLE_GEMINI_MODELS } from '../utils/aiExtractionClient';
+import {
+  extractEnquiryClientSide,
+  extractTextFromXlsxBuffer,
+  inferMimeTypeFromFileName,
+  AVAILABLE_GEMINI_MODELS
+} from '../utils/aiExtractionClient';
 import {
   normalizeExtractedLineItems,
   normalizeLineItemAttributeKey,
@@ -3376,7 +3381,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
         let downloadUrl = '';
         let isLocal = false;
         let resolvedSize = file.size;
-        let resolvedType = file.type || 'application/pdf';
+        let resolvedType = inferMimeTypeFromFileName(file.name, file.type);
         let customStorageKey = '';
 
         if (uploadTarget === 'cloud') {
@@ -3394,7 +3399,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
           downloadUrl = uploaded.url;
           isLocal = uploaded.isLocal;
           resolvedSize = uploaded.size || file.size;
-          resolvedType = uploaded.type || resolvedType;
+          resolvedType = inferMimeTypeFromFileName(file.name, uploaded.type || resolvedType);
           customStorageKey = uploaded.storageKey || '';
         } else {
           // Local fallback (IndexedDB / Base64)
@@ -3427,7 +3432,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
           const first = uploadedList[0];
           setActivePreviewUrl(first.url);
           setPreviewFileName(first.name);
-          setPreviewFileType(first.type || 'application/pdf');
+          setPreviewFileType(inferMimeTypeFromFileName(first.name, first.type));
         }
         return next;
       });
@@ -4865,6 +4870,31 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
   };
 
   const handleExtractFromAttachment = async (fileData: Attachment) => {
+    // P2-7: Never call fetch("") on an empty/unhydrated local attachment URL (which would fetch index.html)
+    if (!fileData?.url || !fileData.url.trim()) {
+      const msg = `Cannot scan "${fileData?.name || 'file'}" yet — the local file is still loading or unavailable. Please wait a moment or re-attach the file.`;
+      setExtractionError(msg);
+      if (triggerToast) {
+        triggerToast(msg, 'error');
+      }
+      return;
+    }
+
+    const effectiveMimeType = inferMimeTypeFromFileName(fileData.name, fileData.type);
+    const lowerFileName = String(fileData.name || '').trim().toLowerCase();
+    const isLegacyXls =
+      (lowerFileName.endsWith('.xls') && !lowerFileName.endsWith('.xlsx')) ||
+      effectiveMimeType === 'application/vnd.ms-excel';
+
+    if (isLegacyXls) {
+      const msg = `"${fileData.name}" uses the legacy binary .xls format. Please re-save it as .xlsx or .csv and upload again for AI extraction.`;
+      setExtractionError(msg);
+      if (triggerToast) {
+        triggerToast(msg, 'error');
+      }
+      return;
+    }
+
     if (extractionAbortRef.current) {
       try {
         extractionAbortRef.current.abort();
@@ -4877,7 +4907,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
     // Set active preview immediately so they see the file side-by-side during extraction
     setActivePreviewUrl(fileData.url);
     setPreviewFileName(fileData.name);
-    setPreviewFileType(fileData.type || 'application/pdf');
+    setPreviewFileType(effectiveMimeType);
     setPastedSourceText(null);
     setPastedExtractedData(null);
     setPreviewMinimized(false);
@@ -4902,13 +4932,19 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
     try {
       console.log(`%c[AI Client-Side Extraction Start] Processing: ${fileData.name}`, "color: #3b82f6; font-weight: bold; font-size: 11px;");
-      const isImage = fileData.type.startsWith('image/');
-      const isPdf = fileData.type === 'application/pdf';
-      const isDocx = fileData.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || fileData.name.endsWith('.docx');
+      const isImage = effectiveMimeType.startsWith('image/');
+      const isPdf = effectiveMimeType === 'application/pdf';
+      const isXlsx =
+        effectiveMimeType.includes('spreadsheetml') ||
+        effectiveMimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+        lowerFileName.endsWith('.xlsx');
+      const isDocx =
+        effectiveMimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+        lowerFileName.endsWith('.docx');
       
       let requestPayload: any = {
         fileName: fileData.name,
-        mimeType: fileData.type || 'application/octet-stream',
+        mimeType: effectiveMimeType,
         salespersons,
       };
 
@@ -4942,6 +4978,25 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
         requestPayload.content = base64Content;
         requestPayload.isBase64 = true;
+      } else if (isXlsx) {
+        setExtractionStatusText(`Parsing Excel workbook "${fileData.name}"...`);
+        const response = await fetch(fileData.url, { signal: controller.signal });
+        const arrayBuffer = await response.arrayBuffer();
+        fileFetchTime = Date.now() - fetchStart;
+
+        const convertStart = Date.now();
+        const textContent = await extractTextFromXlsxBuffer(arrayBuffer);
+        fileConversionTime = Date.now() - convertStart;
+
+        if (!textContent || !textContent.trim()) {
+          throw new Error(
+            `Could not extract readable spreadsheet rows from "${fileData.name}". Please ensure the workbook is not password-protected or empty.`
+          );
+        }
+
+        requestPayload.content = textContent;
+        requestPayload.isBase64 = false;
+        requestPayload.mimeType = 'text/plain';
       } else if (isDocx) {
         setExtractionStatusText(`Extracting text from Word document...`);
         const response = await fetch(fileData.url, { signal: controller.signal });
@@ -10121,7 +10176,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                             <input
                               type="file"
                               multiple
-                              accept="application/pdf,image/png,image/jpeg,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.docx,message/rfc822,.eml"
+                              accept="application/pdf,image/png,image/jpeg,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.docx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,.xlsx,text/csv,.csv,message/rfc822,.eml"
                               onChange={handleFileUpload}
                               className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                             />
@@ -10204,7 +10259,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                         <input
                           type="file"
                           multiple
-                          accept="application/pdf,image/png,image/jpeg,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.docx,message/rfc822,.eml"
+                          accept="application/pdf,image/png,image/jpeg,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.docx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,.xlsx,text/csv,.csv,message/rfc822,.eml"
                           onChange={handleFileUpload}
                           className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                         />
