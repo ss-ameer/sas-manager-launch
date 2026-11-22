@@ -41,6 +41,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useEntityEdit } from '../context/EntityEditContext';
 import { safeAddDoc, safeSetDoc, safeUpdateDoc } from '../firebase';
 import { quickAssistClientSide } from '../utils/aiExtractionClient';
+import { getFirebaseAuthHeaders } from '../utils/firebaseAuthHeaders';
 import {
   Company,
   Contact,
@@ -1882,7 +1883,11 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
     try {
       let resultText = '';
       try {
-        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        const authHeaders = await getFirebaseAuthHeaders();
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+          ...authHeaders,
+        };
         if (assistParams.apiKey) {
           headers['x-user-gemini-api-key'] = assistParams.apiKey;
         }

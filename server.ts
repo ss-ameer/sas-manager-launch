@@ -1,8 +1,21 @@
 import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
+import firebaseConfig from "./firebase-applet-config.json";
+import {
+  createFirebaseAuthMiddleware,
+  createGeminiRateLimitMiddleware,
+  shouldAllowFaultSimulation,
+} from "./src/utils/serverAuth";
+import {
+  getExtractionSystemPrompt,
+  DEFAULT_MODEL_CASCADE,
+  DEEP_MODEL_CASCADE,
+  buildCompatibleGenerationConfig,
+} from "./src/utils/aiExtractionPrompt";
+import { normalizeExtractedLineItems } from "./src/utils/aiExtractionNormalizer";
 
 dotenv.config();
 
@@ -11,6 +24,23 @@ async function startServer() {
   const PORT = 3000;
 
   app.use(express.json({ limit: "15mb" }));
+
+  const firebaseProjectId = (
+    process.env.FIREBASE_PROJECT_ID ||
+    process.env.GOOGLE_CLOUD_PROJECT ||
+    process.env.GCLOUD_PROJECT ||
+    (firebaseConfig as { projectId?: string })?.projectId ||
+    ""
+  ).trim();
+
+  const geminiAuthMiddleware = createFirebaseAuthMiddleware(firebaseProjectId);
+  const geminiRateLimitMiddleware = createGeminiRateLimitMiddleware({
+    maxRequests: 20,
+    windowMs: 60_000,
+  });
+
+  // Require verified Firebase Auth ID token + per-user sliding-window rate limit on all /api/gemini/* routes
+  app.use("/api/gemini", geminiAuthMiddleware, geminiRateLimitMiddleware);
 
   // Helper to lazily get or initialize GoogleGenAI client with custom user key or process.env.GEMINI_API_KEY
   const getGeminiClient = (customKey?: string) => {
@@ -99,26 +129,32 @@ async function startServer() {
     let resultParseTime = 0;
 
     try {
-      // Simulation fault injection headers check
-      const simGeminiError = req.headers["x-simulate-gemini-error"] === "true";
-      const simLatencyMs = parseInt((req.headers["x-simulate-latency"] as string) || "0", 10);
+      // Fault-injection simulation headers are strictly gated to non-production environments
+      if (shouldAllowFaultSimulation(process.env.NODE_ENV)) {
+        const simGeminiError = req.headers["x-simulate-gemini-error"] === "true";
+        const rawSimLatencyMs = parseInt((req.headers["x-simulate-latency"] as string) || "0", 10);
+        const simLatencyMs =
+          Number.isFinite(rawSimLatencyMs) && rawSimLatencyMs > 0
+            ? Math.min(rawSimLatencyMs, 30_000)
+            : 0;
 
-      if (simLatencyMs > 0) {
-        console.log(`[SIMULATION] Injecting ${simLatencyMs}ms artificial latency...`);
-        await new Promise((r) => setTimeout(r, simLatencyMs));
-      }
+        if (simLatencyMs > 0) {
+          console.log(`[SIMULATION] Injecting ${simLatencyMs}ms artificial latency...`);
+          await new Promise((r) => setTimeout(r, simLatencyMs));
+        }
 
-      if (simGeminiError) {
-        console.warn(`[SIMULATION] Gemini API Quota Exceeded error intercepted.`);
-        return res.status(429).json({
-          error: "429 Quota Exceeded: Gemini API is out of tokens or rate limited. Please check your AI quota or try again later.",
-          __performance: {
-            filePrepareTimeMs: 0,
-            geminiApiTimeMs: 0,
-            totalServerTimeMs: Date.now() - requestStartTime,
-            error: true
-          }
-        });
+        if (simGeminiError) {
+          console.warn(`[SIMULATION] Gemini API Quota Exceeded error intercepted.`);
+          return res.status(429).json({
+            error: "429 Quota Exceeded: Gemini API is out of tokens or rate limited. Please check your AI quota or try again later.",
+            __performance: {
+              filePrepareTimeMs: 0,
+              geminiApiTimeMs: 0,
+              totalServerTimeMs: Date.now() - requestStartTime,
+              error: true
+            }
+          });
+        }
       }
 
       const customUserKey = req.headers["x-user-gemini-api-key"] as string | undefined;
@@ -139,217 +175,110 @@ async function startServer() {
 
       console.log(`\n=== [AI EXTRACTION DIAGNOSTIC START] ===`);
       console.log(`[1/5] Incoming payload received. Timestamp: ${new Date().toISOString()}`);
-      
-      const { fileName, mimeType, content, isBase64, salespersons } = req.body;
+
+      const {
+        fileName,
+        mimeType,
+        content,
+        isBase64,
+        salespersons,
+        preferredModel = "auto",
+        scanMode = "fast",
+      } = req.body;
 
       if (!content) {
         console.error(`[ERROR] Missing file content to analyze.`);
         return res.status(400).json({ error: "Missing file content to analyze" });
       }
 
+      const normalizedScanMode: "fast" | "deep" = scanMode === "deep" ? "deep" : "fast";
       const contentSizeKb = (content.length / 1024).toFixed(2);
-      console.log(`[2/5] File metadata: Name="${fileName}", MimeType="${mimeType}", Size=${contentSizeKb} KB, isBase64=${isBase64}`);
+      console.log(`[2/5] File metadata: Name="${fileName}", MimeType="${mimeType}", Size=${contentSizeKb} KB, isBase64=${isBase64}, scanMode=${normalizedScanMode}`);
 
       const prepareStart = Date.now();
-      let filePart;
-      if (isBase64) {
-        filePart = {
-          inlineData: {
-            mimeType: mimeType || "image/png",
-            data: content,
-          },
-        };
-      } else {
-        filePart = {
-          text: `Document Name: ${fileName}\n\nDocument Plain Text:\n${content}`,
-        };
-      }
+      const base64Payload =
+        isBase64 && typeof content === "string" && content.includes(",")
+          ? content.split(",")[1]
+          : content;
+      const filePart = isBase64
+        ? {
+            inlineData: {
+              mimeType: mimeType || "image/png",
+              data: base64Payload,
+            },
+          }
+        : {
+            text: `Document Name: ${fileName}\n\nDocument Plain Text:\n${content}`,
+          };
       filePrepareTime = Date.now() - prepareStart;
       console.log(`[3/5] File payload prepared in ${filePrepareTime}ms.`);
 
-      let salespersonExclusionPrompt = "";
-      if (Array.isArray(salespersons) && salespersons.length > 0) {
-        const salesInfoList = salespersons
-          .map((sp: any) => `- Name: "${sp.full_name}" (Initials: "${sp.initials || 'N/A'}")${sp.email ? `, Email: "${sp.email}"` : ''}${sp.phone ? `, Phone: "${sp.phone}"` : ''}`)
-          .join("\n");
-        salespersonExclusionPrompt = `\n\nINTERNAL SALES REPRESENTATIVES (DO NOT EXTRACT AS CLIENT CONTACTS):\nThe following persons are internal sales team representatives:\n${salesInfoList}\n\nCRITICAL RULE FOR INTERNAL SALES DETAILS:\n- DO NOT extract any of the above internal salesperson emails or phone numbers as the client's contact_email or contact_phone!\n- If an email or phone in the document matches one of these internal sales reps, set the 'salesperson' field to that rep's initials or full name, and leave the client's contact_email/contact_phone clean.`;
-      }
+      const systemInstruction = getExtractionSystemPrompt(
+        Array.isArray(salespersons) ? salespersons : []
+      );
 
-      const systemInstruction = `You are a professional sales engineer and RFQ data extraction assistant for an Enquiry Management System.
-Your job is to analyze the uploaded document or copy-pasted raw text (which may be a Request for Quotation (RFQ), specification sheet, purchase order, enquiry details, email message, PDF file, or a raw multi-column row copy-pasted directly from Microsoft Excel or Google Sheets) and extract structured enquiry details with extreme precision.
+      const defaultCascade =
+        normalizedScanMode === "deep" ? DEEP_MODEL_CASCADE : DEFAULT_MODEL_CASCADE;
+      const modelsPool =
+        preferredModel && preferredModel !== "auto"
+          ? [preferredModel, ...defaultCascade.filter((m) => m !== preferredModel)]
+          : defaultCascade;
 
-HIGH-PRECISION EXTRACTION RULES FOR ENTITIES & CONTACTS:
-1. COMPANY NAME:
-   - Search headers, "To:", "Client:", "Customer:", "Messrs:", letterheads, signature blocks, and tabular text.
-   - Look for corporate names like "AquaEnviro Solutions", "Al Reef Projects LLC", "Aventura", "Gulf Engineering Services".
-   - Extract the legal entity name as company_name and clean suffix (LLC, FZE, FZC, Co. LLC, Ltd, W.L.L., Est., etc.) into legal_suffix.
-
-2. CONTACT PERSON, EMAIL & PHONE NUMBER:
-   - contact_name: Search "Attn:", "Attention:", "Kind Attn:", "Contact Person:", "Name:", "Mr.", "Ms.", "Eng.".
-   - contact_email: Extract valid email addresses (e.g. mukesh.katara@aquaenvirosolutions.com, purchase@arpco.ae). DO NOT leave empty if an email appears anywhere in the text or signature.
-   - contact_phone: Extract mobile or landline numbers (e.g. "+971 55 267 0574", "+971 2 5591110", "050-1234567"). DO NOT leave empty if a phone/mobile string is present.
-
-3. CUSTOM ATTRIBUTE KEY-VALUE PAIRS FOR LINE ITEMS:
-   - For every line item, extract ALL technical specifications, model specs, materials, and parameters into the 'attributes' array as explicit key-value objects: [{ "key": "Model", "value": "63\" x 67\"" }, { "key": "Make", "value": "Aventura" }, { "key": "Design Pressure", "value": "10.5 Bar" }, { "key": "MOC", "value": "FRP" }].
-   - Common Attribute Keys to extract when found: "Model", "Make / Brand", "Design Pressure", "Dimensions", "MOC / Material", "Operation", "Flow Rate", "Application", "Standard", "Lead Time / Delivery".
-   - BOTH 'key' and 'value' strings MUST be non-empty strings for each attribute object.
-
-4. RAW EXCEL TAB-DELIMITED ROWS & COPY-PASTED TEXT RULES:
-   - When data is tab-delimited or pipe-delimited Excel rows:
-     * Field 1 (S/N #): sn (e.g. 2792).
-     * Field 2 (Quote Ref No): quote_ref_no ALWAYS! (e.g. "2751-300626AA").
-     * Field 3 (Listed): Month e.g. "Jul-2026".
-     * Field 4 (Received Date): Convert to YYYY-MM-DD (e.g. "29/06/2026" -> "2026-06-29").
-     * Field 5 (Sales Person): salesperson (e.g. "PV").
-     * Field 6 (Customer Name): company_name (e.g. "AquaEnviro Solutions").
-     * Field 7 (Contact Person): contact_name (e.g. "Mukesh Katara").
-     * Field 8 (Email): contact_email (e.g. "mukesh.katara@aquaenvirosolutions.com").
-     * Field 9 (Landline): Landline e.g. "+971 2 5591110".
-     * Field 10 (Mobile): contact_phone (e.g. "+971 55 267 0574").
-     * Field 11 (Country): country e.g. "UAE".
-     * Field 12 (City / Area): project_location e.g. "Dubai".
-     * Field 13 (Customer Ref): enquiry_source e.g. "EMAIL".
-     * Field 14 (Product Type): Category name.
-     * Field 15 (Product Detail): Detailed spec text & line items.
-     * Field 16 (Value): package_value (e.g. 195500.00).
-
-5. CLASSIFICATION OF LINE ITEMS (PRODUCT VS. CHARGE / SERVICE / DISCOUNT):
-   - Every line item MUST be classified by 'item_type': 'product' | 'charge' | 'discount'.
-   - Assign 'item_type': 'product' for physical components, equipment, or materials (e.g. Membranes, FRP Vessels, Pumps, Valves, Filters, Chemicals, Sand Media). Set 'product_type' to the specific product category name.
-   - Assign 'item_type': 'charge' for non-product fees such as transportation, freight, delivery, installation, testing, commissioning, customs clearance, or mobilization. Set 'charge_type' (e.g. "Transportation", "Installation", "Customs", "Other Charge") and set 'product_type' to "Service / Charge".
-   - Assign 'item_type': 'discount' for price deductions or commercial discounts. Set 'charge_type' to "Discount".
-
-6. FEW-SHOT TRAINING EXAMPLES FOR ACCURATE EXTRACTION:
-   Example Input:
-   "2792\t2751-300626AA\tJul-2026\t29/06/2026\tPV\tAquaEnviro Solutions\tMukesh Katara\tmukesh.katara@aquaenvirosolutions.com\t\t+971 55 267 0574\tUAE\tDubai\tEMAIL\tFRP Filter Vessels...\t\"PRICE & COMMERCIAL TERMS\n1 FRP Filter Vessel 63”x67” 05 Nos. 12,500.00 62,500.00\n2 Transportation 01 LS 100.00 100.00\"\t195,500.00"
-   Output Mapping:
-   - quote_ref_no: "2751-300626AA"
-   - company_name: "AquaEnviro Solutions"
-   - contact_name: "Mukesh Katara"
-   - contact_email: "mukesh.katara@aquaenvirosolutions.com"
-   - contact_phone: "+971 55 267 0574"
-   - country: "UAE"
-   - project_location: "Dubai"
-   - package_value: 195500.00
-   - line_items: [
-       { item_type: "product", product_type: "FRP Filter Vessels", description: "FRP Filter Vessel 63”x67” Design Pressure 10.5 Bar", quantity: 5, unit: "Nos", unit_price_aed: 12500, attributes: [{ key: "Model", value: "63\" x 67\"" }] },
-       { item_type: "charge", charge_type: "Transportation", product_type: "Service / Charge", description: "Transportation - Up to Muscat Transporter warehouse in Muscat", quantity: 1, unit: "LS", unit_price_aed: 100, attributes: [] }
-     ]
-
-Extract the details accurately into the requested JSON format.${salespersonExclusionPrompt}`;
-
-      console.log(`[4/5] Initiating request to Gemini Flash API...`);
+      console.log(`[4/5] Initiating Track S2 extraction request to Gemini API (primary: ${modelsPool[0]})...`);
       const apiCallStart = Date.now();
-      
-      const response = await retryWithBackoffAndFallback((modelName) =>
-        ai.models.generateContent({
+      let usedModel = modelsPool[0];
+
+      const response = await retryWithBackoffAndFallback((modelName) => {
+        usedModel = modelName;
+        const generationConfig = buildCompatibleGenerationConfig(modelName, normalizedScanMode);
+        return ai.models.generateContent({
           model: modelName,
           contents: [
             filePart,
-            { text: "Analyze the attached document or raw Excel copy-pasted text and extract the enquiry details into the requested JSON format." },
+            {
+              text: "Analyze the attached document or raw Excel copy-pasted text and extract the enquiry details (including any sub_components for packages/sets) into the requested JSON format.",
+            },
           ],
           config: {
             systemInstruction,
-            temperature: 0.1,
-            maxOutputTokens: 2048,
-            responseMimeType: "application/json",
-            responseSchema: {
-              type: Type.OBJECT,
-              required: [
-                "company_name",
-                "legal_suffix",
-                "contact_name",
-                "contact_email",
-                "project_location",
-                "remarks",
-                "line_items",
-                "confidence_scores",
-              ],
-              properties: {
-                sn: { type: Type.NUMBER, description: "Serial number or legacy ID if present (e.g. 2792)." },
-                quote_ref_no: { type: Type.STRING, description: "Quote reference number if present." },
-                received_date: { type: Type.STRING, description: "Date in YYYY-MM-DD format." },
-                proposal_option: { type: Type.STRING, description: "Proposal designation / option e.g. 'PV'." },
-                company_name: { type: Type.STRING },
-                legal_suffix: {
-                  type: Type.STRING,
-                  description: "Must be: 'LLC' | 'FZE' | 'FZC' | 'Co. LLC' | 'Ltd' | 'W.L.L.' | 'Est.' | 'None / Other'",
-                },
-                contact_name: { type: Type.STRING },
-                contact_email: { type: Type.STRING },
-                contact_phone: { type: Type.STRING, description: "Phone number of contact person." },
-                country: { type: Type.STRING, description: "Company address country e.g. 'UAE'." },
-                project_location: { type: Type.STRING, description: "Company address city or area e.g. 'Dubai' or 'Abu Dhabi'." },
-                enquiry_source: { type: Type.STRING, description: "Source e.g. 'EMAIL'." },
-                salesperson: { type: Type.STRING, description: "Salesperson name." },
-                subject: { type: Type.STRING, description: "Short subject line or project summary of the enquiry." },
-                customer_reference_code: { type: Type.STRING, description: "Customer's internal PO or RFQ reference code if present." },
-                package_value: { type: Type.NUMBER, description: "Total lump sum or package value in AED if present." },
-                remarks: { type: Type.STRING },
-                line_items: {
-                  type: Type.ARRAY,
-                  items: {
-                    type: Type.OBJECT,
-                    required: ["product_type", "description", "quantity", "unit", "attributes"],
-                    properties: {
-                      item_type: { type: Type.STRING, description: "Classification: 'product' for physical components, 'charge' for non-product fees (transportation, freight, installation, customs), or 'discount'." },
-                      charge_type: { type: Type.STRING, description: "If item_type is 'charge' or 'discount', specify charge category e.g. 'Transportation', 'Installation', 'Customs', 'Discount', 'Other Charge'." },
-                      product_type: { type: Type.STRING },
-                      description: { type: Type.STRING },
-                      quantity: { type: Type.NUMBER },
-                      unit: { type: Type.STRING },
-                      unit_price_aed: { type: Type.NUMBER },
-                      attributes: {
-                        type: Type.ARRAY,
-                        description: "List of specification attributes extracted for this item as key-value pairs.",
-                        items: {
-                          type: Type.OBJECT,
-                          required: ["key", "value"],
-                          properties: {
-                            key: { type: Type.STRING },
-                            value: { type: Type.STRING }
-                          }
-                        }
-                      },
-                    },
-                  },
-                },
-                confidence_scores: {
-                  type: Type.OBJECT,
-                  required: ["company_name", "contact_name", "project_location", "line_items"],
-                  properties: {
-                    company_name: { type: Type.STRING, enum: ["high", "medium", "low"], description: "Confidence level: 'high' | 'medium' | 'low'" },
-                    contact_name: { type: Type.STRING, enum: ["high", "medium", "low"], description: "Confidence level: 'high' | 'medium' | 'low'" },
-                    project_location: { type: Type.STRING, enum: ["high", "medium", "low"], description: "Confidence level: 'high' | 'medium' | 'low'" },
-                    line_items: { type: Type.STRING, enum: ["high", "medium", "low"], description: "Confidence level: 'high' | 'medium' | 'low'" },
-                  },
-                },
-              },
-            },
+            ...generationConfig,
           },
-        })
-      );
+        });
+      }, modelsPool);
 
       geminiApiTime = Date.now() - apiCallStart;
-      console.log(`[5/5] Gemini API call completed successfully in ${geminiApiTime}ms.`);
+      console.log(`[5/5] Gemini API call completed successfully in ${geminiApiTime}ms (model: ${usedModel}).`);
 
       const parseStart = Date.now();
-      const resultText = response.text;
-      const parsedData = JSON.parse(resultText || "{}");
+      const rawText = (response.text || "{}").trim();
+      let parsedData: any = {};
+      try {
+        parsedData = JSON.parse(rawText);
+      } catch {
+        const stripped = rawText.replace(/^```json\n?/i, "").replace(/\n?```$/i, "").trim();
+        parsedData = JSON.parse(stripped);
+      }
+
+      if (parsedData && typeof parsedData === "object" && Array.isArray(parsedData.line_items)) {
+        parsedData.line_items = normalizeExtractedLineItems(parsedData.line_items, {
+          globalDeliveryPeriod: parsedData.delivery_period,
+        });
+      }
       resultParseTime = Date.now() - parseStart;
 
       const totalElapsedTime = Date.now() - requestStartTime;
-      
+
       console.log(`\n=== EXTRACTION PERFORMANCE BREAKDOWN ===`);
-      console.log(`- Request Overhead / File Preparation: ${filePrepareTime}ms (${((filePrepareTime / totalElapsedTime) * 100).toFixed(1)}%)`);
-      console.log(`- Gemini API Endpoint Round-trip: ${geminiApiTime}ms (${((geminiApiTime / totalElapsedTime) * 100).toFixed(1)}%)`);
-      console.log(`- Local JSON Parsing & Validation: ${resultParseTime}ms (${((resultParseTime / totalElapsedTime) * 100).toFixed(1)}%)`);
+      console.log(`- Request Overhead / File Preparation: ${filePrepareTime}ms (${((filePrepareTime / Math.max(1, totalElapsedTime)) * 100).toFixed(1)}%)`);
+      console.log(`- Gemini API Endpoint Round-trip: ${geminiApiTime}ms (${((geminiApiTime / Math.max(1, totalElapsedTime)) * 100).toFixed(1)}%)`);
+      console.log(`- Local JSON Parsing & Track S2 Normalization: ${resultParseTime}ms (${((resultParseTime / Math.max(1, totalElapsedTime)) * 100).toFixed(1)}%)`);
       console.log(`- Total Server Elapsed Duration: ${totalElapsedTime}ms`);
       console.log(`=========================================\n`);
 
       // Inject server-side performance diagnostics for frontend visibility
       res.json({
         ...parsedData,
+        _ai_model_used: usedModel,
         __performance: {
           filePrepareTimeMs: filePrepareTime,
           geminiApiTimeMs: geminiApiTime,

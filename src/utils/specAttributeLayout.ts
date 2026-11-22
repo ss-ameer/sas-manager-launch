@@ -41,6 +41,7 @@ export function canonicalSpecAttributeKey(rawKey: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, ' ')
     .trim()
+    .replace(/\bcolours\b/g, 'color')
     .replace(/\bcolour\b/g, 'color')
     .replace(/\bcentre\b/g, 'center')
     .replace(/\bmetre\b/g, 'meter')

@@ -4240,10 +4240,15 @@ const EditableCanvasText: React.FC<EditableCanvasTextProps> = ({
   );
 };
 
+const EMPTY_QUOTATION = {} as Quotation;
+const EMPTY_VISIBLE_COLUMNS = {} as QuotationPresetColumns;
+const EMPTY_STRING_ARRAY: string[] = [];
+const EMPTY_OMITTED_FIELDS: Record<string, boolean> = {};
+
 const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
   quotation: rawQuotation,
   profile,
-  visibleColumns: propVisibleColumns = {} as QuotationPresetColumns,
+  visibleColumns: propVisibleColumns = EMPTY_VISIBLE_COLUMNS,
   columnConfig: propColumnConfig,
   isCompactView = true,
   tableDensity: propTableDensity,
@@ -4284,7 +4289,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
   onEditPageHeader,
   showPageBreakGuides = false
 }: QuotationDocumentProps) => {
-  const quotation = (rawQuotation || {}) as Quotation;
+  const quotation = rawQuotation || EMPTY_QUOTATION;
   const [logoLoadFailed, setLogoLoadFailed] = React.useState(false);
   const currency = quotation.currency || quotation.applied_bank_account?.currency || 'AED';
 
@@ -4303,12 +4308,15 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
     'framed';
   const isMinimal = resolvedBlockStyle === 'minimal';
 
-  const resolvedFooterConfig: QuotationFooterConfig = {
-    ...DEFAULT_FOOTER_CONFIG,
-    ...(profile?.footer_config || {}),
-    ...(quotation.footer_config || {}),
-    ...(propFooterConfig || {})
-  };
+  const resolvedFooterConfig: QuotationFooterConfig = React.useMemo(
+    () => ({
+      ...DEFAULT_FOOTER_CONFIG,
+      ...(profile?.footer_config || {}),
+      ...(quotation.footer_config || {}),
+      ...(propFooterConfig || {})
+    }),
+    [profile?.footer_config, quotation.footer_config, propFooterConfig]
+  );
 
   const showBankRemittance =
     propFooterConfig?.showBankRemittance ??
@@ -4504,12 +4512,15 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
   const isInteractive = Boolean(onSelectSection || onSelectBlock);
   const canEditCanvasInline = Boolean(isInteractive && inlineQuickEditEnabled && onInlineFieldEdit);
 
-  const resolvedHeaderConfig: QuotationHeaderConfig = {
-    ...DEFAULT_HEADER_CONFIG,
-    ...(profile?.header_config || {}),
-    ...(quotation.header_config || {}),
-    ...(propHeaderConfig || {})
-  };
+  const resolvedHeaderConfig: QuotationHeaderConfig = React.useMemo(
+    () => ({
+      ...DEFAULT_HEADER_CONFIG,
+      ...(profile?.header_config || {}),
+      ...(quotation.header_config || {}),
+      ...(propHeaderConfig || {})
+    }),
+    [profile?.header_config, quotation.header_config, propHeaderConfig]
+  );
 
   // Resolve Sister-Company & Multi-Brand Visual Differentiation Styles
   const resolvedDocumentFontFamily: QuotationDocumentFontFamily =
@@ -4634,12 +4645,15 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
 
   const repeatHeaderOnSubsequentPages = headerBranding.repeatHeaderOnSubsequentPages;
 
-  const resolvedRecipientConfig: QuotationRecipientConfig = {
-    ...DEFAULT_RECIPIENT_CONFIG,
-    ...(profile?.recipient_config || {}),
-    ...(quotation.recipient_config || {}),
-    ...(propRecipientConfig || {})
-  };
+  const resolvedRecipientConfig: QuotationRecipientConfig = React.useMemo(
+    () => ({
+      ...DEFAULT_RECIPIENT_CONFIG,
+      ...(profile?.recipient_config || {}),
+      ...(quotation.recipient_config || {}),
+      ...(propRecipientConfig || {})
+    }),
+    [profile?.recipient_config, quotation.recipient_config, propRecipientConfig]
+  );
 
 
   // Table Density & Dedicated Table Typography Scale
@@ -4761,7 +4775,10 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
   }, [quotation.valid_until, quotation.issue_date, quotation.created_at, quotation.validity_days, profile?.default_validity_days]);
 
   // Determine active columns & technical attributes config
-  const columnConfig: QuotationPresetColumns = propColumnConfig || propVisibleColumns || quotation.visible_columns || {};
+  const columnConfig: QuotationPresetColumns = React.useMemo(
+    () => propColumnConfig || propVisibleColumns || quotation.visible_columns || EMPTY_VISIBLE_COLUMNS,
+    [propColumnConfig, propVisibleColumns, quotation.visible_columns]
+  );
   const visibleColumns: QuotationPresetColumns = columnConfig;
   const showBrand = columnConfig.brand ?? true;
   const showModel = columnConfig.model ?? true;
@@ -4806,7 +4823,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
   const photoScheduleColumns = columnConfig.photoScheduleColumns || 2;
   const photoScheduleNewPage = Boolean(columnConfig.photoScheduleNewPage);
   const attributeDisplayFormat = columnConfig.attributeDisplayFormat || 'grid_2col_balanced';
-  const hiddenAttributeKeys: string[] = columnConfig.hiddenAttributeKeys || [];
+  const hiddenAttributeKeys: string[] = columnConfig.hiddenAttributeKeys || EMPTY_STRING_ARRAY;
 
   // Dynamic Table Column Geometry & Predictable Allocation
   const colWidths = React.useMemo(() => {
@@ -4966,7 +4983,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
     .filter(Boolean)
     .map((s) => String(s).trim().toLowerCase());
 
-  const omittedFields = quotation.omitted_fields || {};
+  const omittedFields = quotation.omitted_fields || EMPTY_OMITTED_FIELDS;
 
   const tokenContext = React.useMemo<QuotationTokenContext>(() => {
     const docType = quotation.document_type || 'quotation';
@@ -5766,22 +5783,35 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
   const totalSheets = totalDocumentPages;
   const totalPages = totalDocumentPages;
 
-  // Dynamically measure sheet height vs 297mm A4 boundary so the overflow warning only shows when a sheet actually overflows
+  const sheetCount = sheetPartitions.length;
+  const sheetPartitionKeys = React.useMemo(
+    () =>
+      sheetPartitions
+        .map((sheet) => (sheet.pageBreakBlock ? sheet.pageBreakBlock.id : `sheet_${sheet.sheetNumber}`))
+        .join('|'),
+    [sheetPartitions]
+  );
+  const sheetCountRef = React.useRef(sheetCount);
+  sheetCountRef.current = sheetCount;
+
+  // Dynamically measure sheet height vs 297mm A4 boundary so the overflow warning only shows when a sheet actually overflows.
+  // Only disconnect/re-observe when the mounted sheet count or sheet keys change — ResizeObserver handles content growth/shrink automatically without keystroke reflows.
   React.useEffect(() => {
-    // Prune stale sheet indices when sheetPartitions.length shrinks
+    // Prune stale sheet indices when sheetCount shrinks
     Object.keys(sheetElsRef.current).forEach((idxStr) => {
       const idx = Number(idxStr);
-      if (idx >= sheetPartitions.length || !sheetElsRef.current[idx]) {
+      if (idx >= sheetCount || !sheetElsRef.current[idx]) {
         delete sheetElsRef.current[idx];
       }
     });
 
     const checkOverflows = () => {
+      const activeSheetCount = sheetCountRef.current;
       const next: Record<number, boolean> = {};
       (Object.entries(sheetElsRef.current) as Array<[string, HTMLElement | null]>).forEach(
         ([idxStr, el]) => {
           const idx = Number(idxStr);
-          if (el && idx < sheetPartitions.length) {
+          if (el && idx < activeSheetCount) {
             next[idx] = isSheetOverflowingA4(el.scrollHeight, el.clientWidth, 6);
           }
         }
@@ -5808,7 +5838,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
       });
       return () => ro.disconnect();
     }
-  }, [sheetPartitions, rawLineItems, resolvedBlocks, fontSizeScale, tableDensity, resolvedBlockStyle]);
+  }, [sheetCount, sheetPartitionKeys]);
 
   // Render compact executive "Attached Technical Submittals & Enclosures" index strip
   const renderSubmittalsIndex = () => {

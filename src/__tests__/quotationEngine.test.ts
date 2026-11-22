@@ -63,6 +63,7 @@ import {
   QUOTATION_AT_TAGS
 } from '../utils/quotationTokenResolver';
 import {
+  canonicalSpecAttributeKey,
   isGlobalAttributeVisible,
   setGlobalAttributeVisibility,
   showAllGlobalAttributes,
@@ -5060,6 +5061,21 @@ describe('Suite 26: Fix F5 — PageHeaderOverrides Non-Resurrection (P0-3), Base
       { excluded_page_indices: [4] }
     );
     expect(afterExplicitExclusionsPreset.excluded_page_indices).toEqual([4]);
+  });
+
+  it('26d. canonicalSpecAttributeKey consolidates plural colours and all Studio UK/US & core attribute aliases (P1-3)', () => {
+    expect(canonicalSpecAttributeKey('Colours')).toBe('color');
+    expect(canonicalSpecAttributeKey('Colour')).toBe('color');
+    expect(canonicalSpecAttributeKey('Color')).toBe('color');
+    expect(canonicalSpecAttributeKey('Body Colours')).toBe('body color');
+    expect(canonicalSpecAttributeKey('Dimensions')).toBe('dimension');
+    expect(canonicalSpecAttributeKey('Dimension')).toBe('dimension');
+    expect(canonicalSpecAttributeKey('Make / Brand')).toBe('brand');
+    expect(canonicalSpecAttributeKey('Brand / Manufacturer')).toBe('brand');
+    expect(canonicalSpecAttributeKey('Model / Part No.')).toBe('model');
+    expect(canonicalSpecAttributeKey('Country of Origin')).toBe('origin');
+    expect(canonicalSpecAttributeKey('Delivery / Lead Time')).toBe('delivery');
+    expect(canonicalSpecAttributeKey('Availability')).toBe('delivery');
   });
 });
 

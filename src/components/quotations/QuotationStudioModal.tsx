@@ -3290,7 +3290,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                     ? prevIt!.attributes!.map((a) => ({ key: a.key, value: a.value }))
                     : [];
                 extractedSpecsAttrs.forEach((ea) => {
-                  if (!baseAttrs.some((ba) => canonicalKey(ba.key) === canonicalKey(ea.key))) {
+                  if (!baseAttrs.some((ba) => canonicalSpecAttributeKey(ba.key) === canonicalSpecAttributeKey(ea.key))) {
                     baseAttrs.push(ea);
                   }
                 });
@@ -3519,7 +3519,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
               ? li.attributes.map((a) => ({ key: a.key, value: a.value }))
               : [];
             extractedSpecsAttrs.forEach((ea) => {
-              if (!baseAttrs.some((ba) => canonicalKey(ba.key) === canonicalKey(ea.key))) {
+              if (!baseAttrs.some((ba) => canonicalSpecAttributeKey(ba.key) === canonicalSpecAttributeKey(ea.key))) {
                 baseAttrs.push(ea);
               }
             });
@@ -5035,7 +5035,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
           // Structured item.attributes is authoritative; only append extractedSpecsAttrs keys that do not already exist
           const mergedAttrs = [...filteredExisting];
           extractedSpecsAttrs.forEach((ea) => {
-            if (!mergedAttrs.some((m) => canonicalKey(m.key) === canonicalKey(ea.key))) {
+            if (!mergedAttrs.some((m) => canonicalSpecAttributeKey(m.key) === canonicalSpecAttributeKey(ea.key))) {
               mergedAttrs.push(ea);
             }
           });
@@ -5478,57 +5478,6 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     workspaceProducts
   ]);
 
-  function canonicalKey(rawKey: string): string {
-    const norm = String(rawKey || '')
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, ' ')
-      .trim()
-      .replace(/\bcolours\b/g, 'color')
-      .replace(/\bcolour\b/g, 'color')
-      .replace(/\bdimensions\b/g, 'dimension');
-    if (
-      norm === 'brand' ||
-      norm === 'make' ||
-      norm === 'brand make' ||
-      norm === 'make brand' ||
-      norm === 'manufacturer' ||
-      norm === 'brand manufacturer'
-    ) {
-      return 'brand';
-    }
-    if (
-      norm === 'model' ||
-      norm === 'model no' ||
-      norm === 'part no' ||
-      norm === 'part' ||
-      norm === 'model part' ||
-      norm === 'model part no'
-    ) {
-      return 'model';
-    }
-    if (
-      norm === 'origin' ||
-      norm === 'country' ||
-      norm === 'country of origin' ||
-      norm === 'origin country'
-    ) {
-      return 'origin';
-    }
-    if (
-      norm === 'delivery' ||
-      norm === 'availability' ||
-      norm === 'delivery availability' ||
-      norm === 'lead time' ||
-      norm === 'lead time delivery' ||
-      norm === 'delivery lead time' ||
-      norm === 'delivery time' ||
-      norm === 'delivery period'
-    ) {
-      return 'delivery';
-    }
-    return norm;
-  }
-
   // Dynamically extract all unique attribute keys: Core metadata (Brand, Model, Origin, Delivery) first,
   // followed by all custom technical specification keys across active line items (canonical UK/US deduplication)
   const availableAttributeKeys = useMemo(() => {
@@ -5537,7 +5486,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     const addKey = (raw?: string) => {
       const trimmed = raw?.trim();
       if (!trimmed) return;
-      const cKey = canonicalKey(trimmed);
+      const cKey = canonicalSpecAttributeKey(trimmed);
       if (!seenCanonical.has(cKey)) {
         seenCanonical.add(cKey);
         keysList.push(trimmed);
@@ -5568,7 +5517,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       }
     });
     return keysList;
-  }, [quotationLineItems, canonicalKey]);
+  }, [quotationLineItems]);
 
   const toggleAttributeKeyVisibility = (key: string) => {
     setVisibleColumns((prev) => setGlobalAttributeVisibility(prev, key));
@@ -5712,7 +5661,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     const addKey = (raw?: string) => {
       const trimmed = raw?.trim();
       if (!trimmed) return;
-      const cKey = canonicalKey(trimmed);
+      const cKey = canonicalSpecAttributeKey(trimmed);
       if (!seenCanonical.has(cKey)) {
         seenCanonical.add(cKey);
         keys.push(trimmed);
@@ -5758,7 +5707,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       if (ea && ea.key) addKey(ea.key);
     });
     return keys;
-  }, [canonicalKey]);
+  }, []);
 
   const toggleItemAttribute = (itemKey: string, baselineVisibleKeys: string[], attrKey: string) => {
     const targetCanon = canonicalSpecAttributeKey(attrKey);
@@ -5982,7 +5931,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         ? prevIt!.attributes!.map((a) => ({ key: a.key, value: a.value }))
         : [];
       extractedSpecsAttrs.forEach((ea) => {
-        if (!mergedAttrs.some((ma) => canonicalKey(ma.key) === canonicalKey(ea.key))) {
+        if (!mergedAttrs.some((ma) => canonicalSpecAttributeKey(ma.key) === canonicalSpecAttributeKey(ea.key))) {
           mergedAttrs.push(ea);
         }
       });
@@ -8549,6 +8498,16 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     presets
   ]);
 
+  const unknownAtTokens = useMemo(
+    () => findUnknownAtTokensInQuotation(liveQuotation),
+    [liveQuotation]
+  );
+
+  const unresolvedAtTagTokens = useMemo(
+    () => Array.from(new Set(unknownAtTokens.map((w) => w.token))),
+    [unknownAtTokens]
+  );
+
   // 2-Way Synchronized Field Omission Toggle: updates omittedFields AND structural card/block visibility
   const handleToggleFieldOmission = useCallback(
     (tagDef: QuotationAtTagDefinition) => {
@@ -8723,13 +8682,12 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
   }, [resolvedPdfFilename]);
 
   const handleRequestPrint = useCallback(() => {
-    const warnings = findUnknownAtTokensInQuotation(liveQuotation);
-    if (warnings.length > 0) {
-      setPendingPrintWarnings(warnings);
+    if (unknownAtTokens.length > 0) {
+      setPendingPrintWarnings(unknownAtTokens);
     } else {
       triggerPrintAfterImagesDecode();
     }
-  }, [liveQuotation, triggerPrintAfterImagesDecode]);
+  }, [unknownAtTokens, triggerPrintAfterImagesDecode]);
 
   // Toggle whether a 1-based body sheet index is excluded from Page X of Y numbering
   const handleToggleBodyPageNumbering = useCallback((bodyPageNumber: number) => {
@@ -15659,9 +15617,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                     const isStaleDraftDate =
                       (quotationStatus || 'Draft') === 'Draft' &&
                       Boolean(quotationIssueDate && quotationIssueDate < todayStr);
-                    const unresolvedTags = Array.from(
-                      new Set(findUnknownAtTokensInQuotation(liveQuotation).map((w) => w.token))
-                    );
+                    const unresolvedTags = unresolvedAtTagTokens;
 
                     const totalIssues =
                       zeroPriceItems.length +
