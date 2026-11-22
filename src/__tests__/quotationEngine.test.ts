@@ -15,6 +15,8 @@ import {
   mergeRehydratedEnquiryBlobs
 } from '../utils/blobRehydrationMerge';
 import {
+  QuotationPreset,
+  WorkspaceDocumentProfile,
   QuotationPresetColumns,
   QuotationFooterConfig,
   QuotationHeaderConfig,
@@ -4795,6 +4797,244 @@ describe('Suite 25: Studio Hydration Identity Guard (P1-1) & Non-Destructive Blo
     const mergedFlyers = mergeRehydratedAttachmentsBlobs(prevEnq.attachments, lateEnq.attachments);
     expect(mergedFlyers.length).toBe(1);
     expect(mergedFlyers[0].url).toBe('data:application/pdf;base64,PDF1');
+  });
+});
+
+// ============================================================================
+// SUITE 26: FIX F5 — PAGE HEADER OVERRIDES NON-RESURRECTION (P0-3),
+//           BASELINE PRESET HYDRATION (P1-4) & EXCLUDED PAGES LEAK FIX (P1-5)
+// ============================================================================
+
+describe('Suite 26: Fix F5 — PageHeaderOverrides Non-Resurrection (P0-3), Baseline Preset Hydration (P1-4) & Footer Exclusions Reset (P1-5)', () => {
+  it('26a. Deleting one or all pageHeaderOverrides keys never resurrects stale keys during header/profile merges or quotation hydration (P0-3)', () => {
+    const existingHeader: QuotationHeaderConfig = {
+      logoHeightPx: 54,
+      showTrn: true,
+      pageHeaderOverrides: {
+        body_2: { mode: 'compact', customTitle: 'Technical Schedule' },
+        annex_1: { mode: 'none' }
+      }
+    };
+
+    // 1. Delete `body_2` while keeping `annex_1`
+    const partialDeleteMerged = QuotationRepository.mergeHeaderConfigReplacingOverrides(
+      existingHeader,
+      {
+        showTrn: true,
+        pageHeaderOverrides: {
+          annex_1: { mode: 'none' }
+        }
+      }
+    );
+    expect(partialDeleteMerged?.logoHeightPx).toBe(54);
+    expect(partialDeleteMerged?.pageHeaderOverrides?.body_2).toBe(undefined);
+    expect(partialDeleteMerged?.pageHeaderOverrides?.annex_1?.mode).toBe('none');
+
+    // 2. Clear ALL overrides (undefined / empty object) — existing keys must NEVER resurrect
+    const clearedAllMerged = QuotationRepository.mergeHeaderConfigReplacingOverrides(
+      existingHeader,
+      {
+        showTrn: false,
+        pageHeaderOverrides: undefined
+      }
+    );
+    expect(clearedAllMerged?.showTrn).toBe(false);
+    expect(clearedAllMerged?.pageHeaderOverrides).toBe(undefined);
+
+    // 3. mergeWorkspaceDocumentProfile replaces pageHeaderOverrides atomically when incoming.header_config is supplied
+    const existingProfile: WorkspaceDocumentProfile = {
+      id: 'docprof_ws_26',
+      workspace_id: 'ws_26',
+      profile_name: 'Default Profile',
+      legal_entity_name: 'Aqua Engineering LLC',
+      address_line_1: 'Plot 14, Industrial Area',
+      bank_accounts: [],
+      header_config: existingHeader
+    };
+    const updatedProfile = QuotationRepository.mergeWorkspaceDocumentProfile(existingProfile, {
+      workspace_id: 'ws_26',
+      header_config: {
+        logoHeightPx: 54,
+        pageHeaderOverrides: { annex_1: { mode: 'none' } }
+      }
+    });
+    expect(updatedProfile.header_config?.pageHeaderOverrides?.body_2).toBe(undefined);
+    expect(updatedProfile.header_config?.pageHeaderOverrides?.annex_1?.mode).toBe('none');
+
+    const clearedProfile = QuotationRepository.mergeWorkspaceDocumentProfile(existingProfile, {
+      workspace_id: 'ws_26',
+      header_config: {
+        logoHeightPx: 54,
+        pageHeaderOverrides: {}
+      }
+    });
+    expect(clearedProfile.header_config?.pageHeaderOverrides).toBe(undefined);
+
+    // 4. Hydrating a saved quotation whose header_config cleared pageHeaderOverrides does NOT inherit profile's overrides
+    const quoteWithClearedOverrides: Quotation = {
+      id: 'qt_26a_cleared',
+      workspace_id: 'ws_26',
+      workspaceId: 'ws_26',
+      enquiry_id: 'enq_26',
+      quote_number: 'QT-2026-0260',
+      revision_number: 1,
+      formatted_quote_ref: 'QT-2026-0260-R1',
+      status: 'Draft',
+      client_snapshot: { entity_name: 'Client Co' },
+      sender_snapshot: { entity_name: 'Aqua Engineering LLC' },
+      line_items: [],
+      tax_mode: 'taxes_extra',
+      subtotal: 0,
+      freight_amount: 0,
+      tax_rate_percent: 5,
+      tax_amount: 0,
+      grand_total: 0,
+      header_config: {
+        logoHeightPx: 60,
+        pageHeaderOverrides: undefined
+      },
+      created_at: '2026-11-21T00:00:00.000Z'
+    };
+    const hydratedCleared = QuotationRepository.hydrateStudioStateFromQuotation(
+      quoteWithClearedOverrides,
+      existingProfile,
+      null
+    );
+    expect(hydratedCleared.headerConfig.logoHeightPx).toBe(60);
+    expect(hydratedCleared.headerConfig.pageHeaderOverrides).toBe(undefined);
+  });
+
+  it('26b. Baseline enquiry drafts preserve defaultPreset.header_config (including pageHeaderOverrides) while saved quotes honor their own header_config (P1-4)', () => {
+    const profile: WorkspaceDocumentProfile = {
+      id: 'docprof_ws_26b',
+      workspace_id: 'ws_26b',
+      profile_name: 'Corporate Profile',
+      legal_entity_name: 'Aqua Engineering LLC',
+      address_line_1: 'Plot 14, Industrial Area',
+      bank_accounts: [],
+      header_config: {
+        logoHeightPx: 44,
+        showWebsite: true,
+        pageHeaderOverrides: {
+          body_2: { mode: 'full_repeat' }
+        }
+      }
+    };
+
+    const defaultPreset: QuotationPreset = {
+      id: 'preset_26b_default',
+      workspace_id: 'ws_26b',
+      preset_name: 'Executive Water Proposal',
+      is_default: true,
+      default_tax_mode: 'taxes_extra',
+      default_validity_days: 30,
+      signatory_mode: 'single',
+      visible_columns: { brand: true, model: true, origin: true, availability: true, unit_price: true },
+      header_config: {
+        logoHeightPx: 68,
+        showWebsite: false,
+        pageHeaderOverrides: {
+          body_2: { mode: 'compact', customTitle: 'Commercial Offer — Contd.' },
+          annex_1: { mode: 'none' }
+        }
+      },
+      footer_config: {
+        showPageNumbers: true,
+        excluded_page_indices: [3]
+      }
+    };
+
+    // Truthy baseline enquiry proposal with NO header_config / footer_config yet
+    const baselineDraft: Quotation = {
+      id: 'baseline_enq_26b',
+      workspace_id: 'ws_26b',
+      workspaceId: 'ws_26b',
+      enquiry_id: 'enq_26b',
+      quote_number: 'QT-2026-0261',
+      revision_number: 1,
+      formatted_quote_ref: 'QT-2026-0261-R1',
+      status: 'Draft',
+      client_snapshot: { entity_name: 'Veolia Water' },
+      sender_snapshot: { entity_name: 'Aqua Engineering LLC' },
+      line_items: [],
+      tax_mode: 'taxes_extra',
+      subtotal: 0,
+      freight_amount: 0,
+      tax_rate_percent: 5,
+      tax_amount: 0,
+      grand_total: 0,
+      created_at: '2026-11-21T00:00:00.000Z'
+    };
+    (baselineDraft as any)._isBaselineEnquiryProposal = true;
+
+    const hydratedBaseline = QuotationRepository.hydrateStudioStateFromQuotation(
+      baselineDraft,
+      profile,
+      defaultPreset
+    );
+    expect(hydratedBaseline.headerConfig.logoHeightPx).toBe(68);
+    expect(hydratedBaseline.headerConfig.showWebsite).toBe(false);
+    expect(hydratedBaseline.headerConfig.pageHeaderOverrides?.body_2?.mode).toBe('compact');
+    expect(hydratedBaseline.headerConfig.pageHeaderOverrides?.body_2?.customTitle).toBe(
+      'Commercial Offer — Contd.'
+    );
+    expect(hydratedBaseline.headerConfig.pageHeaderOverrides?.annex_1?.mode).toBe('none');
+    expect(hydratedBaseline.footerConfig.excluded_page_indices).toEqual([3]);
+
+    // Saved concrete quote with its own explicit header_config overrides both profile & preset
+    const savedQuote: Quotation = {
+      ...baselineDraft,
+      id: 'qt_26b_saved',
+      header_config: {
+        logoHeightPx: 52,
+        pageHeaderOverrides: {
+          body_2: { mode: 'logo_only' }
+        }
+      }
+    };
+    delete (savedQuote as any)._isBaselineEnquiryProposal;
+
+    const hydratedSaved = QuotationRepository.hydrateStudioStateFromQuotation(
+      savedQuote,
+      profile,
+      null
+    );
+    expect(hydratedSaved.headerConfig.logoHeightPx).toBe(52);
+    expect(hydratedSaved.headerConfig.pageHeaderOverrides?.body_2?.mode).toBe('logo_only');
+    expect(hydratedSaved.headerConfig.pageHeaderOverrides?.annex_1).toBe(undefined);
+  });
+
+  it('26c. Switching presets resets excluded_page_indices when the new preset has no exclusions and applies new exclusions cleanly (P1-5)', () => {
+    const prevFooterWithExclusions: QuotationFooterConfig = {
+      showBankRemittance: true,
+      showPageNumbers: true,
+      excluded_page_indices: [2, 3],
+      remittanceBankId: 'bank_old'
+    };
+
+    // 1. Switching to a preset with footer_config that omits excluded_page_indices -> resets to []
+    const afterNoExclusionsPreset = QuotationRepository.resolveAppliedPresetFooterConfig(
+      prevFooterWithExclusions,
+      { showBankRemittance: true, showPageNumbers: false },
+      'bank_new'
+    );
+    expect(afterNoExclusionsPreset.excluded_page_indices).toEqual([]);
+    expect(afterNoExclusionsPreset.showPageNumbers).toBe(false);
+    expect(afterNoExclusionsPreset.remittanceBankId).toBe('bank_new');
+
+    // 2. Switching to a preset with footer_config === undefined -> STILL resets excluded_page_indices to []
+    const afterMissingFooterPreset = QuotationRepository.resolveAppliedPresetFooterConfig(
+      prevFooterWithExclusions,
+      undefined
+    );
+    expect(afterMissingFooterPreset.excluded_page_indices).toEqual([]);
+
+    // 3. Switching to a preset that explicitly defines excluded_page_indices: [4] -> applies [4] cleanly
+    const afterExplicitExclusionsPreset = QuotationRepository.resolveAppliedPresetFooterConfig(
+      prevFooterWithExclusions,
+      { excluded_page_indices: [4] }
+    );
+    expect(afterExplicitExclusionsPreset.excluded_page_indices).toEqual([4]);
   });
 });
 

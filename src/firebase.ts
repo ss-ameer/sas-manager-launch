@@ -361,7 +361,9 @@ export async function safeSetDoc(collectionPath: string, docId: string, data: an
 
   try {
     const docRef = doc(db, collectionPath, docId);
-    return await setDoc(docRef, cleanedData, options);
+    return await (options?.merge === false
+      ? setDoc(docRef, cleanedData)
+      : setDoc(docRef, cleanedData, options));
   } catch (error) {
     const errMsg = error instanceof Error ? error.message : String(error);
     const isSizeError = errMsg.includes('maximum allowed size') || errMsg.includes('exceeds') || errMsg.includes('bytes');
@@ -376,7 +378,9 @@ export async function safeSetDoc(collectionPath: string, docId: string, data: an
       try {
         const sanitized = sanitizeFirestorePayload(cleanedData);
         const docRef = doc(db, collectionPath, docId);
-        return await setDoc(docRef, sanitized, options);
+        return await (options?.merge === false
+          ? setDoc(docRef, sanitized)
+          : setDoc(docRef, sanitized, options));
       } catch (retryErr) {
         console.error(`[Firestore] Sanitized retry on safeSetDoc failed for '${path}':`, retryErr);
         return null;

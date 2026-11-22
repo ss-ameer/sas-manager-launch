@@ -8,6 +8,8 @@ import {
   BankAccountProfile,
   EnquiryQuotationSyncPayload,
   QuotationBlockConfig,
+  QuotationHeaderConfig,
+  QuotationFooterConfig,
   QuotationRecipientConfig,
   QuotationPageHeaderOverride,
   CommercialDocumentType
@@ -2006,36 +2008,44 @@ export class QuotationRepository {
         quotation?.company_logo_url ||
         profile?.logo_url ||
         '',
-      headerConfig: {
-        alignment: 'split' as const,
-        headerLayoutMode: 'split_left' as const,
-        logoDisplayMode: 'logo_and_name' as const,
-        showLogo: true,
-        showPhone: true,
-        showEmail: true,
-        showWebsite: true,
-        showTrn: true,
-        showCompanyName: true,
-        logoSpacing: 'normal' as const,
-        logoHeightPx: 48,
-        logoMaxWidthPx: 260,
-        repeatHeaderOnSubsequentPages: true,
-        showLogoOnContinuationPages: true,
-        ...(profile?.header_config || {}),
-        ...(quotation?.header_config || {}),
-        ...(() => {
-          const mergedOverrides =
-            quotation?.header_config?.pageHeaderOverrides ??
-            profile?.header_config?.pageHeaderOverrides;
-          const cleaned = this.sanitizePageHeaderOverrides(mergedOverrides);
-          return cleaned ? { pageHeaderOverrides: cleaned } : { pageHeaderOverrides: undefined };
-        })(),
-        ...(quotation?.header_config?.logoUrl || quotation?.company_logo_url
-          ? { logoUrl: quotation?.header_config?.logoUrl || quotation?.company_logo_url }
-          : {})
-      },
+      headerConfig: (() => {
+        const baseHeaderCfg =
+          !quotation?.header_config && defaultPreset?.header_config
+            ? this.mergeHeaderConfigReplacingOverrides(
+                profile?.header_config,
+                defaultPreset.header_config
+              )
+            : profile?.header_config;
+        const resolvedHeaderCfg = this.mergeHeaderConfigReplacingOverrides(
+          baseHeaderCfg,
+          quotation?.header_config
+        );
+        return {
+          alignment: 'split' as const,
+          headerLayoutMode: 'split_left' as const,
+          logoDisplayMode: 'logo_and_name' as const,
+          showLogo: true,
+          showPhone: true,
+          showEmail: true,
+          showWebsite: true,
+          showTrn: true,
+          showCompanyName: true,
+          logoSpacing: 'normal' as const,
+          logoHeightPx: 48,
+          logoMaxWidthPx: 260,
+          repeatHeaderOnSubsequentPages: true,
+          showLogoOnContinuationPages: true,
+          ...(resolvedHeaderCfg || {}),
+          ...(quotation?.header_config?.logoUrl || quotation?.company_logo_url
+            ? { logoUrl: quotation?.header_config?.logoUrl || quotation?.company_logo_url }
+            : {})
+        };
+      })(),
       footerConfig: {
         ...(profile?.footer_config || {}),
+        ...(!quotation?.footer_config && defaultPreset?.footer_config
+          ? defaultPreset.footer_config
+          : {}),
         ...(quotation?.footer_config || {})
       },
       companySealUrl:
@@ -2636,12 +2646,22 @@ export class QuotationRepository {
             }
           }
         : {}),
+      ...(quotation.header_config
+        ? {
+            header_config: {
+              ...quotation.header_config,
+              pageHeaderOverrides: this.sanitizePageHeaderOverrides(
+                quotation.header_config.pageHeaderOverrides
+              )
+            }
+          }
+        : {}),
       updatedAt: now,
       updated_at: now
     } as any);
 
     try {
-      await safeSetDoc('quotations', toSave.id!, toSave);
+      await safeSetDoc('quotations', toSave.id!, toSave, { merge: false });
       for (const twinId of duplicateTwinIdsToPurge) {
         try {
           await safeSetDoc('quotations', twinId, {
@@ -3281,6 +3301,53 @@ export class QuotationRepository {
   }
 
   /**
+   * Pure helper (P0-3 / P1-4): Merges an incoming `header_config` onto an existing one while
+   * atomically replacing `pageHeaderOverrides` whenever `incomingHeaderConfig` is provided,
+   * so deleted or cleared per-page header override keys can NEVER resurrect from the base layer.
+   */
+  public static mergeHeaderConfigReplacingOverrides(
+    existingHeaderConfig?: QuotationHeaderConfig | null,
+    incomingHeaderConfig?: QuotationHeaderConfig | null
+  ): QuotationHeaderConfig | undefined {
+    if (!existingHeaderConfig && !incomingHeaderConfig) return undefined;
+    if (incomingHeaderConfig) {
+      const cleaned = this.sanitizePageHeaderOverrides(incomingHeaderConfig.pageHeaderOverrides);
+      return {
+        ...(existingHeaderConfig || {}),
+        ...incomingHeaderConfig,
+        pageHeaderOverrides: cleaned
+      };
+    }
+    const cleanedExisting = this.sanitizePageHeaderOverrides(
+      existingHeaderConfig?.pageHeaderOverrides
+    );
+    return {
+      ...(existingHeaderConfig || {}),
+      pageHeaderOverrides: cleanedExisting
+    };
+  }
+
+  /**
+   * Pure helper (P1-5): Merges a preset's `footer_config` onto the current Studio footer state
+   * while ALWAYS explicitly setting `excluded_page_indices` (defaulting to `[]` when the target
+   * preset does not define exclusions) so excluded pages never leak across preset switches.
+   */
+  public static resolveAppliedPresetFooterConfig(
+    prevFooterConfig: QuotationFooterConfig,
+    presetFooterConfig?: Partial<QuotationFooterConfig> | null,
+    presetBankId?: string
+  ): QuotationFooterConfig {
+    return {
+      ...prevFooterConfig,
+      ...(presetFooterConfig || {}),
+      excluded_page_indices: Array.isArray(presetFooterConfig?.excluded_page_indices)
+        ? [...presetFooterConfig.excluded_page_indices]
+        : [],
+      ...(presetBankId ? { remittanceBankId: presetBankId } : {})
+    };
+  }
+
+  /**
    * Serializes a complete studio preset snapshot preserving 100% of Phase 1 & Phase 2 settings.
    */
   public static serializePresetSnapshot(
@@ -3718,7 +3785,7 @@ export class QuotationRepository {
     });
 
     try {
-      await safeSetDoc('quotation_presets', presetId, newPreset);
+      await safeSetDoc('quotation_presets', presetId, newPreset, { merge: false });
     } catch (_) {}
 
     try {
@@ -3809,16 +3876,18 @@ export class QuotationRepository {
       ? rawBanks.map((b) => this.normalizeBankAccount(b as any, legalEntityName))
       : [];
 
-    const mergedHeaderConfig =
-      existing?.header_config || incoming.header_config
-        ? {
-            ...(existing?.header_config || {}),
-            ...(incoming.header_config || {}),
-            ...(incoming.logo_url !== undefined
-              ? { logoUrl: incoming.header_config?.logoUrl ?? incoming.logo_url }
-              : {})
-          }
-        : undefined;
+    const baseMergedHeader = this.mergeHeaderConfigReplacingOverrides(
+      existing?.header_config,
+      incoming.header_config
+    );
+    const mergedHeaderConfig = baseMergedHeader
+      ? {
+          ...baseMergedHeader,
+          ...(incoming.logo_url !== undefined
+            ? { logoUrl: incoming.header_config?.logoUrl ?? incoming.logo_url }
+            : {})
+        }
+      : undefined;
 
     const mergedRecipientConfig =
       existing?.recipient_config || incoming.recipient_config
@@ -3955,13 +4024,10 @@ export class QuotationRepository {
         presetUpdates.default_validity_days ?? existingPreset?.default_validity_days ?? 30,
       signatory_mode: presetUpdates.signatory_mode || existingPreset?.signatory_mode || 'single',
       visible_columns: mergedVisibleColumns,
-      header_config:
-        existingPreset?.header_config || presetUpdates.header_config
-          ? {
-              ...(existingPreset?.header_config || {}),
-              ...(presetUpdates.header_config || {})
-            }
-          : undefined,
+      header_config: this.mergeHeaderConfigReplacingOverrides(
+        existingPreset?.header_config,
+        presetUpdates.header_config
+      ),
       recipient_config:
         existingPreset?.recipient_config || presetUpdates.recipient_config
           ? {
@@ -3973,7 +4039,16 @@ export class QuotationRepository {
         existingPreset?.footer_config || presetUpdates.footer_config
           ? {
               ...(existingPreset?.footer_config || {}),
-              ...(presetUpdates.footer_config || {})
+              ...(presetUpdates.footer_config || {}),
+              ...(presetUpdates.footer_config
+                ? {
+                    excluded_page_indices: Array.isArray(
+                      presetUpdates.footer_config.excluded_page_indices
+                    )
+                      ? [...presetUpdates.footer_config.excluded_page_indices]
+                      : []
+                  }
+                : {})
             }
           : undefined,
       layout_blocks: presetUpdates.layout_blocks ?? existingPreset?.layout_blocks,
@@ -3995,7 +4070,7 @@ export class QuotationRepository {
     });
 
     try {
-      await safeSetDoc('quotation_presets', presetId, normalized);
+      await safeSetDoc('quotation_presets', presetId, normalized, { merge: false });
     } catch (_) {}
 
     try {
@@ -4260,7 +4335,7 @@ export class QuotationRepository {
 
     // 1. Persist to Firestore
     try {
-      await safeSetDoc('workspace_document_profiles', profileId, fullProfile);
+      await safeSetDoc('workspace_document_profiles', profileId, fullProfile, { merge: false });
     } catch (_) {}
 
     // 2. Persist to IndexedDB cache

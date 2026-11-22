@@ -3098,8 +3098,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         );
         setHeaderConfig({
           ...DEFAULT_HEADER_CONFIG,
-          ...(profile?.header_config || {}),
-          ...(targetQuote.header_config || {}),
+          ...(hydrated.headerConfig || {}),
           ...(targetQuote.header_config?.logoUrl || targetQuote.company_logo_url
             ? { logoUrl: targetQuote.header_config?.logoUrl || targetQuote.company_logo_url }
             : {})
@@ -3146,8 +3145,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         });
         setFooterConfig({
           ...DEFAULT_FOOTER_CONFIG,
-          ...(profile?.footer_config || {}),
-          ...(targetQuote.footer_config || {})
+          ...(hydrated.footerConfig || {})
         });
 
         const savedBlocks =
@@ -4845,13 +4843,13 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
           : {})
       }));
     }
-    if (preset.footer_config) {
-      setFooterConfig((prev) => ({
-        ...prev,
-        ...preset.footer_config,
-        ...(presetBankId ? { remittanceBankId: presetBankId } : {})
-      }));
-    }
+    setFooterConfig((prev) =>
+      QuotationRepository.resolveAppliedPresetFooterConfig(
+        prev,
+        preset.footer_config,
+        presetBankId
+      )
+    );
     if (typeof preset.showBankRemittance === 'boolean') {
       handleToggleBankRemittance(preset.showBankRemittance);
     } else if (typeof preset.footer_config?.showBankRemittance === 'boolean') {
