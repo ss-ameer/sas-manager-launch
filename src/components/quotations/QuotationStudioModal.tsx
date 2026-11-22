@@ -1,5 +1,11 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { createPortal } from 'react-dom';
+import { createPortal, flushSync } from 'react-dom';
+import {
+  resolveStudioHydrationTargetKey,
+  shouldRunStudioHydration,
+  mergeRehydratedLineItemBlobs,
+  mergeRehydratedAttachmentsBlobs
+} from '../../utils/blobRehydrationMerge';
 import {
   Quotation,
   QuotationPreset,
@@ -2523,40 +2529,71 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       'Commercial Approver'
   );
 
+  const blobRehydrationEpochRef = useRef<number>(0);
+
   // On-demand rehydration of IndexedDB blobs (brand assets, signatures, flyer annexes, line item images)
+  // Guarded with cancellation flag + epoch ref and non-destructive functional URL merging so late
+  // IndexedDB resolves never overwrite newer user edits (P1-2).
   useEffect(() => {
-    if (editingQuotation?.id) {
-      rehydrateDocumentBlobsFromLocal(editingQuotation)
-        .then((reh) => {
-          if (!reh) return;
-          if (reh.company_logo_url) setCompanyLogoUrl(reh.company_logo_url);
-          if (reh.company_seal_url) setCompanySealUrl(reh.company_seal_url);
-          if (reh.signature_image_url) setSignatureImageUrl(reh.signature_image_url);
-          if (reh.header_config?.logoUrl) {
-            setHeaderConfig((prev) => ({ ...prev, logoUrl: reh.header_config!.logoUrl }));
-          }
-          if (reh.footer_config?.companySealUrl) {
-            setFooterConfig((prev) => ({ ...prev, companySealUrl: reh.footer_config!.companySealUrl }));
-          }
-          if (Array.isArray(reh.signatories) && reh.signatories.length > 0) {
-            if (reh.signatories[0]?.name) setSignatoryName(reh.signatories[0].name);
-            if (reh.signatories[0]?.designation) setSignatoryTitle(reh.signatories[0].designation);
-            if (reh.signatories[0]?.signature_url) setSignatureImageUrl(reh.signatories[0].signature_url);
-            if (reh.signatories[1]) {
-              if (reh.signatories[1].name) setSecondarySignatoryName(reh.signatories[1].name);
-              if (reh.signatories[1].designation) setSecondarySignatoryTitle(reh.signatories[1].designation);
-              setSignatoryMode('dual');
-            }
-          }
-          if (Array.isArray(reh.flyer_attachments) && reh.flyer_attachments.length > 0) {
-            setFlyerAttachments(reh.flyer_attachments);
-          }
-          if (Array.isArray(reh.line_items) && reh.line_items.length > 0) {
-            setCustomStudioLineItems(rehydrateLineItemsFromCatalog(reh.line_items, workspaceProducts));
-          }
-        })
-        .catch(() => {});
-    }
+    if (!editingQuotation?.id) return;
+    let cancelled = false;
+    const requestEpoch = ++blobRehydrationEpochRef.current;
+    const snapshot = editingQuotation;
+
+    rehydrateDocumentBlobsFromLocal(snapshot)
+      .then((reh) => {
+        if (cancelled || blobRehydrationEpochRef.current !== requestEpoch || !reh) return;
+
+        if (reh.company_logo_url && reh.company_logo_url !== snapshot.company_logo_url) {
+          setCompanyLogoUrl((prev) => prev || reh.company_logo_url!);
+        }
+        if (reh.company_seal_url && reh.company_seal_url !== snapshot.company_seal_url) {
+          setCompanySealUrl((prev) => prev || reh.company_seal_url!);
+        }
+        const resolvedSigUrl =
+          reh.signature_image_url && reh.signature_image_url !== snapshot.signature_image_url
+            ? reh.signature_image_url
+            : reh.signatories?.[0]?.signature_url &&
+              reh.signatories[0].signature_url !== snapshot.signatories?.[0]?.signature_url
+            ? reh.signatories[0].signature_url
+            : '';
+        if (resolvedSigUrl) {
+          setSignatureImageUrl((prev) => prev || resolvedSigUrl);
+        }
+        if (
+          reh.header_config?.logoUrl &&
+          reh.header_config.logoUrl !== snapshot.header_config?.logoUrl
+        ) {
+          setHeaderConfig((prev) =>
+            prev.logoUrl ? prev : { ...prev, logoUrl: reh.header_config!.logoUrl }
+          );
+        }
+        if (
+          reh.footer_config?.companySealUrl &&
+          reh.footer_config.companySealUrl !== snapshot.footer_config?.companySealUrl
+        ) {
+          setFooterConfig((prev) =>
+            prev.companySealUrl
+              ? prev
+              : { ...prev, companySealUrl: reh.footer_config!.companySealUrl }
+          );
+        }
+        if (Array.isArray(reh.flyer_attachments) && reh.flyer_attachments.length > 0) {
+          setFlyerAttachments((prev) =>
+            mergeRehydratedAttachmentsBlobs(prev, reh.flyer_attachments)
+          );
+        }
+        if (Array.isArray(reh.line_items) && reh.line_items.length > 0) {
+          setCustomStudioLineItems((prev) =>
+            Array.isArray(prev) ? mergeRehydratedLineItemBlobs(prev, reh.line_items) : prev
+          );
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
   }, [editingQuotation?.id]);
 
   // Multi-Account Bank Registry Selection & Custom Overrides
@@ -2882,11 +2919,15 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       setSubjectPlacement(hydrated.subjectPlacement);
       setSelectedBankId(hydrated.selectedBankId);
       setFlyerAttachments(hydrated.flyerAttachments);
+      const hydrationBlobEpoch = ++blobRehydrationEpochRef.current;
       if (Array.isArray(hydrated.flyerAttachments) && hydrated.flyerAttachments.length > 0) {
         rehydrateDocumentBlobsFromLocal({ flyer_attachments: hydrated.flyerAttachments })
           .then((rehydrated) => {
+            if (blobRehydrationEpochRef.current !== hydrationBlobEpoch) return;
             if (rehydrated?.flyer_attachments) {
-              setFlyerAttachments(rehydrated.flyer_attachments);
+              setFlyerAttachments((prev) =>
+                mergeRehydratedAttachmentsBlobs(prev, rehydrated.flyer_attachments)
+              );
             }
           })
           .catch(() => {});
@@ -3335,9 +3376,12 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         if (rawSourceItems && rawSourceItems.length > 0) {
           rehydrateDocumentBlobsFromLocal({ line_items: rawSourceItems })
             .then((rehydrated) => {
+              if (blobRehydrationEpochRef.current !== hydrationBlobEpoch) return;
               if (rehydrated?.line_items) {
-                setCustomStudioLineItems(
-                  rehydrateLineItemsFromCatalog(rehydrated.line_items, workspaceProducts)
+                setCustomStudioLineItems((prev) =>
+                  Array.isArray(prev)
+                    ? mergeRehydratedLineItemBlobs(prev, rehydrated.line_items)
+                    : prev
                 );
               }
             })
@@ -3546,11 +3590,15 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
             workspaceProducts
           );
           setCustomStudioLineItems(hydratedCatalogNewItems);
+          const newItemsBlobEpoch = ++blobRehydrationEpochRef.current;
           rehydrateDocumentBlobsFromLocal({ line_items: rawNewQuoteItems })
             .then((rehydrated) => {
+              if (blobRehydrationEpochRef.current !== newItemsBlobEpoch) return;
               if (rehydrated?.line_items) {
-                setCustomStudioLineItems(
-                  rehydrateLineItemsFromCatalog(rehydrated.line_items, workspaceProducts)
+                setCustomStudioLineItems((prev) =>
+                  Array.isArray(prev)
+                    ? mergeRehydratedLineItemBlobs(prev, rehydrated.line_items)
+                    : prev
                 );
               }
             })
@@ -3564,10 +3612,17 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     [enquiry, profile, presets, salespersonName, workspaceProducts]
   );
 
-  // Hydrate state when editingQuotation?.id, enquiry?.id, or enquiry?.updatedAt changes
+  // Hydrate state ONLY when switching to a different quotation/enquiry target identity
+  // (never re-run full hydration solely because `enquiry?.updatedAt` changed in the background — P1-1)
+  const hydratedStudioTargetKeyRef = useRef<string | null>(null);
   useEffect(() => {
+    const nextTargetKey = resolveStudioHydrationTargetKey(editingQuotation?.id, enquiry?.id);
+    if (!shouldRunStudioHydration(hydratedStudioTargetKeyRef.current, nextTargetKey)) {
+      return;
+    }
+    hydratedStudioTargetKeyRef.current = nextTargetKey;
     hydrateStudioFromQuotation(editingQuotation || null);
-  }, [editingQuotation?.id, enquiry?.id, enquiry?.updatedAt]);
+  }, [editingQuotation?.id, enquiry?.id]);
 
   // Load revision chain for the current enquiry so the In-Studio Revision History Switcher is populated
   // and auto-bind to existing R1 Draft if Studio opened before quotations finished loading
@@ -8573,14 +8628,64 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
   }, [pdfFilenamePattern, studioTokenContext]);
 
   const [isPrintPortalMounted, setIsPrintPortalMounted] = useState(false);
+  const isProgrammaticPrintRef = useRef(false);
+  const previousDocTitleRef = useRef<string | null>(null);
+
+  // Native Ctrl+P / Cmd+P support (P0-2): mount #quotation-print-portal synchronously on beforeprint
+  // and unmount cleanly on afterprint so native browser print produces the exact clean A4 document.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const handleBeforePrint = () => {
+      if (!isProgrammaticPrintRef.current) {
+        if (previousDocTitleRef.current === null) {
+          previousDocTitleRef.current = document.title;
+        }
+        if (resolvedPdfFilename) {
+          document.title = resolvedPdfFilename;
+        }
+        try {
+          flushSync(() => {
+            setIsPrintPortalMounted(true);
+          });
+        } catch {
+          setIsPrintPortalMounted(true);
+        }
+      }
+    };
+
+    const handleAfterPrint = () => {
+      if (previousDocTitleRef.current !== null) {
+        document.title = previousDocTitleRef.current;
+        previousDocTitleRef.current = null;
+      }
+      isProgrammaticPrintRef.current = false;
+      setIsPrintPortalMounted(false);
+    };
+
+    window.addEventListener('beforeprint', handleBeforePrint);
+    window.addEventListener('afterprint', handleAfterPrint);
+    return () => {
+      window.removeEventListener('beforeprint', handleBeforePrint);
+      window.removeEventListener('afterprint', handleAfterPrint);
+      if (previousDocTitleRef.current !== null) {
+        document.title = previousDocTitleRef.current;
+        previousDocTitleRef.current = null;
+      }
+      isProgrammaticPrintRef.current = false;
+    };
+  }, [resolvedPdfFilename]);
 
   const triggerPrintAfterImagesDecode = useCallback(async () => {
+    isProgrammaticPrintRef.current = true;
     setIsPrintPortalMounted(true);
     await new Promise<void>((resolve) =>
       window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve()))
     );
     try {
-      const portalEl = document.getElementById('quotation-print-portal') || document.getElementById('quotation-printable-document');
+      const portalEl =
+        document.getElementById('quotation-print-portal') ||
+        document.getElementById('quotation-printable-document');
       if (portalEl) {
         const imgs = Array.from(portalEl.querySelectorAll('img'));
         await Promise.all(
@@ -8600,19 +8705,20 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     } catch {
       // ignore image decode timeout
     }
-    const previousDocTitle = document.title;
+    if (previousDocTitleRef.current === null) {
+      previousDocTitleRef.current = document.title;
+    }
     if (resolvedPdfFilename) {
       document.title = resolvedPdfFilename;
     }
-    const handleAfterPrint = () => {
-      document.title = previousDocTitle;
-      setIsPrintPortalMounted(false);
-      window.removeEventListener('afterprint', handleAfterPrint);
-    };
-    window.addEventListener('afterprint', handleAfterPrint, { once: true });
     window.setTimeout(() => {
-      if (document.title === resolvedPdfFilename) {
-        document.title = previousDocTitle;
+      if (
+        previousDocTitleRef.current !== null &&
+        resolvedPdfFilename &&
+        document.title === resolvedPdfFilename
+      ) {
+        document.title = previousDocTitleRef.current;
+        previousDocTitleRef.current = null;
       }
     }, 3000);
     window.print();
@@ -32157,10 +32263,10 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
             gap: 0 !important;
             background: #ffffff !important;
           }
-          body > *:not(#quotation-print-portal) {
+          body:has(#quotation-print-portal) > *:not(#quotation-print-portal) {
             display: none !important;
           }
-          #root {
+          body:has(#quotation-print-portal) #root {
             display: none !important;
           }
           #quotation-print-portal {

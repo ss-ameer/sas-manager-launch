@@ -4147,10 +4147,45 @@ const EditableCanvasText: React.FC<EditableCanvasTextProps> = ({
     if (multiline) {
       const rowCount = Math.max(2, Math.min(8, (draft || '').split('\n').length));
       return (
-        <textarea
+        <>
+          <textarea
+            autoFocus
+            value={draft}
+            rows={rowCount}
+            placeholder={placeholder}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={commit}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                e.preventDefault();
+                e.stopPropagation();
+                cancel();
+              } else if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                e.stopPropagation();
+                commit();
+              } else {
+                e.stopPropagation();
+              }
+            }}
+            className={`bg-white text-slate-900 border border-blue-500 rounded-xs px-1 py-0.5 outline-none ring-2 ring-blue-300/60 w-full max-w-full font-inherit resize-y leading-snug print:hidden ${alignClass} ${className} ${inputClassName}`}
+          />
+          <span className={`hidden print:block whitespace-pre-line ${alignClass} ${className}`}>
+            {displayNode}
+          </span>
+        </>
+      );
+    }
+
+    return (
+      <>
+        <input
+          type="text"
+          inputMode={numeric ? 'decimal' : undefined}
           autoFocus
           value={draft}
-          rows={rowCount}
           placeholder={placeholder}
           onMouseDown={(e) => e.stopPropagation()}
           onClick={(e) => e.stopPropagation()}
@@ -4161,7 +4196,7 @@ const EditableCanvasText: React.FC<EditableCanvasTextProps> = ({
               e.preventDefault();
               e.stopPropagation();
               cancel();
-            } else if (e.key === 'Enter' && !e.shiftKey) {
+            } else if (e.key === 'Enter') {
               e.preventDefault();
               e.stopPropagation();
               commit();
@@ -4169,39 +4204,14 @@ const EditableCanvasText: React.FC<EditableCanvasTextProps> = ({
               e.stopPropagation();
             }
           }}
-          className={`bg-white text-slate-900 border border-blue-500 rounded-xs px-1 py-0.5 outline-none ring-2 ring-blue-300/60 w-full max-w-full font-inherit resize-y leading-snug print:hidden ${alignClass} ${className} ${inputClassName}`}
+          className={`bg-white text-slate-900 border border-blue-500 rounded-xs px-1 py-0 outline-none ring-2 ring-blue-300/60 max-w-full leading-tight print:hidden ${
+            numeric ? 'w-full min-w-[44px]' : 'w-full min-w-[72px]'
+          } ${alignClass} ${className} ${inputClassName}`}
         />
-      );
-    }
-
-    return (
-      <input
-        type="text"
-        inputMode={numeric ? 'decimal' : undefined}
-        autoFocus
-        value={draft}
-        placeholder={placeholder}
-        onMouseDown={(e) => e.stopPropagation()}
-        onClick={(e) => e.stopPropagation()}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={commit}
-        onKeyDown={(e) => {
-          if (e.key === 'Escape') {
-            e.preventDefault();
-            e.stopPropagation();
-            cancel();
-          } else if (e.key === 'Enter') {
-            e.preventDefault();
-            e.stopPropagation();
-            commit();
-          } else {
-            e.stopPropagation();
-          }
-        }}
-        className={`bg-white text-slate-900 border border-blue-500 rounded-xs px-1 py-0 outline-none ring-2 ring-blue-300/60 max-w-full leading-tight print:hidden ${
-          numeric ? 'w-full min-w-[44px]' : 'w-full min-w-[72px]'
-        } ${alignClass} ${className} ${inputClassName}`}
-      />
+        <span className={`hidden print:inline whitespace-pre-line ${alignClass} ${className}`}>
+          {displayNode}
+        </span>
+      </>
     );
   }
 

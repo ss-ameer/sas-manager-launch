@@ -11,6 +11,10 @@ import HoverScrollText from './common/HoverScrollText';
 import { FieldLabel } from './common/FieldHelpHint';
 import { buildCatalogVariantAnalysisMap } from '../utils/productVariantFormat';
 import { mergeFreshSubComponentsIntoStudioSubs } from '../utils/catalogVariantUtils';
+import {
+  mergeRehydratedEnquiryBlobs,
+  mergeRehydratedLineItemBlobs
+} from '../utils/blobRehydrationMerge';
 import { useActivityLauncher, InitiateActivityOptions } from '../context/ActivityLauncherContext';
 import { useEntityEdit } from '../context/EntityEditContext';
 import { getWhatsAppUrl } from '../utils/defaults';
@@ -363,6 +367,7 @@ export default function EnquiryDetail({
   } | null>(null);
 
   const prevEnquiryIdRef = useRef<string | undefined>(enquiry?.id);
+  const blobRehydrationEpochRef = useRef<number>(0);
   const isInlineEditingItemsRef = useRef<boolean>(false);
   useEffect(() => {
     isInlineEditingItemsRef.current = isInlineEditingItems;
@@ -370,6 +375,9 @@ export default function EnquiryDetail({
 
   // Synchronize local enquiry when prop updates
   useEffect(() => {
+    let cancelled = false;
+    const requestEpoch = ++blobRehydrationEpochRef.current;
+
     const isNewEnquiryId = enquiry?.id !== prevEnquiryIdRef.current;
     prevEnquiryIdRef.current = enquiry?.id;
 
@@ -392,15 +400,24 @@ export default function EnquiryDetail({
     const targetEnqId = enquiry?.id;
     rehydrateDocumentBlobsFromLocal(initialEnq)
       .then((rehydrated) => {
-        if (rehydrated && prevEnquiryIdRef.current === targetEnqId) {
-          const finalItems = rehydrateLineItemsFromCatalog(rehydrated.line_items || [], products);
-          setCurrentEnquiry({ ...rehydrated, line_items: finalItems });
-          if (!isInlineEditingItemsRef.current) {
-            setDraftLineItems(finalItems);
-          }
+        if (
+          cancelled ||
+          blobRehydrationEpochRef.current !== requestEpoch ||
+          !rehydrated ||
+          prevEnquiryIdRef.current !== targetEnqId
+        ) {
+          return;
+        }
+        setCurrentEnquiry((prev) => mergeRehydratedEnquiryBlobs(prev, rehydrated));
+        if (Array.isArray(rehydrated.line_items) && rehydrated.line_items.length > 0) {
+          setDraftLineItems((prev) => mergeRehydratedLineItemBlobs(prev, rehydrated.line_items));
         }
       })
       .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
   }, [enquiry, products]);
 
   // Project linkage & Inventory Reservation States

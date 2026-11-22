@@ -8,6 +8,13 @@
 import { sanitizeCompanyNameAndSuffix } from '../components/companies/CreateCompanyModal';
 import { amountToWords, formatAmountInWords } from '../utils/numberToWords';
 import {
+  resolveStudioHydrationTargetKey,
+  shouldRunStudioHydration,
+  mergeRehydratedLineItemBlobs,
+  mergeRehydratedAttachmentsBlobs,
+  mergeRehydratedEnquiryBlobs
+} from '../utils/blobRehydrationMerge';
+import {
   QuotationPresetColumns,
   QuotationFooterConfig,
   QuotationHeaderConfig,
@@ -4620,6 +4627,174 @@ describe('Fix F1: Canonical sourceLineIndex & Focused Row Optional Toggle Sync',
         itemIsOptional: true
       })
     ).toBe(false);
+  });
+});
+
+// ============================================================================
+// SUITE 25: FIX F4 — STUDIO HYDRATION IDENTITY GUARD (P1-1) &
+//           NON-DESTRUCTIVE ASYNC BLOB REHYDRATION MERGE (P1-2)
+// ============================================================================
+
+describe('Suite 25: Studio Hydration Identity Guard (P1-1) & Non-Destructive Blob Merge (P1-2)', () => {
+  it('25a. Skips re-hydration when only enquiry.updatedAt changes on the same open quote/enquiry and runs when switching target ID (P1-1)', () => {
+    const initialKey = resolveStudioHydrationTargetKey('qt_101', 'enq_50');
+    expect(initialKey).toBe('quote:qt_101');
+
+    // First mount: null -> quote:qt_101 runs hydration
+    expect(shouldRunStudioHydration(null, initialKey)).toBe(true);
+
+    // Background enquiry.updatedAt mutation on same quote/enquiry -> target key unchanged -> skipped!
+    const afterBackgroundEnquiryTick = resolveStudioHydrationTargetKey('qt_101', 'enq_50');
+    expect(shouldRunStudioHydration(initialKey, afterBackgroundEnquiryTick)).toBe(false);
+
+    // Switching to another quotation ID -> triggers hydration
+    const switchedQuoteKey = resolveStudioHydrationTargetKey('qt_102', 'enq_50');
+    expect(shouldRunStudioHydration(initialKey, switchedQuoteKey)).toBe(true);
+
+    // Unbound new quote tied to enquiry -> same enquiry skips, new enquiry triggers
+    const enqKey1 = resolveStudioHydrationTargetKey(null, 'enq_50');
+    const enqKey1Same = resolveStudioHydrationTargetKey(undefined, 'enq_50');
+    const enqKey2 = resolveStudioHydrationTargetKey(null, 'enq_51');
+    expect(enqKey1).toBe('enquiry:enq_50');
+    expect(shouldRunStudioHydration(enqKey1, enqKey1Same)).toBe(false);
+    expect(shouldRunStudioHydration(enqKey1, enqKey2)).toBe(true);
+  });
+
+  it('25b. Late async blob rehydration backfills matching storage keys without overwriting newer edits or resurrecting cleared images (P1-2)', () => {
+    const latestUserEditedItems: any[] = [
+      {
+        id: 'li_1',
+        item_name: 'Multimedia Filter 30" x 72" (Edited Title)',
+        description: 'User updated description',
+        quantity: 4,
+        unit_price: 3150,
+        image_url: '',
+        image_storage_key: 'blob_img_1',
+        secondary_image_url: '',
+        secondary_image_storage_key: 'blob_sec_1',
+        sub_components: [
+          {
+            id: 'sub_1',
+            item_name: 'Internal Nozzle Plate (Edited)',
+            quantity: 2,
+            unit_price: 450,
+            image_url: '',
+            image_storage_key: 'blob_sub_1'
+          }
+        ]
+      },
+      {
+        // User manually cleared the image while IDB was loading (storage key cleared!)
+        id: 'li_2',
+        item_name: 'Clack Valve WS2EI',
+        quantity: 2,
+        unit_price: 5000,
+        image_url: '',
+        image_storage_key: ''
+      },
+      {
+        // User hid the image in Studio while IDB was loading
+        id: 'li_3',
+        item_name: 'Flow Meter Assembly',
+        quantity: 1,
+        unit_price: 1450,
+        image_url: '',
+        image_storage_key: 'blob_img_3',
+        image_display_override: 'hidden'
+      }
+    ];
+
+    const lateRehydratedSnapshot: any[] = [
+      {
+        id: 'li_1',
+        item_name: 'Stale Pre-Edit Title',
+        description: 'Stale pre-edit description',
+        quantity: 1,
+        unit_price: 2850,
+        image_url: 'data:image/png;base64,RESOLVED_PRIMARY_1',
+        image_storage_key: 'blob_img_1',
+        secondary_image_url: 'data:image/png;base64,RESOLVED_SECONDARY_1',
+        secondary_image_storage_key: 'blob_sec_1',
+        sub_components: [
+          {
+            id: 'sub_1',
+            item_name: 'Stale Sub Name',
+            quantity: 1,
+            unit_price: 300,
+            image_url: 'data:image/png;base64,RESOLVED_SUB_1',
+            image_storage_key: 'blob_sub_1'
+          }
+        ]
+      },
+      {
+        id: 'li_2',
+        item_name: 'Clack Valve WS2EI',
+        quantity: 1,
+        unit_price: 4800,
+        image_url: 'data:image/png;base64,SHOULD_NOT_RESURRECT',
+        image_storage_key: 'blob_img_2'
+      },
+      {
+        id: 'li_3',
+        item_name: 'Flow Meter Assembly',
+        quantity: 1,
+        unit_price: 1450,
+        image_url: 'data:image/png;base64,SHOULD_NOT_SHOW_HIDDEN',
+        image_storage_key: 'blob_img_3'
+      }
+    ];
+
+    const merged = mergeRehydratedLineItemBlobs(latestUserEditedItems, lateRehydratedSnapshot);
+
+    // Item 1: resolved URLs merged cleanly while ALL newer user edits remain intact
+    expect(merged[0].item_name).toBe('Multimedia Filter 30" x 72" (Edited Title)');
+    expect(merged[0].description).toBe('User updated description');
+    expect(merged[0].quantity).toBe(4);
+    expect(merged[0].unit_price).toBe(3150);
+    expect(merged[0].image_url).toBe('data:image/png;base64,RESOLVED_PRIMARY_1');
+    expect(merged[0].secondary_image_url).toBe('data:image/png;base64,RESOLVED_SECONDARY_1');
+    expect(merged[0].sub_components[0].item_name).toBe('Internal Nozzle Plate (Edited)');
+    expect(merged[0].sub_components[0].quantity).toBe(2);
+    expect(merged[0].sub_components[0].unit_price).toBe(450);
+    expect(merged[0].sub_components[0].image_url).toBe('data:image/png;base64,RESOLVED_SUB_1');
+
+    // Item 2: manually cleared image (cleared storage key) is NEVER resurrected
+    expect(merged[1].image_url).toBe('');
+    expect(merged[1].unit_price).toBe(5000);
+
+    // Item 3: explicitly hidden image is NEVER resurrected
+    expect(merged[2].image_url).toBe('');
+
+    // Attachments & Enquiry wrapper: fills matching attachment URL without resurrecting deleted attachments
+    const prevEnq: any = {
+      id: 'enq_50',
+      subject: 'User Edited Subject',
+      line_items: latestUserEditedItems,
+      attachments: [
+        { id: 'att_1', name: 'Datasheet.pdf', url: '', storageKey: 'blob_att_1' }
+      ]
+    };
+    const lateEnq: any = {
+      id: 'enq_50',
+      subject: 'Stale Subject',
+      line_items: lateRehydratedSnapshot,
+      attachments: [
+        { id: 'att_1', name: 'Datasheet.pdf', url: 'data:application/pdf;base64,PDF1', storageKey: 'blob_att_1' },
+        { id: 'att_deleted', name: 'Deleted.pdf', url: 'data:application/pdf;base64,DEL', storageKey: 'blob_del' }
+      ]
+    };
+
+    const mergedEnq = mergeRehydratedEnquiryBlobs(prevEnq, lateEnq);
+    expect(mergedEnq.subject).toBe('User Edited Subject');
+    expect(mergedEnq.attachments.length).toBe(1);
+    expect(mergedEnq.attachments[0].url).toBe('data:application/pdf;base64,PDF1');
+    expect(mergedEnq.line_items[0].image_url).toBe('data:image/png;base64,RESOLVED_PRIMARY_1');
+    expect(mergedEnq.line_items[0].unit_price).toBe(3150);
+
+    // Direct flyer attachment merge preserves user order/removals
+    const mergedFlyers = mergeRehydratedAttachmentsBlobs(prevEnq.attachments, lateEnq.attachments);
+    expect(mergedFlyers.length).toBe(1);
+    expect(mergedFlyers[0].url).toBe('data:application/pdf;base64,PDF1');
   });
 });
 
