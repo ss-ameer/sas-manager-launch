@@ -4612,10 +4612,33 @@ export default function CallLogManager({
                 <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-xl shadow-2xs overflow-hidden">
                   <div className="hidden sm:block w-full overflow-x-auto scrollbar-thin relative border-b border-slate-200 dark:border-slate-800">
                     <table className="w-full min-w-[920px] lg:min-w-0 lg:table-fixed text-left border-collapse text-xs font-sans text-slate-600 dark:text-slate-400">
+                      <colgroup>
+                        {historyActivityType === 'internal' ? (
+                          <>
+                            <col className={isMarkingMode ? 'w-[140px]' : 'w-[120px]'} />
+                            <col className="w-auto" />
+                            <col className="w-[116px]" />
+                            <col className="w-[116px]" />
+                            <col className="w-[72px]" />
+                            <col className="w-[128px]" />
+                            <col className="w-[60px]" />
+                            <col className="w-[140px]" />
+                          </>
+                        ) : (
+                          <>
+                            <col className={isMarkingMode ? 'w-[140px]' : 'w-[120px]'} />
+                            <col className="w-auto" />
+                            <col className="w-[176px]" />
+                            <col className="w-[168px]" />
+                            <col className="w-[60px]" />
+                            <col className="w-[140px]" />
+                          </>
+                        )}
+                      </colgroup>
                       <thead className="sticky top-0 z-10 bg-slate-50/95 dark:bg-slate-800/95 backdrop-blur-xs border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
                     {historyActivityType === 'internal' ? (
                       <tr>
-                        <th className={`py-2 px-3 ${isMarkingMode ? 'w-[144px]' : 'w-[128px]'} whitespace-nowrap bg-slate-50 dark:bg-slate-900`}>
+                        <th className="py-2 px-3 whitespace-nowrap bg-slate-50 dark:bg-slate-900">
                           <div className="inline-flex items-center gap-2">
                             {isMarkingMode && (
                               <input
@@ -4637,17 +4660,17 @@ export default function CallLogManager({
                             <span>Date</span>
                           </div>
                         </th>
-                        <th className="py-2 px-3 w-auto min-w-[200px] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Task Title &amp; Notes</th>
-                        <th className="py-2 px-2.5 w-[120px] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Category</th>
-                        <th className="py-2 px-2.5 w-[120px] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Requester</th>
-                        <th className="py-2 px-2 w-[76px] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Effort</th>
-                        <th className="py-2 px-2.5 w-[132px] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Deliverable</th>
-                        <th className="py-2 px-2 w-[68px] text-center whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Agent</th>
-                        <th className="py-2 pl-2 pr-5 w-[152px] text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">Actions</th>
+                        <th className="py-2 px-3 whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Task Title &amp; Notes</th>
+                        <th className="py-2 px-2.5 whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Category</th>
+                        <th className="py-2 px-2.5 whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Requester</th>
+                        <th className="py-2 px-2 whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Effort</th>
+                        <th className="py-2 px-2.5 whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Deliverable</th>
+                        <th className="py-2 px-2 text-center whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Agent</th>
+                        <th className="py-2 pl-2 pr-4 text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">Actions</th>
                       </tr>
                     ) : (
                       <tr>
-                        <th className={`py-2 px-3 ${isMarkingMode ? 'w-[144px]' : 'w-[128px]'} whitespace-nowrap bg-slate-50 dark:bg-slate-900`}>
+                        <th className="py-2 px-3 whitespace-nowrap bg-slate-50 dark:bg-slate-900">
                           <div className="inline-flex items-center gap-2">
                             {isMarkingMode && (
                               <input
@@ -4669,11 +4692,11 @@ export default function CallLogManager({
                             <span>Date</span>
                           </div>
                         </th>
-                        <th className="py-2 px-3 w-auto min-w-[210px] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Client</th>
-                        <th className="py-2 px-3 w-[180px] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Contact</th>
-                        <th className="py-2 px-3 w-[172px] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Status / Outcome</th>
-                        <th className="py-2 px-2 w-[68px] text-center whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Agent</th>
-                        <th className="py-2 pl-2 pr-5 w-[152px] text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">Actions</th>
+                        <th className="py-2 px-3 whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Client</th>
+                        <th className="py-2 px-3 whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Contact</th>
+                        <th className="py-2 px-3 whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Status / Outcome</th>
+                        <th className="py-2 px-2 text-center whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Agent</th>
+                        <th className="py-2 pl-2 pr-4 text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">Actions</th>
                       </tr>
                     )}
                   </thead>
@@ -4813,8 +4836,8 @@ export default function CallLogManager({
                                   {handledBy}
                                 </span>
                               </td>
-                              <td className="py-2.5 pl-2 pr-5 w-[152px] text-right whitespace-nowrap align-middle">
-                                <div className="inline-flex items-center justify-end gap-1">
+                              <td className="py-2.5 pl-2 pr-4 text-right whitespace-nowrap align-middle">
+                                <div className="flex w-full items-center justify-end gap-1">
                                   <button
                                     type="button"
                                     onClick={() => setSelectedDetailEntry(log)}
@@ -5048,9 +5071,9 @@ export default function CallLogManager({
                                   {handledBy}
                                 </span>
                               </td>
-                              <td className="py-2.5 pl-2 pr-5 w-[152px] text-right whitespace-nowrap align-middle">
+                              <td className="py-2.5 pl-2 pr-4 text-right whitespace-nowrap align-middle">
                                 {canUserClickRecord(user, log, salespersons, activeWorkspace?.id) ? (
-                                  <div className="inline-flex items-center justify-end gap-1">
+                                  <div className="flex w-full items-center justify-end gap-1">
                                     <button
                                       type="button"
                                       onClick={() => {

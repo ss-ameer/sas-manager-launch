@@ -918,9 +918,9 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
         </div>
       </td>
 
-      {/* 8. ACTIONS (Guaranteed Fixed Width + Safe Right Padding + Separated Delete Divider) */}
-      <td className="py-2.5 pl-2 pr-5 text-right whitespace-nowrap align-middle" onClick={(evt) => evt.stopPropagation()}>
-        <div className="inline-flex items-center justify-end gap-1" onClick={(evt) => evt.stopPropagation()}>
+      {/* 8. ACTIONS (Guaranteed Fixed Width + Right-Aligned Edge Cushion + Separated Delete Divider) */}
+      <td className="py-2.5 pl-2 pr-4 text-right whitespace-nowrap align-middle" onClick={(evt) => evt.stopPropagation()}>
+        <div className="flex w-full items-center justify-end gap-1" onClick={(evt) => evt.stopPropagation()}>
           <button
             type="button"
             onClick={(evt) => {
@@ -2903,14 +2903,21 @@ export default function EnquiryList({
             </div>
 
             <div className="hidden sm:block w-full overflow-x-auto scrollbar-thin relative border-b border-slate-200 dark:border-slate-800">
-            <table className="w-full min-w-[1076px] lg:table-fixed text-left border-collapse">
+            <table className="w-full min-w-[960px] lg:table-fixed text-left border-collapse">
+              <colgroup>
+                <col className={isMarkingMode ? 'w-[88px]' : 'w-[64px]'} />
+                <col className="w-auto" />
+                <col className="hidden 2xl:table-column w-[132px]" />
+                <col className="w-[208px]" />
+                <col className="w-[48px]" />
+                <col className="w-[104px]" />
+                <col className="w-[132px]" />
+                <col className="w-[118px]" />
+                <col className="w-[140px]" />
+              </colgroup>
               <thead className="sticky top-0 z-10 bg-slate-50/95 dark:bg-slate-800/95 backdrop-blur-xs border-b border-slate-200 dark:border-slate-800 text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] select-none">
                 <tr>
-                  <th
-                    className={`py-2 px-2 ${
-                      isMarkingMode ? 'w-[96px]' : 'w-[68px]'
-                    } text-center bg-slate-50 dark:bg-slate-900 whitespace-nowrap`}
-                  >
+                  <th className="py-2 px-2 text-center bg-slate-50 dark:bg-slate-900 whitespace-nowrap">
                     <div className="inline-flex items-center justify-center gap-1.5">
                       {isMarkingMode && (
                         <input
@@ -2946,24 +2953,24 @@ export default function EnquiryList({
                       </button>
                     </div>
                   </th>
-                  <th className="py-2 px-3 w-auto min-w-[200px] truncate bg-slate-50 dark:bg-slate-900">Company Account</th>
-                  <th className="hidden 2xl:table-cell py-2 px-2.5 w-[136px] truncate bg-slate-50 dark:bg-slate-900">Contact / Location</th>
-                  <th className="py-2 px-2 w-[224px] truncate bg-slate-50 dark:bg-slate-900">Quote Ref No</th>
-                  <th className="py-2 px-1 w-[56px] text-center truncate bg-slate-50 dark:bg-slate-900">Rep</th>
-                  <th onClick={() => handleSort('enquiry_date')} className="py-2 px-2 w-[112px] cursor-pointer hover:text-slate-800 dark:hover:text-slate-200 transition whitespace-nowrap bg-slate-50 dark:bg-slate-900">
+                  <th className="py-2 px-3 truncate bg-slate-50 dark:bg-slate-900">Company Account</th>
+                  <th className="hidden 2xl:table-cell py-2 px-2.5 truncate bg-slate-50 dark:bg-slate-900">Contact / Location</th>
+                  <th className="py-2 px-2 truncate bg-slate-50 dark:bg-slate-900">Quote Ref No</th>
+                  <th className="py-2 px-1 text-center truncate bg-slate-50 dark:bg-slate-900">Rep</th>
+                  <th onClick={() => handleSort('enquiry_date')} className="py-2 px-2 cursor-pointer hover:text-slate-800 dark:hover:text-slate-200 transition whitespace-nowrap bg-slate-50 dark:bg-slate-900">
                     <div className="flex items-center space-x-1">
                       <span>Date</span>
                       <ArrowUpDown className="w-3 h-3 shrink-0 opacity-70" />
                     </div>
                   </th>
-                  <th className="py-2 px-2 w-[140px] truncate bg-slate-50 dark:bg-slate-900">Status</th>
-                  <th onClick={() => handleSort('value_aed')} className="py-2 pl-2 pr-2.5 w-[124px] cursor-pointer hover:text-slate-800 dark:hover:text-slate-200 transition text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">
+                  <th className="py-2 px-2 truncate bg-slate-50 dark:bg-slate-900">Status</th>
+                  <th onClick={() => handleSort('value_aed')} className="py-2 pl-2 pr-2.5 cursor-pointer hover:text-slate-800 dark:hover:text-slate-200 transition text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">
                     <div className="flex items-center space-x-1 justify-end">
                       <span>Value</span>
                       <ArrowUpDown className="w-3 h-3 shrink-0 opacity-70" />
                     </div>
                   </th>
-                  <th className="py-2 pl-2 pr-5 w-[152px] text-right truncate bg-slate-50 dark:bg-slate-900">Actions</th>
+                  <th className="py-2 pl-2 pr-4 text-right truncate bg-slate-50 dark:bg-slate-900">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 dark:divide-slate-800 font-sans">
