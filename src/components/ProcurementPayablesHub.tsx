@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Company,
   Enquiry,
@@ -22,7 +22,6 @@ import {
 } from '../services/attachmentStorage';
 import { canManageWorkspace, isAdmin, isSuperAdmin } from '../utils/permissions';
 import { PageHeader, PageBody, KpiStatCard } from './layout/UiContainer';
-import SearchResultCounter from './common/SearchResultCounter';
 import HoverScrollText from './common/HoverScrollText';
 import { FieldLabel } from './common/FieldHelpHint';
 import { formatProductVariantSelectorLabel } from '../utils/productVariantFormat';
@@ -51,6 +50,8 @@ import {
   Calculator,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
+  SlidersHorizontal,
   X
 } from 'lucide-react';
 
@@ -108,10 +109,32 @@ export default function ProcurementPayablesHub({
     amountLabel?: string;
   } | null>(null);
   const [isDeletingRecord, setIsDeletingRecord] = useState<boolean>(false);
+  const [isToolsDropdownOpen, setIsToolsDropdownOpen] = useState<boolean>(false);
+  const toolsDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setCurrentPage(1);
   }, [activeTab, searchQuery, vendorFilter, itemsPerPage]);
+
+  useEffect(() => {
+    if (!isToolsDropdownOpen) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (toolsDropdownRef.current && !toolsDropdownRef.current.contains(event.target as Node)) {
+        setIsToolsDropdownOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsToolsDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isToolsDropdownOpen]);
 
   const [quotations, setQuotations] = useState<QuotationDocumentRecord[]>([]);
   const [supplierBills, setSupplierBills] = useState<SupplierBill[]>([]);
@@ -1834,61 +1857,294 @@ export default function ProcurementPayablesHub({
     return clean;
   };
 
+  const hasActiveFilter = vendorFilter !== 'ALL' || searchQuery.trim() !== '';
+
+  const filteredPos = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return supplierPOs.filter((po) => {
+      const vName =
+        po.purchase_order_metadata?.supplier_name || po.client_snapshot?.entity_name || '';
+      if (vendorFilter !== 'ALL' && vName !== vendorFilter) return false;
+      if (!q) return true;
+      return (
+        (po.formatted_quote_ref || '').toLowerCase().includes(q) ||
+        (po.purchase_order_metadata?.po_ref || '').toLowerCase().includes(q) ||
+        vName.toLowerCase().includes(q) ||
+        (po.quotation_subject || '').toLowerCase().includes(q)
+      );
+    });
+  }, [supplierPOs, vendorFilter, searchQuery]);
+
+  const allPendingGrnRows = useMemo(() => {
+    return supplierPOs
+      .filter((po) => {
+        const st = String(po.status || '').toLowerCase();
+        return st !== 'cancelled' && st !== 'rejected';
+      })
+      .flatMap((po) =>
+        (po.line_items || [])
+          .filter((li: any) => {
+            const ordered = Number(li.qty_ordered ?? li.quantity ?? li.qty) || 0;
+            const received = Number(li.qty_received) || 0;
+            return ordered > received;
+          })
+          .map((li: any) => ({ po, li }))
+      );
+  }, [supplierPOs]);
+
+  const filteredGrnRows = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return allPendingGrnRows.filter(({ po, li }) => {
+      const vName =
+        po.purchase_order_metadata?.supplier_name || po.client_snapshot?.entity_name || '';
+      if (vendorFilter !== 'ALL' && vName !== vendorFilter) return false;
+      if (!q) return true;
+      const poRef = po.purchase_order_metadata?.po_ref || po.formatted_quote_ref || '';
+      const itemName = li.item_name || li.description || '';
+      const partNo = li.part_no || '';
+      return (
+        poRef.toLowerCase().includes(q) ||
+        vName.toLowerCase().includes(q) ||
+        itemName.toLowerCase().includes(q) ||
+        partNo.toLowerCase().includes(q)
+      );
+    });
+  }, [allPendingGrnRows, vendorFilter, searchQuery]);
+
+  const filteredBills = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return supplierBills.filter((b) => {
+      if (vendorFilter !== 'ALL' && b.vendor_name !== vendorFilter) return false;
+      if (!q) return true;
+      return (
+        b.bill_number.toLowerCase().includes(q) ||
+        b.vendor_invoice_no.toLowerCase().includes(q) ||
+        b.vendor_name.toLowerCase().includes(q) ||
+        (b.po_ref || '').toLowerCase().includes(q)
+      );
+    });
+  }, [supplierBills, vendorFilter, searchQuery]);
+
+  const filteredVouchers = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return paymentVouchersAndReturns.filter((doc) => {
+      const vName =
+        doc.payment_voucher_metadata?.payee_name ||
+        doc.payment_voucher_metadata?.paid_to_vendor_name ||
+        doc.vendor_return_metadata?.supplier_name ||
+        doc.vendor_return_metadata?.vendor_name ||
+        doc.client_snapshot?.entity_name ||
+        '';
+      if (vendorFilter !== 'ALL' && vName !== vendorFilter) return false;
+      if (!q) return true;
+      return (
+        (doc.formatted_quote_ref || '').toLowerCase().includes(q) ||
+        vName.toLowerCase().includes(q) ||
+        (doc.quotation_subject || '').toLowerCase().includes(q)
+      );
+    });
+  }, [paymentVouchersAndReturns, vendorFilter, searchQuery]);
+
+  const activeTabSummary =
+    activeTab === 'pos'
+      ? { filtered: filteredPos.length, total: supplierPOs.length, label: 'Supplier POs' }
+      : activeTab === 'grn'
+      ? { filtered: filteredGrnRows.length, total: allPendingGrnRows.length, label: 'Pending GRN Lines' }
+      : activeTab === 'bills'
+      ? { filtered: filteredBills.length, total: supplierBills.length, label: 'Supplier Bills' }
+      : { filtered: filteredVouchers.length, total: paymentVouchersAndReturns.length, label: 'Vouchers & Returns' };
+
+  const openNewPoModal = () => {
+    setNewPoVendorId('');
+    setNewPoSupplierName('');
+    setNewPoEnquiryId('');
+    setNewPoExpectedDate('');
+    setNewPoLines([
+      { product_id: '', item_name: '', part_no: '', qty: 1, unit: 'Nos', unit_cost: 0 }
+    ]);
+    setShowCreatePoModal(true);
+  };
+
+  const renderPaginationFooter = (
+    totalItems: number,
+    itemLabel: string,
+    safePage: number,
+    totalPages: number
+  ) => {
+    const startIdx = totalItems === 0 ? 0 : (safePage - 1) * itemsPerPage + 1;
+    const endIdx = Math.min(safePage * itemsPerPage, totalItems);
+    return (
+      <div className="px-4 py-3 bg-slate-50/60 dark:bg-slate-900/60 border-t border-slate-200/80 dark:border-slate-800 rounded-b-2xl flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600 dark:text-slate-400">
+        <div className="text-xs font-mono tabular-nums text-slate-600 dark:text-slate-400">
+          Showing <span className="font-bold text-slate-900 dark:text-slate-100">{startIdx}</span> to{' '}
+          <span className="font-bold text-slate-900 dark:text-slate-100">{endIdx}</span> of{' '}
+          <span className="font-bold text-slate-900 dark:text-slate-100">{totalItems}</span> {itemLabel}
+        </div>
+        <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-2">
+            <span className="text-xs text-slate-500 dark:text-slate-400 font-sans">Rows per page:</span>
+            <select
+              value={itemsPerPage}
+              onChange={(e) => {
+                setItemsPerPage(Number(e.target.value));
+                setCurrentPage(1);
+              }}
+              className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-xs font-semibold text-slate-700 dark:text-slate-200 focus:outline-none cursor-pointer"
+            >
+              <option value={25}>25</option>
+              <option value={50}>50</option>
+              <option value={100}>100</option>
+            </select>
+          </div>
+          <div className="flex items-center space-x-1">
+            <button
+              type="button"
+              disabled={safePage <= 1}
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer text-xs font-semibold inline-flex items-center gap-1"
+              title="Previous Page"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" />
+              <span>Prev</span>
+            </button>
+            <span className="text-xs font-mono tabular-nums px-2.5 text-slate-600 dark:text-slate-400">
+              Page <span className="font-bold text-slate-900 dark:text-slate-100">{safePage}</span> of{' '}
+              <span className="font-bold text-slate-900 dark:text-slate-100">{totalPages}</span>
+            </span>
+            <button
+              type="button"
+              disabled={safePage >= totalPages}
+              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+              className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer text-xs font-semibold inline-flex items-center gap-1"
+              title="Next Page"
+            >
+              <span>Next</span>
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="w-full min-w-0 bg-slate-50/50 dark:bg-slate-950">
       <PageHeader
         title="Procurement & Payables"
-        subtitle="Manage Outbound Supplier POs, Warehouse GRN Landed Cost Allocation, 3-Way Bill Matching, and Outbound Payment Vouchers"
+        subtitle="Outbound supplier POs, GRN landed-cost receipts, 3-way bill matching, and vendor payments."
         icon={ShoppingBag}
-        badge={{ text: `${kpiStats.openPoCount} Open POs`, variant: 'indigo' }}
+        badge={{ text: `${kpiStats.openPoCount} Open POs`, variant: 'blue' }}
         currentUser={user}
         onOpenSidebar={onOpenMobileMenu}
+        beforePrimaryActions={
+          <div className="relative" ref={toolsDropdownRef}>
+            <button
+              type="button"
+              onClick={() => setIsToolsDropdownOpen((prev) => !prev)}
+              className="h-9 px-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold inline-flex items-center gap-1.5 shadow-2xs transition cursor-pointer"
+              aria-expanded={isToolsDropdownOpen}
+              aria-haspopup="menu"
+            >
+              <SlidersHorizontal className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
+              <span>Tools</span>
+              <ChevronDown
+                className={`w-3.5 h-3.5 text-slate-400 transition-transform ${
+                  isToolsDropdownOpen ? 'rotate-180' : ''
+                }`}
+              />
+            </button>
+            {isToolsDropdownOpen && (
+              <div
+                role="menu"
+                className="absolute right-0 mt-1.5 w-60 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-lg py-1.5 z-50"
+              >
+                <div className="px-3 py-1 text-[10px] font-mono font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                  Payables &amp; Settlements
+                </div>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setIsToolsDropdownOpen(false);
+                    handleOpenBillModal();
+                  }}
+                  className="w-full px-3 py-2 text-left text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2 transition cursor-pointer"
+                >
+                  <FileText className="w-3.5 h-3.5 text-slate-400" />
+                  <span>Record Supplier Bill</span>
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setIsToolsDropdownOpen(false);
+                    handleIssuePaymentVoucher();
+                  }}
+                  className="w-full px-3 py-2 text-left text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2 transition cursor-pointer"
+                >
+                  <DollarSign className="w-3.5 h-3.5 text-slate-400" />
+                  <span>Issue Payment Voucher</span>
+                </button>
+                <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
+                <div className="px-3 py-1 text-[10px] font-mono font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                  Vendor Returns &amp; Credits
+                </div>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setIsToolsDropdownOpen(false);
+                    handleIssueVendorReturn('material_return_note');
+                  }}
+                  className="w-full px-3 py-2 text-left text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2 transition cursor-pointer"
+                >
+                  <RotateCcw className="w-3.5 h-3.5 text-slate-400" />
+                  <span>Issue Material Return (MRN)</span>
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setIsToolsDropdownOpen(false);
+                    handleIssueVendorReturn('debit_note');
+                  }}
+                  className="w-full px-3 py-2 text-left text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2 transition cursor-pointer"
+                >
+                  <AlertTriangle className="w-3.5 h-3.5 text-slate-400" />
+                  <span>Issue Vendor Debit Note (DN)</span>
+                </button>
+              </div>
+            )}
+          </div>
+        }
         primaryAction={{
           label: 'New Supplier PO',
           icon: Plus,
-          onClick: () => {
-            setNewPoVendorId('');
-            setNewPoSupplierName('');
-            setNewPoEnquiryId('');
-            setNewPoExpectedDate('');
-            setNewPoLines([
-              { product_id: '', item_name: '', part_no: '', qty: 1, unit: 'Nos', unit_cost: 0 }
-            ]);
-            setShowCreatePoModal(true);
-          }
+          onClick: openNewPoModal
         }}
-        secondaryActions={[
-          {
-            label: 'Record Supplier Bill',
-            icon: FileText,
-            onClick: () => handleOpenBillModal()
-          },
-          {
-            label: 'Issue Payment Voucher',
-            icon: DollarSign,
-            onClick: () => handleIssuePaymentVoucher()
-          }
-        ]}
       />
-      <PageBody>
 
-      {/* KPI Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+      <PageBody className="!py-4 sm:!py-5 !space-y-3.5">
+      {/* Compact 4-Card KPI Strip */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <KpiStatCard
+          compact
           label="Open Supplier POs"
           value={kpiStats.openPoCount}
           subtext={`${supplierPOs.length} Total Issued POs`}
-          icon={<ShoppingBag className="w-5 h-5" />}
+          icon={<ShoppingBag className="w-4 h-4" />}
           tone="indigo"
         />
         <KpiStatCard
+          compact
           label="Pending GRN Lines"
           value={kpiStats.pendingGrnCount}
           subtext="Awaiting Warehouse Receipt"
-          icon={<PackageCheck className="w-5 h-5" />}
+          icon={<PackageCheck className="w-4 h-4" />}
           tone="blue"
         />
         <KpiStatCard
+          compact
           label="Unpaid Supplier Bills"
           value={kpiStats.unpaidBillCount}
           subtext={
@@ -1896,10 +2152,11 @@ export default function ProcurementPayablesHub({
               ? `${kpiStats.varianceBillsCount} with 3-Way Match Variance`
               : 'All matched bills verified'
           }
-          icon={<FileText className="w-5 h-5" />}
+          icon={<FileText className="w-4 h-4" />}
           tone={kpiStats.varianceBillsCount > 0 ? 'amber' : 'emerald'}
         />
         <KpiStatCard
+          compact
           label="Total Payables Balance"
           value={
             canViewConfidentialMargins
@@ -1909,7 +2166,7 @@ export default function ProcurementPayablesHub({
               : 'Restricted'
           }
           subtext={canViewConfidentialMargins ? 'Net of Debit Notes & PVs' : 'Admin / Manager Only'}
-          icon={<DollarSign className="w-5 h-5" />}
+          icon={<DollarSign className="w-4 h-4" />}
           tone="rose"
         />
       </div>
@@ -1929,24 +2186,28 @@ export default function ProcurementPayablesHub({
       ) : (
         <>
 
-      {/* Navigation Tabs + Filters */}
-      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-3 shadow-2xs flex flex-wrap items-center justify-between gap-3">
+      {/* Unified 2-Row White Toolbar Card */}
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 p-3 shadow-2xs space-y-2.5">
+        {/* Row 1: Domain Pill Tabs with Mono Count Badges */}
         <div className="flex flex-wrap items-center gap-1.5">
           {[
-            { id: 'pos' as const, label: `Supplier POs (${supplierPOs.length})`, icon: ShoppingBag },
+            { id: 'pos' as const, label: 'Supplier POs', count: supplierPOs.length, icon: ShoppingBag },
             {
               id: 'grn' as const,
-              label: `Pending Stock Receipts (${kpiStats.pendingGrnCount})`,
+              label: 'Pending Stock Receipts',
+              count: kpiStats.pendingGrnCount,
               icon: PackageCheck
             },
             {
               id: 'bills' as const,
-              label: `Supplier Bills & 3-Way Match (${supplierBills.length})`,
+              label: 'Supplier Bills & 3-Way Match',
+              count: supplierBills.length,
               icon: FileText
             },
             {
               id: 'vouchers' as const,
-              label: `Payment Vouchers & Returns (${paymentVouchersAndReturns.length})`,
+              label: 'Payment Vouchers & Returns',
+              count: paymentVouchersAndReturns.length,
               icon: DollarSign
             }
           ].map((t) => {
@@ -1957,108 +2218,130 @@ export default function ProcurementPayablesHub({
                 key={t.id}
                 type="button"
                 onClick={() => setActiveTab(t.id)}
-                className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition whitespace-nowrap cursor-pointer ${
                   isSel
-                    ? 'bg-slate-900 dark:bg-blue-600 text-white shadow-2xs'
-                    : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                    ? 'bg-slate-900 text-white border-slate-900 dark:bg-white dark:text-slate-900 dark:border-white shadow-2xs'
+                    : 'bg-slate-50 dark:bg-slate-800/70 text-slate-600 dark:text-slate-300 border-slate-200/80 dark:border-slate-700/80 hover:bg-slate-100 dark:hover:bg-slate-800'
                 }`}
               >
-                <Icon className="w-3.5 h-3.5" />
+                <Icon className="w-3.5 h-3.5 shrink-0" />
                 <span>{t.label}</span>
+                <span
+                  className={`px-1.5 py-0.5 rounded-full text-[10px] font-mono tabular-nums leading-none ${
+                    isSel
+                      ? 'bg-white/20 text-white dark:bg-slate-900/15 dark:text-slate-900'
+                      : 'bg-white dark:bg-slate-900/70 text-slate-500 dark:text-slate-400 border border-slate-200/80 dark:border-slate-700'
+                  }`}
+                >
+                  {t.count}
+                </span>
               </button>
             );
           })}
         </div>
 
-        <div className="flex items-center gap-2 flex-1 sm:flex-initial justify-end flex-wrap">
-          {(vendorFilter !== 'ALL' || searchQuery.trim() !== '') && (
-            <button
-              type="button"
-              onClick={() => {
-                setVendorFilter('ALL');
-                setSearchQuery('');
-              }}
-              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-rose-50 dark:bg-rose-950/50 hover:bg-rose-100 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 text-xs font-bold transition cursor-pointer"
-              title="Reset vendor filter and search query"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-              <span>Reset</span>
-            </button>
-          )}
-          <select
-            value={vendorFilter}
-            onChange={(e) => setVendorFilter(e.target.value)}
-            className="h-9 rounded-xl border border-slate-200 dark:border-slate-700 px-3 py-1.5 text-xs bg-slate-50 dark:bg-slate-800/80 text-slate-800 dark:text-slate-100 cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-          >
-            <option value="ALL">All Vendors / Suppliers</option>
-            {vendors.map((v) => {
-              const vName = getCompanyName(v);
-              return (
-                <option key={v.id} value={vName}>
-                  {vName}
-                </option>
-              );
-            })}
-          </select>
-          <div className="relative w-full sm:w-auto sm:min-w-[260px]">
-            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5 pointer-events-none" />
+        {/* Row 2: Search Input + Compact Vendor Filter */}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative flex-1 min-w-[220px]">
+            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search PO, Bill, Inv #, Vendor..."
-              className="w-full h-9 pl-8 pr-7 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs bg-slate-50 dark:bg-slate-800/80 text-slate-900 dark:text-slate-100 focus:bg-white dark:focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+              placeholder="Search PO, Bill, Inv #, Item, or Vendor..."
+              className="w-full h-9 pl-9 pr-8 rounded-xl border border-slate-200 dark:border-slate-700 text-xs bg-slate-50/70 dark:bg-slate-800/80 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:bg-white dark:focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
             />
             {searchQuery && (
               <button
                 type="button"
                 onClick={() => setSearchQuery('')}
-                className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
                 title="Clear search"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
             )}
           </div>
+
+          <div className="relative shrink-0">
+            <select
+              value={vendorFilter}
+              onChange={(e) => setVendorFilter(e.target.value)}
+              className="h-9 appearance-none rounded-xl border border-slate-200 dark:border-slate-700 pl-3 pr-8 text-xs font-medium bg-slate-50/70 dark:bg-slate-800/80 text-slate-700 dark:text-slate-200 cursor-pointer focus:bg-white dark:focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition max-w-[240px]"
+            >
+              <option value="ALL">All Vendors / Suppliers</option>
+              {vendors.map((v) => {
+                const vName = getCompanyName(v);
+                return (
+                  <option key={v.id} value={vName}>
+                    {vName}
+                  </option>
+                );
+              })}
+            </select>
+            <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+          </div>
         </div>
+
+        {/* Active Filter Strip (Only Visible When Filtered) */}
+        {hasActiveFilter && (
+          <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="font-mono text-[11px] text-slate-500 dark:text-slate-400 tabular-nums">
+                Showing <strong className="text-slate-800 dark:text-slate-100">{activeTabSummary.filtered}</strong> of{' '}
+                <strong className="text-slate-800 dark:text-slate-100">{activeTabSummary.total}</strong> {activeTabSummary.label}
+              </span>
+              {vendorFilter !== 'ALL' && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border border-blue-200/80 dark:border-blue-800 text-[11px] font-medium">
+                  <span>Vendor: {vendorFilter}</span>
+                  <button
+                    type="button"
+                    onClick={() => setVendorFilter('ALL')}
+                    className="hover:text-blue-900 dark:hover:text-blue-100 cursor-pointer"
+                    aria-label="Remove vendor filter"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              )}
+              {searchQuery.trim() && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 text-[11px] font-medium">
+                  <span>Search: &ldquo;{searchQuery.trim()}&rdquo;</span>
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery('')}
+                    className="hover:text-slate-900 dark:hover:text-white cursor-pointer"
+                    aria-label="Clear search query"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setVendorFilter('ALL');
+                setSearchQuery('');
+              }}
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition cursor-pointer"
+            >
+              <RotateCcw className="w-3 h-3" />
+              <span>Reset Filters</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* TAB 1: SUPPLIER PURCHASE ORDERS */}
       {activeTab === 'pos' && (() => {
-        const filteredPos = supplierPOs.filter((po) => {
-          const vName =
-            po.purchase_order_metadata?.supplier_name || po.client_snapshot?.entity_name || '';
-          if (vendorFilter !== 'ALL' && vName !== vendorFilter) return false;
-          if (!searchQuery.trim()) return true;
-          const q = searchQuery.toLowerCase();
-          return (
-            (po.formatted_quote_ref || '').toLowerCase().includes(q) ||
-            (po.purchase_order_metadata?.po_ref || '').toLowerCase().includes(q) ||
-            vName.toLowerCase().includes(q) ||
-            (po.quotation_subject || '').toLowerCase().includes(q)
-          );
-        });
-        const hasActiveFilter = vendorFilter !== 'ALL' || searchQuery.trim() !== '';
         const totalPages = Math.max(1, Math.ceil(filteredPos.length / itemsPerPage));
         const safePage = Math.min(currentPage, totalPages);
         const paginatedPos = filteredPos.slice((safePage - 1) * itemsPerPage, safePage * itemsPerPage);
 
         return (
           <div className="space-y-3">
-            <SearchResultCounter
-              totalCount={supplierPOs.length}
-              filteredCount={filteredPos.length}
-              searchQuery={searchQuery}
-              entityLabel="Supplier POs"
-              singularEntityLabel="Supplier PO"
-              activeFiltersCount={vendorFilter !== 'ALL' ? 1 : 0}
-              activeFilterLabels={vendorFilter !== 'ALL' ? [`Vendor: ${vendorFilter}`] : []}
-              onClear={() => {
-                setSearchQuery('');
-                setVendorFilter('ALL');
-              }}
-            />
-            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 shadow-2xs overflow-clip">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs overflow-clip">
               {/* MOBILE SUMMARY CARDS (< 640px) */}
               {filteredPos.length > 0 && (
                 <div className="block sm:hidden divide-y divide-slate-200/80 dark:divide-slate-800">
@@ -2143,19 +2426,25 @@ export default function ProcurementPayablesHub({
 
               {/* DESKTOP TABLE (>= 640px, or Empty State) */}
               <div className={`${filteredPos.length > 0 ? 'hidden sm:block' : 'block'} w-full overflow-x-auto lg:overflow-x-visible scrollbar-thin`}>
-                <table className="w-full min-w-[760px] lg:min-w-0 table-fixed text-left border-collapse text-xs font-sans">
-                  {filteredPos.length > 0 && (
-                    <thead className="sticky top-0 z-10 bg-slate-50/95 dark:bg-slate-800/95 backdrop-blur-xs border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
-                      <tr>
-                        <th className="py-3 px-3.5 w-[15%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">PO Ref</th>
-                        <th className="py-3 px-3.5 w-[22%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Vendor / Supplier</th>
-                        <th className="py-3 px-3 w-[12%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Date</th>
-                        <th className="py-3 px-3 w-[16%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Status / Receiving</th>
-                        <th className="py-3 pl-2 pr-5 w-[14%] text-right whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Amount</th>
-                        <th className="py-3 px-3.5 w-[215px] text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">Actions</th>
-                      </tr>
-                    </thead>
-                  )}
+                <table className="w-full min-w-[960px] lg:min-w-0 lg:table-fixed text-left border-collapse text-xs font-sans">
+                  <colgroup>
+                    <col className="w-[152px]" />
+                    <col className="w-auto" />
+                    <col className="w-[124px]" />
+                    <col className="w-[152px]" />
+                    <col className="w-[144px]" />
+                    <col className="w-[196px]" />
+                  </colgroup>
+                  <thead className="sticky top-0 z-10 bg-slate-50/95 dark:bg-slate-800/95 backdrop-blur-xs border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
+                    <tr>
+                      <th className="py-2.5 px-3.5 whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">PO Ref</th>
+                      <th className="py-2.5 px-3.5 whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Vendor / Supplier</th>
+                      <th className="py-2.5 px-3 whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Date</th>
+                      <th className="py-2.5 px-3 whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Status / Receiving</th>
+                      <th className="py-2.5 px-3 text-right whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Amount</th>
+                      <th className="py-2.5 pl-2 pr-4 text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">Actions</th>
+                    </tr>
+                  </thead>
                   <tbody className="divide-y divide-slate-200/80 dark:divide-slate-800 bg-white dark:bg-slate-900">
                     {paginatedPos.map((po) => {
                       const meta = po.purchase_order_metadata;
@@ -2178,13 +2467,14 @@ export default function ProcurementPayablesHub({
                         <tr
                           key={po.id}
                           onClick={() => setViewingPoSummary(po)}
-                          className="cursor-pointer border-l-2 border-l-transparent hover:border-l-indigo-500 hover:bg-slate-50/90 dark:hover:bg-slate-800/50 transition-colors group"
+                          className="cursor-pointer hover:bg-slate-50/80 dark:hover:bg-slate-800/60 transition-colors group"
                         >
-                          {/* 1. PO REF & LINKED ENQUIRY (Max 2 Lines) */}
+                          {/* 1. PO REF & LINKED ENQUIRY */}
                           <td className="py-2.5 px-3.5 align-middle overflow-hidden">
-                            <div className="font-mono text-xs font-bold text-indigo-700 dark:text-indigo-400 truncate" title={poRefText}>
-                              {poRefText}
-                            </div>
+                            <HoverScrollText
+                              text={poRefText}
+                              className="font-mono text-xs font-bold text-blue-600 dark:text-blue-400"
+                            />
                             <div className="mt-0.5 truncate" onClick={(e) => e.stopPropagation()}>
                               {linkedEnq ? (
                                 <button
@@ -2203,7 +2493,7 @@ export default function ProcurementPayablesHub({
                             </div>
                           </td>
 
-                          {/* 2. VENDOR / SUPPLIER (Max 2 Lines) */}
+                          {/* 2. VENDOR / SUPPLIER */}
                           <td className="py-2.5 px-3.5 align-middle overflow-hidden">
                             <div className="flex items-center gap-1 min-w-0">
                               {vCompId && onOpenCompany360 ? (
@@ -2213,18 +2503,20 @@ export default function ProcurementPayablesHub({
                                     e.stopPropagation();
                                     onOpenCompany360(vCompId);
                                   }}
-                                  className="text-left group/v inline-flex items-center gap-1 max-w-full truncate cursor-pointer"
+                                  className="text-left group/v inline-flex items-center gap-1 max-w-full min-w-0 cursor-pointer"
                                   title={vName}
                                 >
-                                  <span className="text-xs font-semibold text-slate-900 dark:text-slate-100 group-hover/v:text-indigo-600 group-hover/v:underline truncate">
-                                    {vName}
-                                  </span>
-                                  <ArrowUpRight className="w-3 h-3 text-slate-400 group-hover/v:text-indigo-600 shrink-0" />
+                                  <HoverScrollText
+                                    text={vName}
+                                    className="text-xs font-semibold text-slate-900 dark:text-slate-100 group-hover/v:text-blue-600 group-hover/v:underline"
+                                  />
+                                  <ArrowUpRight className="w-3 h-3 text-slate-400 group-hover/v:text-blue-600 shrink-0" />
                                 </button>
                               ) : (
-                                <span className="text-xs font-semibold text-slate-900 dark:text-slate-100 truncate" title={vName}>
-                                  {vName}
-                                </span>
+                                <HoverScrollText
+                                  text={vName}
+                                  className="text-xs font-semibold text-slate-900 dark:text-slate-100"
+                                />
                               )}
                             </div>
                             <div className="text-[11px] text-slate-500 dark:text-slate-400 font-mono truncate mt-0.5">
@@ -2234,7 +2526,7 @@ export default function ProcurementPayablesHub({
                             </div>
                           </td>
 
-                          {/* 3. DATE (Max 2 Lines) */}
+                          {/* 3. DATE */}
                           <td className="py-2.5 px-3 align-middle overflow-hidden">
                             <div className="font-mono text-xs font-medium text-slate-700 dark:text-slate-200 whitespace-nowrap truncate">
                               {poDateStr}
@@ -2244,7 +2536,7 @@ export default function ProcurementPayablesHub({
                             </div>
                           </td>
 
-                          {/* 4. STATUS / RECEIVING (Max 2 Lines) */}
+                          {/* 4. STATUS / RECEIVING */}
                           <td className="py-2.5 px-3 align-middle overflow-hidden">
                             <div className="flex flex-col items-start gap-1 min-w-0">
                               <span
@@ -2277,8 +2569,8 @@ export default function ProcurementPayablesHub({
                             </div>
                           </td>
 
-                          {/* 5. AMOUNT (Max 2 Lines, Right-Aligned with pr-5) */}
-                          <td className="py-2.5 pl-2 pr-5 text-right align-middle overflow-hidden">
+                          {/* 5. AMOUNT */}
+                          <td className="py-2.5 px-3 text-right align-middle overflow-hidden">
                             <div className="font-mono font-bold text-xs text-slate-900 dark:text-slate-100 tabular-nums whitespace-nowrap truncate">
                               {canViewConfidentialMargins
                                 ? `${po.currency} ${totalAmount.toLocaleString('en-US', {
@@ -2292,16 +2584,16 @@ export default function ProcurementPayablesHub({
                             </div>
                           </td>
 
-                          {/* 6. ACTIONS (Fixed Width, Compact Studio + Icon Buttons) */}
+                          {/* 6. ACTIONS */}
                           <td
-                            className="py-2.5 px-3.5 w-[215px] text-right whitespace-nowrap align-middle"
+                            className="py-2.5 pl-2 pr-4 text-right whitespace-nowrap align-middle"
                             onClick={(e) => e.stopPropagation()}
                           >
-                            <div className="inline-flex items-center justify-end gap-1">
+                            <div className="flex w-full items-center justify-end gap-1">
                               <button
                                 type="button"
                                 onClick={() => handleOpenInStudio(po)}
-                                className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 text-xs font-semibold shadow-2xs transition cursor-pointer"
+                                className="px-2 py-1 rounded-lg bg-white dark:bg-slate-800 hover:bg-blue-50 dark:hover:bg-blue-950/50 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 text-xs font-semibold shadow-2xs transition cursor-pointer"
                                 title="Open Supplier PO in A4 Studio"
                               >
                                 Studio
@@ -2310,7 +2602,7 @@ export default function ProcurementPayablesHub({
                                 <button
                                   type="button"
                                   onClick={() => handleOpenGrnModal(po)}
-                                  className="w-7 h-7 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 transition inline-flex items-center justify-center cursor-pointer"
+                                  className="w-6.5 h-6.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 transition inline-flex items-center justify-center cursor-pointer"
                                   title="Receive Stock (GRN)"
                                 >
                                   <PackageCheck className="w-3.5 h-3.5" />
@@ -2319,7 +2611,7 @@ export default function ProcurementPayablesHub({
                               <button
                                 type="button"
                                 onClick={() => handleOpenBillModal(po)}
-                                className="w-7 h-7 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 transition inline-flex items-center justify-center cursor-pointer"
+                                className="w-6.5 h-6.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 transition inline-flex items-center justify-center cursor-pointer"
                                 title="Record Supplier Bill"
                               >
                                 <FileText className="w-3.5 h-3.5" />
@@ -2327,11 +2619,12 @@ export default function ProcurementPayablesHub({
                               <button
                                 type="button"
                                 onClick={() => openCreatePvModal(undefined, po)}
-                                className="w-7 h-7 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 transition inline-flex items-center justify-center cursor-pointer"
+                                className="w-6.5 h-6.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 transition inline-flex items-center justify-center cursor-pointer"
                                 title="Issue Outbound Payment Voucher (PV)"
                               >
                                 <DollarSign className="w-3.5 h-3.5" />
                               </button>
+                              <span className="w-px h-4 bg-slate-200 dark:bg-slate-700 mx-0.5" aria-hidden="true" />
                               <button
                                 type="button"
                                 onClick={() => {
@@ -2346,7 +2639,7 @@ export default function ProcurementPayablesHub({
                                     amountLabel: `${po.currency} ${totalVal}`
                                   });
                                 }}
-                                className="w-7 h-7 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 border border-transparent hover:border-rose-200 transition inline-flex items-center justify-center cursor-pointer"
+                                className="w-6.5 h-6.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 border border-transparent hover:border-rose-200 transition inline-flex items-center justify-center cursor-pointer"
                                 title="Move Supplier PO to Recycle Bin"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
@@ -2358,21 +2651,21 @@ export default function ProcurementPayablesHub({
                     })}
                     {filteredPos.length === 0 && (
                       <tr>
-                        <td colSpan={6} className="py-12 px-4 text-center">
+                        <td colSpan={6} className="py-14 px-4 text-center">
                           {hasActiveFilter ? (
                             <div className="max-w-md mx-auto flex flex-col items-center gap-2.5">
-                              <div className="w-10 h-10 rounded-full bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center">
+                              <div className="w-10 h-10 rounded-full bg-blue-50 border border-blue-100 text-blue-600 flex items-center justify-center">
                                 <Search className="w-5 h-5" />
                               </div>
-                              <div className="text-sm font-bold text-slate-800">
+                              <div className="text-sm font-bold text-slate-800 dark:text-slate-100">
                                 No Supplier POs Match Your Filter
                               </div>
-                              <p className="text-xs text-slate-500">
+                              <p className="text-xs text-slate-500 dark:text-slate-400">
                                 No purchase orders matched{' '}
                                 {searchQuery.trim() ? (
-                                  <span className="font-semibold text-slate-700">&ldquo;{searchQuery}&rdquo;</span>
+                                  <span className="font-semibold text-slate-700 dark:text-slate-200">&ldquo;{searchQuery}&rdquo;</span>
                                 ) : (
-                                  <span className="font-semibold text-slate-700">{vendorFilter}</span>
+                                  <span className="font-semibold text-slate-700 dark:text-slate-200">{vendorFilter}</span>
                                 )}
                                 . Clear the active filter to view all {supplierPOs.length} Supplier POs.
                               </p>
@@ -2382,7 +2675,7 @@ export default function ProcurementPayablesHub({
                                   setSearchQuery('');
                                   setVendorFilter('ALL');
                                 }}
-                                className="mt-1 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-bold transition cursor-pointer"
+                                className="mt-1 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-xs font-bold transition cursor-pointer"
                               >
                                 <RotateCcw className="w-3.5 h-3.5" />
                                 <span>Clear Search / Reset Filters</span>
@@ -2390,28 +2683,19 @@ export default function ProcurementPayablesHub({
                             </div>
                           ) : (
                             <div className="max-w-md mx-auto flex flex-col items-center gap-2.5">
-                              <div className="w-11 h-11 rounded-2xl bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center">
+                              <div className="w-11 h-11 rounded-2xl bg-blue-50 border border-blue-100 text-blue-600 flex items-center justify-center">
                                 <ShoppingBag className="w-5 h-5" />
                               </div>
-                              <div className="text-sm font-bold text-slate-900">
+                              <div className="text-sm font-bold text-slate-900 dark:text-slate-100">
                                 No Outbound Supplier Purchase Orders Yet
                               </div>
-                              <p className="text-xs text-slate-500">
+                              <p className="text-xs text-slate-500 dark:text-slate-400">
                                 Issue a formal Supplier PO for client enquiry fulfillment or warehouse stock replenishment to track GRN receipts and 3-Way Match bills.
                               </p>
                               <button
                                 type="button"
-                                onClick={() => {
-                                  setNewPoVendorId('');
-                                  setNewPoSupplierName('');
-                                  setNewPoEnquiryId('');
-                                  setNewPoExpectedDate('');
-                                  setNewPoLines([
-                                    { product_id: '', item_name: '', part_no: '', qty: 1, unit: 'Nos', unit_cost: 0 }
-                                  ]);
-                                  setShowCreatePoModal(true);
-                                }}
-                                className="mt-1 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-xs transition cursor-pointer"
+                                onClick={openNewPoModal}
+                                className="mt-1 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-xs transition cursor-pointer"
                               >
                                 <Plus className="w-3.5 h-3.5" />
                                 <span>Create First Supplier PO</span>
@@ -2424,58 +2708,7 @@ export default function ProcurementPayablesHub({
                   </tbody>
                 </table>
               </div>
-              {filteredPos.length > 0 && (
-                <div className="px-4 py-3 bg-slate-50/60 dark:bg-slate-900/60 border-t border-slate-200/80 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600 dark:text-slate-400">
-                  <div className="text-xs font-mono tabular-nums text-slate-600 dark:text-slate-400">
-                    Showing <span className="font-bold text-slate-900 dark:text-slate-100">{(safePage - 1) * itemsPerPage + 1}</span> to{' '}
-                    <span className="font-bold text-slate-900 dark:text-slate-100">{Math.min(safePage * itemsPerPage, filteredPos.length)}</span> of{' '}
-                    <span className="font-bold text-slate-900 dark:text-slate-100">{filteredPos.length}</span> Supplier POs
-                  </div>
-                  <div className="flex items-center space-x-4">
-                    <div className="flex items-center space-x-2">
-                      <span className="text-xs text-slate-500 dark:text-slate-400 font-sans">Rows per page:</span>
-                      <select
-                        value={itemsPerPage}
-                        onChange={(e) => {
-                          setItemsPerPage(Number(e.target.value));
-                          setCurrentPage(1);
-                        }}
-                        className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-xs font-semibold text-slate-700 dark:text-slate-200 focus:outline-none cursor-pointer"
-                      >
-                        <option value={25}>25</option>
-                        <option value={50}>50</option>
-                        <option value={100}>100</option>
-                      </select>
-                    </div>
-                    <div className="flex items-center space-x-1">
-                      <button
-                        type="button"
-                        disabled={safePage <= 1}
-                        onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                        className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer text-xs font-semibold inline-flex items-center gap-1"
-                        title="Previous Page"
-                      >
-                        <ChevronLeft className="w-3.5 h-3.5" />
-                        <span>Prev</span>
-                      </button>
-                      <span className="text-xs font-mono tabular-nums px-2.5 text-slate-600 dark:text-slate-400">
-                        Page <span className="font-bold text-slate-900 dark:text-slate-100">{safePage}</span> of{' '}
-                        <span className="font-bold text-slate-900 dark:text-slate-100">{totalPages}</span>
-                      </span>
-                      <button
-                        type="button"
-                        disabled={safePage >= totalPages}
-                        onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                        className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer text-xs font-semibold inline-flex items-center gap-1"
-                        title="Next Page"
-                      >
-                        <span>Next</span>
-                        <ChevronRight className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
+              {renderPaginationFooter(filteredPos.length, 'Supplier POs', safePage, totalPages)}
             </div>
           </div>
         );
@@ -2483,58 +2716,13 @@ export default function ProcurementPayablesHub({
 
       {/* TAB 2: PENDING STOCK RECEIPTS (GRN) */}
       {activeTab === 'grn' && (() => {
-        const allPendingGrnRows = supplierPOs
-          .filter((po) => {
-            const st = String(po.status || '').toLowerCase();
-            return st !== 'cancelled' && st !== 'rejected';
-          })
-          .flatMap((po) =>
-            (po.line_items || [])
-              .filter((li: any) => {
-                const ordered = Number(li.qty_ordered ?? li.quantity ?? li.qty) || 0;
-                const received = Number(li.qty_received) || 0;
-                return ordered > received;
-              })
-              .map((li: any) => ({ po, li }))
-          );
-
-        const filteredGrnRows = allPendingGrnRows.filter(({ po, li }) => {
-          const vName =
-            po.purchase_order_metadata?.supplier_name || po.client_snapshot?.entity_name || '';
-          if (vendorFilter !== 'ALL' && vName !== vendorFilter) return false;
-          if (!searchQuery.trim()) return true;
-          const q = searchQuery.toLowerCase();
-          const poRef = po.purchase_order_metadata?.po_ref || po.formatted_quote_ref || '';
-          const itemName = li.item_name || li.description || '';
-          const partNo = li.part_no || '';
-          return (
-            poRef.toLowerCase().includes(q) ||
-            vName.toLowerCase().includes(q) ||
-            itemName.toLowerCase().includes(q) ||
-            partNo.toLowerCase().includes(q)
-          );
-        });
-        const hasActiveFilter = vendorFilter !== 'ALL' || searchQuery.trim() !== '';
         const totalPages = Math.max(1, Math.ceil(filteredGrnRows.length / itemsPerPage));
         const safePage = Math.min(currentPage, totalPages);
         const paginatedGrnRows = filteredGrnRows.slice((safePage - 1) * itemsPerPage, safePage * itemsPerPage);
 
         return (
           <div className="space-y-3">
-            <SearchResultCounter
-              totalCount={allPendingGrnRows.length}
-              filteredCount={filteredGrnRows.length}
-              searchQuery={searchQuery}
-              entityLabel="Pending GRN Lines"
-              singularEntityLabel="Pending GRN Line"
-              activeFiltersCount={vendorFilter !== 'ALL' ? 1 : 0}
-              activeFilterLabels={vendorFilter !== 'ALL' ? [`Vendor: ${vendorFilter}`] : []}
-              onClear={() => {
-                setSearchQuery('');
-                setVendorFilter('ALL');
-              }}
-            />
-            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 shadow-2xs overflow-clip">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs overflow-clip">
               {/* MOBILE SUMMARY CARDS (< 640px) */}
               {filteredGrnRows.length > 0 && (
                 <div className="block sm:hidden divide-y divide-slate-200/80 dark:divide-slate-800">
@@ -2606,19 +2794,25 @@ export default function ProcurementPayablesHub({
 
               {/* DESKTOP TABLE (>= 640px, or Empty State) */}
               <div className={`${filteredGrnRows.length > 0 ? 'hidden sm:block' : 'block'} w-full overflow-x-auto lg:overflow-x-visible scrollbar-thin`}>
-                <table className="w-full min-w-[760px] lg:min-w-0 table-fixed text-left border-collapse text-xs font-sans">
-                  {filteredGrnRows.length > 0 && (
-                    <thead className="sticky top-0 z-10 bg-slate-50/95 dark:bg-slate-800/95 backdrop-blur-xs border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
-                      <tr>
-                        <th className="py-3 px-3.5 w-[15%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">PO Ref &amp; Date</th>
-                        <th className="py-3 px-3.5 w-[22%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Vendor / Supplier</th>
-                        <th className="py-3 px-3.5 w-[25%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Item &amp; Part No</th>
-                        <th className="py-3 px-3 w-[13%] text-right whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Ordered / Rcvd</th>
-                        <th className="py-3 pl-2 pr-5 w-[13%] text-right whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Pending &amp; Cost</th>
-                        <th className="py-3 px-3.5 w-[155px] text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">Actions</th>
-                      </tr>
-                    </thead>
-                  )}
+                <table className="w-full min-w-[960px] lg:min-w-0 lg:table-fixed text-left border-collapse text-xs font-sans">
+                  <colgroup>
+                    <col className="w-[148px]" />
+                    <col className="w-[200px]" />
+                    <col className="w-auto" />
+                    <col className="w-[128px]" />
+                    <col className="w-[140px]" />
+                    <col className="w-[156px]" />
+                  </colgroup>
+                  <thead className="sticky top-0 z-10 bg-slate-50/95 dark:bg-slate-800/95 backdrop-blur-xs border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
+                    <tr>
+                      <th className="py-2.5 px-3.5 whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">PO Ref &amp; Date</th>
+                      <th className="py-2.5 px-3.5 whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Vendor / Supplier</th>
+                      <th className="py-2.5 px-3.5 whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Item &amp; Part No</th>
+                      <th className="py-2.5 px-3 text-right whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Ordered / Rcvd</th>
+                      <th className="py-2.5 px-3 text-right whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Pending &amp; Cost</th>
+                      <th className="py-2.5 pl-2 pr-4 text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">Actions</th>
+                    </tr>
+                  </thead>
                   <tbody className="divide-y divide-slate-200/80 dark:divide-slate-800 bg-white dark:bg-slate-900">
                     {paginatedGrnRows.map(({ po, li }) => {
                       const ordered = Number(li.qty_ordered ?? li.quantity ?? li.qty) || 0;
@@ -2640,13 +2834,14 @@ export default function ProcurementPayablesHub({
                         <tr
                           key={`${po.id}_${li.id}`}
                           onClick={() => handleOpenGrnModal(po)}
-                          className="cursor-pointer border-l-2 border-l-transparent hover:border-l-emerald-500 hover:bg-slate-50/90 dark:hover:bg-slate-800/50 transition-colors"
+                          className="cursor-pointer hover:bg-slate-50/80 dark:hover:bg-slate-800/60 transition-colors"
                         >
                           {/* 1. PO REF & DATE */}
                           <td className="py-2.5 px-3.5 align-middle overflow-hidden">
-                            <div className="font-mono text-xs font-bold text-indigo-700 dark:text-indigo-400 truncate" title={poRefText}>
-                              {poRefText}
-                            </div>
+                            <HoverScrollText
+                              text={poRefText}
+                              className="font-mono text-xs font-bold text-blue-600 dark:text-blue-400"
+                            />
                             <div className="font-mono text-[11px] text-slate-400 dark:text-slate-500 truncate mt-0.5">
                               {poDateStr}
                             </div>
@@ -2662,16 +2857,20 @@ export default function ProcurementPayablesHub({
                                     e.stopPropagation();
                                     onOpenCompany360(vCompId);
                                   }}
-                                  className="text-left hover:text-indigo-600 hover:underline inline-flex items-center gap-1 max-w-full truncate cursor-pointer"
+                                  className="text-left group/v inline-flex items-center gap-1 max-w-full min-w-0 cursor-pointer"
                                   title={vName}
                                 >
-                                  <span className="font-semibold text-xs text-slate-900 dark:text-slate-100 truncate">{vName}</span>
-                                  <ArrowUpRight className="w-3 h-3 text-slate-400 shrink-0" />
+                                  <HoverScrollText
+                                    text={vName}
+                                    className="font-semibold text-xs text-slate-900 dark:text-slate-100 group-hover/v:text-blue-600 group-hover/v:underline"
+                                  />
+                                  <ArrowUpRight className="w-3 h-3 text-slate-400 group-hover/v:text-blue-600 shrink-0" />
                                 </button>
                               ) : (
-                                <span className="font-semibold text-xs text-slate-900 dark:text-slate-100 truncate" title={vName}>
-                                  {vName}
-                                </span>
+                                <HoverScrollText
+                                  text={vName}
+                                  className="font-semibold text-xs text-slate-900 dark:text-slate-100"
+                                />
                               )}
                             </div>
                             <div className="text-[11px] text-slate-400 dark:text-slate-500 truncate mt-0.5">
@@ -2683,12 +2882,14 @@ export default function ProcurementPayablesHub({
 
                           {/* 3. ITEM & PART NO */}
                           <td className="py-2.5 px-3.5 align-middle overflow-hidden">
-                            <div className="font-semibold text-xs text-slate-900 dark:text-slate-100 truncate" title={li.item_name || li.description}>
-                              {li.item_name || li.description}
-                            </div>
-                            <div className="text-[11px] font-mono text-slate-500 dark:text-slate-400 truncate mt-0.5">
-                              {li.part_no ? `PN: ${li.part_no}` : '—'}
-                            </div>
+                            <HoverScrollText
+                              text={li.item_name || li.description || '—'}
+                              className="font-semibold text-xs text-slate-900 dark:text-slate-100"
+                            />
+                            <HoverScrollText
+                              text={li.part_no ? `PN: ${li.part_no}` : '—'}
+                              className="text-[11px] font-mono text-slate-500 dark:text-slate-400 mt-0.5"
+                            />
                           </td>
 
                           {/* 4. ORDERED / RECEIVED */}
@@ -2701,8 +2902,8 @@ export default function ProcurementPayablesHub({
                             </div>
                           </td>
 
-                          {/* 5. PENDING & COST (pr-5) */}
-                          <td className="py-2.5 pl-2 pr-5 text-right align-middle overflow-hidden">
+                          {/* 5. PENDING & COST */}
+                          <td className="py-2.5 px-3 text-right align-middle overflow-hidden">
                             <div className="font-mono font-bold text-xs text-amber-700 dark:text-amber-400 whitespace-nowrap truncate">
                               Pend: {pending} {li.unit || 'Nos'}
                             </div>
@@ -2713,10 +2914,10 @@ export default function ProcurementPayablesHub({
 
                           {/* 6. ACTIONS */}
                           <td
-                            className="py-2.5 px-3.5 w-[155px] text-right whitespace-nowrap align-middle"
+                            className="py-2.5 pl-2 pr-4 text-right whitespace-nowrap align-middle"
                             onClick={(e) => e.stopPropagation()}
                           >
-                            <div className="inline-flex items-center justify-end gap-1">
+                            <div className="flex w-full items-center justify-end gap-1">
                               <button
                                 type="button"
                                 onClick={() => handleOpenGrnModal(po)}
@@ -2724,6 +2925,7 @@ export default function ProcurementPayablesHub({
                               >
                                 Receive GRN
                               </button>
+                              <span className="w-px h-4 bg-slate-200 dark:bg-slate-700 mx-0.5" aria-hidden="true" />
                               <button
                                 type="button"
                                 onClick={() => handleOpenBillModal(po)}
@@ -2739,16 +2941,16 @@ export default function ProcurementPayablesHub({
                     })}
                     {filteredGrnRows.length === 0 && (
                       <tr>
-                        <td colSpan={6} className="py-12 px-4 text-center">
+                        <td colSpan={6} className="py-14 px-4 text-center">
                           {hasActiveFilter && allPendingGrnRows.length > 0 ? (
                             <div className="max-w-md mx-auto flex flex-col items-center gap-2.5">
-                              <div className="w-10 h-10 rounded-full bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center">
+                              <div className="w-10 h-10 rounded-full bg-blue-50 border border-blue-100 text-blue-600 flex items-center justify-center">
                                 <Search className="w-5 h-5" />
                               </div>
-                              <div className="text-sm font-bold text-slate-800">
+                              <div className="text-sm font-bold text-slate-800 dark:text-slate-100">
                                 No Pending GRN Lines Match Your Filter
                               </div>
-                              <p className="text-xs text-slate-500">
+                              <p className="text-xs text-slate-500 dark:text-slate-400">
                                 Clear the active search or vendor filter to view all {allPendingGrnRows.length} pending stock receipt lines.
                               </p>
                               <button
@@ -2757,7 +2959,7 @@ export default function ProcurementPayablesHub({
                                   setSearchQuery('');
                                   setVendorFilter('ALL');
                                 }}
-                                className="mt-1 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-bold transition cursor-pointer"
+                                className="mt-1 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-xs font-bold transition cursor-pointer"
                               >
                                 <RotateCcw className="w-3.5 h-3.5" />
                                 <span>Clear Search / Reset Filters</span>
@@ -2768,25 +2970,16 @@ export default function ProcurementPayablesHub({
                               <div className="w-11 h-11 rounded-2xl bg-emerald-50 border border-emerald-100 text-emerald-600 flex items-center justify-center">
                                 <PackageCheck className="w-5 h-5" />
                               </div>
-                              <div className="text-sm font-bold text-slate-900">
+                              <div className="text-sm font-bold text-slate-900 dark:text-slate-100">
                                 All Active Supplier POs Received into Stock
                               </div>
-                              <p className="text-xs text-slate-500">
+                              <p className="text-xs text-slate-500 dark:text-slate-400">
                                 There are no pending Goods Receipt Note (GRN) deliveries awaiting warehouse intake. Issue a new Supplier PO to schedule incoming stock.
                               </p>
                               <button
                                 type="button"
-                                onClick={() => {
-                                  setNewPoVendorId('');
-                                  setNewPoSupplierName('');
-                                  setNewPoEnquiryId('');
-                                  setNewPoExpectedDate('');
-                                  setNewPoLines([
-                                    { product_id: '', item_name: '', part_no: '', qty: 1, unit: 'Nos', unit_cost: 0 }
-                                  ]);
-                                  setShowCreatePoModal(true);
-                                }}
-                                className="mt-1 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-xs transition cursor-pointer"
+                                onClick={openNewPoModal}
+                                className="mt-1 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-xs transition cursor-pointer"
                               >
                                 <Plus className="w-3.5 h-3.5" />
                                 <span>Create Supplier PO</span>
@@ -2799,58 +2992,7 @@ export default function ProcurementPayablesHub({
                   </tbody>
                 </table>
               </div>
-              {filteredGrnRows.length > 0 && (
-                <div className="px-4 py-3 bg-slate-50/60 dark:bg-slate-900/60 border-t border-slate-200/80 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600 dark:text-slate-400">
-                  <div className="text-xs font-mono tabular-nums text-slate-600 dark:text-slate-400">
-                    Showing <span className="font-bold text-slate-900 dark:text-slate-100">{(safePage - 1) * itemsPerPage + 1}</span> to{' '}
-                    <span className="font-bold text-slate-900 dark:text-slate-100">{Math.min(safePage * itemsPerPage, filteredGrnRows.length)}</span> of{' '}
-                    <span className="font-bold text-slate-900 dark:text-slate-100">{filteredGrnRows.length}</span> Pending GRN Lines
-                  </div>
-                  <div className="flex items-center space-x-4">
-                    <div className="flex items-center space-x-2">
-                      <span className="text-xs text-slate-500 dark:text-slate-400 font-sans">Rows per page:</span>
-                      <select
-                        value={itemsPerPage}
-                        onChange={(e) => {
-                          setItemsPerPage(Number(e.target.value));
-                          setCurrentPage(1);
-                        }}
-                        className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-xs font-semibold text-slate-700 dark:text-slate-200 focus:outline-none cursor-pointer"
-                      >
-                        <option value={25}>25</option>
-                        <option value={50}>50</option>
-                        <option value={100}>100</option>
-                      </select>
-                    </div>
-                    <div className="flex items-center space-x-1">
-                      <button
-                        type="button"
-                        disabled={safePage <= 1}
-                        onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                        className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer text-xs font-semibold inline-flex items-center gap-1"
-                        title="Previous Page"
-                      >
-                        <ChevronLeft className="w-3.5 h-3.5" />
-                        <span>Prev</span>
-                      </button>
-                      <span className="text-xs font-mono tabular-nums px-2.5 text-slate-600 dark:text-slate-400">
-                        Page <span className="font-bold text-slate-900 dark:text-slate-100">{safePage}</span> of{' '}
-                        <span className="font-bold text-slate-900 dark:text-slate-100">{totalPages}</span>
-                      </span>
-                      <button
-                        type="button"
-                        disabled={safePage >= totalPages}
-                        onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                        className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer text-xs font-semibold inline-flex items-center gap-1"
-                        title="Next Page"
-                      >
-                        <span>Next</span>
-                        <ChevronRight className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
+              {renderPaginationFooter(filteredGrnRows.length, 'Pending GRN Lines', safePage, totalPages)}
             </div>
           </div>
         );
@@ -2858,38 +3000,13 @@ export default function ProcurementPayablesHub({
 
       {/* TAB 3: SUPPLIER BILLS & 3-WAY MATCH */}
       {activeTab === 'bills' && (() => {
-        const filteredBills = supplierBills.filter((b) => {
-          if (vendorFilter !== 'ALL' && b.vendor_name !== vendorFilter) return false;
-          if (!searchQuery.trim()) return true;
-          const q = searchQuery.toLowerCase();
-          return (
-            b.bill_number.toLowerCase().includes(q) ||
-            b.vendor_invoice_no.toLowerCase().includes(q) ||
-            b.vendor_name.toLowerCase().includes(q) ||
-            (b.po_ref || '').toLowerCase().includes(q)
-          );
-        });
-        const hasActiveFilter = vendorFilter !== 'ALL' || searchQuery.trim() !== '';
         const totalPages = Math.max(1, Math.ceil(filteredBills.length / itemsPerPage));
         const safePage = Math.min(currentPage, totalPages);
         const paginatedBills = filteredBills.slice((safePage - 1) * itemsPerPage, safePage * itemsPerPage);
 
         return (
           <div className="space-y-3">
-            <SearchResultCounter
-              totalCount={supplierBills.length}
-              filteredCount={filteredBills.length}
-              searchQuery={searchQuery}
-              entityLabel="Supplier Bills"
-              singularEntityLabel="Supplier Bill"
-              activeFiltersCount={vendorFilter !== 'ALL' ? 1 : 0}
-              activeFilterLabels={vendorFilter !== 'ALL' ? [`Vendor: ${vendorFilter}`] : []}
-              onClear={() => {
-                setSearchQuery('');
-                setVendorFilter('ALL');
-              }}
-            />
-            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 shadow-2xs overflow-clip">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs overflow-clip">
               {/* MOBILE SUMMARY CARDS (< 640px) */}
               {filteredBills.length > 0 && (
                 <div className="block sm:hidden divide-y divide-slate-200/80 dark:divide-slate-800">
@@ -2977,19 +3094,25 @@ export default function ProcurementPayablesHub({
 
               {/* DESKTOP TABLE (>= 640px, or Empty State) */}
               <div className={`${filteredBills.length > 0 ? 'hidden sm:block' : 'block'} w-full overflow-x-auto lg:overflow-x-visible scrollbar-thin`}>
-                <table className="w-full min-w-[760px] lg:min-w-0 table-fixed text-left border-collapse text-xs font-sans">
-                  {filteredBills.length > 0 && (
-                    <thead className="sticky top-0 z-10 bg-slate-50/95 dark:bg-slate-800/95 backdrop-blur-xs border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
-                      <tr>
-                        <th className="py-3 px-3.5 w-[15%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Bill / Inv #</th>
-                        <th className="py-3 px-3.5 w-[21%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Vendor &amp; Linked PO</th>
-                        <th className="py-3 px-3 w-[13%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Bill / Due Date</th>
-                        <th className="py-3 px-3 w-[15%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Settlement Status</th>
-                        <th className="py-3 pl-2 pr-5 w-[14%] text-right whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Total &amp; Balance</th>
-                        <th className="py-3 px-3.5 w-[225px] text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">Actions</th>
-                      </tr>
-                    </thead>
-                  )}
+                <table className="w-full min-w-[960px] lg:min-w-0 lg:table-fixed text-left border-collapse text-xs font-sans">
+                  <colgroup>
+                    <col className="w-[156px]" />
+                    <col className="w-auto" />
+                    <col className="w-[128px]" />
+                    <col className="w-[152px]" />
+                    <col className="w-[144px]" />
+                    <col className="w-[208px]" />
+                  </colgroup>
+                  <thead className="sticky top-0 z-10 bg-slate-50/95 dark:bg-slate-800/95 backdrop-blur-xs border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
+                    <tr>
+                      <th className="py-2.5 px-3.5 whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Bill / Inv #</th>
+                      <th className="py-2.5 px-3.5 whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Vendor &amp; Linked PO</th>
+                      <th className="py-2.5 px-3 whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Bill / Due Date</th>
+                      <th className="py-2.5 px-3 whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Settlement Status</th>
+                      <th className="py-2.5 px-3 text-right whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Total &amp; Balance</th>
+                      <th className="py-2.5 pl-2 pr-4 text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">Actions</th>
+                    </tr>
+                  </thead>
                   <tbody className="divide-y divide-slate-200/80 dark:divide-slate-800 bg-white dark:bg-slate-900">
                     {paginatedBills.map((bill) => {
                       const hasVariance =
@@ -3038,14 +3161,15 @@ export default function ProcurementPayablesHub({
                         <tr
                           key={bill.id}
                           onClick={() => setViewingBillSummary(bill)}
-                          className="cursor-pointer border-l-2 border-l-transparent hover:border-l-amber-500 hover:bg-slate-50/90 dark:hover:bg-slate-800/50 transition-colors"
+                          className="cursor-pointer hover:bg-slate-50/80 dark:hover:bg-slate-800/60 transition-colors"
                         >
-                          {/* 1. BILL / INV # (Max 2 Lines) */}
+                          {/* 1. BILL / INV # */}
                           <td className="py-2.5 px-3.5 align-middle overflow-hidden">
                             <div className="flex items-center gap-1.5 min-w-0">
-                              <span className="font-mono text-xs font-bold text-slate-900 dark:text-slate-100 truncate" title={bill.bill_number}>
-                                {bill.bill_number}
-                              </span>
+                              <HoverScrollText
+                                text={bill.bill_number || '—'}
+                                className="font-mono text-xs font-bold text-slate-900 dark:text-slate-100"
+                              />
                               {bill.attachment?.url && (
                                 <a
                                   href={bill.attachment.url}
@@ -3059,12 +3183,13 @@ export default function ProcurementPayablesHub({
                                 </a>
                               )}
                             </div>
-                            <div className="text-[11px] font-mono text-slate-500 dark:text-slate-400 truncate mt-0.5" title={`Inv: ${bill.vendor_invoice_no}`}>
-                              Inv: {bill.vendor_invoice_no || '—'}
-                            </div>
+                            <HoverScrollText
+                              text={`Inv: ${bill.vendor_invoice_no || '—'}`}
+                              className="text-[11px] font-mono text-slate-500 dark:text-slate-400 mt-0.5"
+                            />
                           </td>
 
-                          {/* 2. VENDOR & LINKED PO (Max 2 Lines) */}
+                          {/* 2. VENDOR & LINKED PO */}
                           <td className="py-2.5 px-3.5 align-middle overflow-hidden">
                             <div className="flex items-center gap-1 min-w-0">
                               {vCompId && onOpenCompany360 ? (
@@ -3074,26 +3199,29 @@ export default function ProcurementPayablesHub({
                                     e.stopPropagation();
                                     onOpenCompany360(vCompId);
                                   }}
-                                  className="text-left hover:text-indigo-600 hover:underline inline-flex items-center gap-1 max-w-full truncate cursor-pointer"
+                                  className="text-left group/v inline-flex items-center gap-1 max-w-full min-w-0 cursor-pointer"
                                   title={bill.vendor_name}
                                 >
-                                  <span className="font-semibold text-xs text-slate-900 dark:text-slate-100 truncate">
-                                    {bill.vendor_name}
-                                  </span>
-                                  <ArrowUpRight className="w-3 h-3 text-slate-400 shrink-0" />
+                                  <HoverScrollText
+                                    text={bill.vendor_name}
+                                    className="font-semibold text-xs text-slate-900 dark:text-slate-100 group-hover/v:text-blue-600 group-hover/v:underline"
+                                  />
+                                  <ArrowUpRight className="w-3 h-3 text-slate-400 group-hover/v:text-blue-600 shrink-0" />
                                 </button>
                               ) : (
-                                <span className="font-semibold text-xs text-slate-900 dark:text-slate-100 truncate" title={bill.vendor_name}>
-                                  {bill.vendor_name}
-                                </span>
+                                <HoverScrollText
+                                  text={bill.vendor_name}
+                                  className="font-semibold text-xs text-slate-900 dark:text-slate-100"
+                                />
                               )}
                             </div>
-                            <div className="text-[11px] font-mono text-indigo-700 dark:text-indigo-400 truncate mt-0.5">
-                              {bill.po_ref ? `PO: ${bill.po_ref}` : 'Direct Bill (No PO)'}
-                            </div>
+                            <HoverScrollText
+                              text={bill.po_ref ? `PO: ${bill.po_ref}` : 'Direct Bill (No PO)'}
+                              className="text-[11px] font-mono text-blue-600 dark:text-blue-400 mt-0.5"
+                            />
                           </td>
 
-                          {/* 3. BILL / DUE DATE (Max 2 Lines) */}
+                          {/* 3. BILL / DUE DATE */}
                           <td className="py-2.5 px-3 align-middle overflow-hidden">
                             <div className="font-mono text-xs text-slate-700 dark:text-slate-200 whitespace-nowrap truncate">
                               {billDateStr}
@@ -3107,7 +3235,7 @@ export default function ProcurementPayablesHub({
                             </div>
                           </td>
 
-                          {/* 4. SETTLEMENT STATUS & 3-WAY MATCH (Max 2 Lines) */}
+                          {/* 4. SETTLEMENT STATUS & 3-WAY MATCH */}
                           <td className="py-2.5 px-3 align-middle overflow-hidden">
                             <div className="flex flex-col items-start gap-1 min-w-0">
                               <span
@@ -3136,8 +3264,8 @@ export default function ProcurementPayablesHub({
                             </div>
                           </td>
 
-                          {/* 5. TOTAL & BALANCE (Max 2 Lines, pr-5) */}
-                          <td className="py-2.5 pl-2 pr-5 text-right align-middle overflow-hidden">
+                          {/* 5. TOTAL & BALANCE */}
+                          <td className="py-2.5 px-3 text-right align-middle overflow-hidden">
                             <div className="font-mono font-bold text-xs text-slate-900 dark:text-slate-100 tabular-nums whitespace-nowrap truncate">
                               {bill.currency}{' '}
                               {Number(bill.grand_total || 0).toLocaleString('en-US', {
@@ -3162,10 +3290,10 @@ export default function ProcurementPayablesHub({
 
                           {/* 6. ACTIONS */}
                           <td
-                            className="py-2.5 px-3.5 w-[225px] text-right whitespace-nowrap align-middle"
+                            className="py-2.5 pl-2 pr-4 text-right whitespace-nowrap align-middle"
                             onClick={(e) => e.stopPropagation()}
                           >
-                            <div className="inline-flex items-center justify-end gap-1">
+                            <div className="flex w-full items-center justify-end gap-1">
                               {bill.approval_status !== 'approved' && (!hasVariance || userIsAdmin) ? (
                                 <button
                                   type="button"
@@ -3180,7 +3308,7 @@ export default function ProcurementPayablesHub({
                                     });
                                     triggerToast?.(`Approved Supplier Bill ${bill.bill_number}.`, 'success');
                                   }}
-                                  className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-2xs cursor-pointer"
+                                  className="px-2 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-2xs cursor-pointer"
                                   title="Approve Supplier Bill for Settlement"
                                 >
                                   Approve
@@ -3189,7 +3317,7 @@ export default function ProcurementPayablesHub({
                                 <button
                                   type="button"
                                   onClick={() => openCreatePvModal(bill)}
-                                  className="px-2.5 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold shadow-2xs cursor-pointer"
+                                  className="px-2 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold shadow-2xs cursor-pointer"
                                   title="Settle Bill via Outbound Payment Voucher (PV)"
                                 >
                                   Pay
@@ -3198,15 +3326,15 @@ export default function ProcurementPayablesHub({
                                 <button
                                   type="button"
                                   onClick={() => setViewingBillSummary(bill)}
-                                  className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 hover:bg-slate-50 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 text-xs font-semibold shadow-2xs cursor-pointer"
+                                  className="px-2 py-1 rounded-lg bg-white dark:bg-slate-800 hover:bg-slate-50 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 text-xs font-semibold shadow-2xs cursor-pointer"
                                 >
-                                  Summary
+                                  Open
                                 </button>
                               )}
                               <button
                                 type="button"
                                 onClick={() => setViewingBillSummary(bill)}
-                                className="w-7 h-7 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 transition inline-flex items-center justify-center cursor-pointer"
+                                className="w-6.5 h-6.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 transition inline-flex items-center justify-center cursor-pointer"
                                 title="View / Print 3-Way Match Bill Summary"
                               >
                                 <Eye className="w-3.5 h-3.5" />
@@ -3228,7 +3356,7 @@ export default function ProcurementPayablesHub({
                                     'info'
                                   );
                                 }}
-                                className={`w-7 h-7 rounded-lg border transition inline-flex items-center justify-center cursor-pointer ${
+                                className={`w-6.5 h-6.5 rounded-lg border transition inline-flex items-center justify-center cursor-pointer ${
                                   bill.is_on_hold
                                     ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
                                     : 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
@@ -3240,11 +3368,12 @@ export default function ProcurementPayablesHub({
                               <button
                                 type="button"
                                 onClick={() => handleOpenBillModal(undefined, bill)}
-                                className="w-7 h-7 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 transition inline-flex items-center justify-center cursor-pointer"
+                                className="w-6.5 h-6.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 transition inline-flex items-center justify-center cursor-pointer"
                                 title="Edit Supplier Bill"
                               >
                                 <Edit2 className="w-3.5 h-3.5" />
                               </button>
+                              <span className="w-px h-4 bg-slate-200 dark:bg-slate-700 mx-0.5" aria-hidden="true" />
                               <button
                                 type="button"
                                 onClick={() => {
@@ -3256,7 +3385,7 @@ export default function ProcurementPayablesHub({
                                     amountLabel: `${bill.currency} ${Number(bill.grand_total || 0).toFixed(2)}`
                                   });
                                 }}
-                                className="w-7 h-7 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 border border-transparent hover:border-rose-200 transition inline-flex items-center justify-center cursor-pointer"
+                                className="w-6.5 h-6.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 border border-transparent hover:border-rose-200 transition inline-flex items-center justify-center cursor-pointer"
                                 title="Move Supplier Bill to Recycle Bin"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
@@ -3268,21 +3397,21 @@ export default function ProcurementPayablesHub({
                     })}
                     {filteredBills.length === 0 && (
                       <tr>
-                        <td colSpan={6} className="py-12 px-4 text-center">
+                        <td colSpan={6} className="py-14 px-4 text-center">
                           {hasActiveFilter ? (
                             <div className="max-w-md mx-auto flex flex-col items-center gap-2.5">
-                              <div className="w-10 h-10 rounded-full bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center">
+                              <div className="w-10 h-10 rounded-full bg-blue-50 border border-blue-100 text-blue-600 flex items-center justify-center">
                                 <Search className="w-5 h-5" />
                               </div>
-                              <div className="text-sm font-bold text-slate-800">
+                              <div className="text-sm font-bold text-slate-800 dark:text-slate-100">
                                 No Supplier Bills Match Your Filter
                               </div>
-                              <p className="text-xs text-slate-500">
+                              <p className="text-xs text-slate-500 dark:text-slate-400">
                                 No bills matched{' '}
                                 {searchQuery.trim() ? (
-                                  <span className="font-semibold text-slate-700">&ldquo;{searchQuery}&rdquo;</span>
+                                  <span className="font-semibold text-slate-700 dark:text-slate-200">&ldquo;{searchQuery}&rdquo;</span>
                                 ) : (
-                                  <span className="font-semibold text-slate-700">{vendorFilter}</span>
+                                  <span className="font-semibold text-slate-700 dark:text-slate-200">{vendorFilter}</span>
                                 )}
                                 . Clear the active filter to view all {supplierBills.length} Supplier Bills.
                               </p>
@@ -3292,7 +3421,7 @@ export default function ProcurementPayablesHub({
                                   setSearchQuery('');
                                   setVendorFilter('ALL');
                                 }}
-                                className="mt-1 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-bold transition cursor-pointer"
+                                className="mt-1 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-xs font-bold transition cursor-pointer"
                               >
                                 <RotateCcw className="w-3.5 h-3.5" />
                                 <span>Clear Search / Reset Filters</span>
@@ -3300,19 +3429,19 @@ export default function ProcurementPayablesHub({
                             </div>
                           ) : (
                             <div className="max-w-md mx-auto flex flex-col items-center gap-2.5">
-                              <div className="w-11 h-11 rounded-2xl bg-amber-50 border border-amber-200 text-amber-600 flex items-center justify-center">
+                              <div className="w-11 h-11 rounded-2xl bg-blue-50 border border-blue-100 text-blue-600 flex items-center justify-center">
                                 <FileText className="w-5 h-5" />
                               </div>
-                              <div className="text-sm font-bold text-slate-900">
+                              <div className="text-sm font-bold text-slate-900 dark:text-slate-100">
                                 No Supplier Bills Recorded Yet
                               </div>
-                              <p className="text-xs text-slate-500">
+                              <p className="text-xs text-slate-500 dark:text-slate-400">
                                 Record incoming supplier tax invoices to run automated 3-Way Match verification against Purchase Orders and GRN receipts.
                               </p>
                               <button
                                 type="button"
                                 onClick={() => handleOpenBillModal()}
-                                className="mt-1 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shadow-xs transition cursor-pointer"
+                                className="mt-1 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-xs transition cursor-pointer"
                               >
                                 <Plus className="w-3.5 h-3.5" />
                                 <span>Record First Supplier Bill</span>
@@ -3325,58 +3454,7 @@ export default function ProcurementPayablesHub({
                   </tbody>
                 </table>
               </div>
-              {filteredBills.length > 0 && (
-                <div className="px-4 py-3 bg-slate-50/60 dark:bg-slate-900/60 border-t border-slate-200/80 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600 dark:text-slate-400">
-                  <div className="text-xs font-mono tabular-nums text-slate-600 dark:text-slate-400">
-                    Showing <span className="font-bold text-slate-900 dark:text-slate-100">{(safePage - 1) * itemsPerPage + 1}</span> to{' '}
-                    <span className="font-bold text-slate-900 dark:text-slate-100">{Math.min(safePage * itemsPerPage, filteredBills.length)}</span> of{' '}
-                    <span className="font-bold text-slate-900 dark:text-slate-100">{filteredBills.length}</span> Supplier Bills
-                  </div>
-                  <div className="flex items-center space-x-4">
-                    <div className="flex items-center space-x-2">
-                      <span className="text-xs text-slate-500 dark:text-slate-400 font-sans">Rows per page:</span>
-                      <select
-                        value={itemsPerPage}
-                        onChange={(e) => {
-                          setItemsPerPage(Number(e.target.value));
-                          setCurrentPage(1);
-                        }}
-                        className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-xs font-semibold text-slate-700 dark:text-slate-200 focus:outline-none cursor-pointer"
-                      >
-                        <option value={25}>25</option>
-                        <option value={50}>50</option>
-                        <option value={100}>100</option>
-                      </select>
-                    </div>
-                    <div className="flex items-center space-x-1">
-                      <button
-                        type="button"
-                        disabled={safePage <= 1}
-                        onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                        className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer text-xs font-semibold inline-flex items-center gap-1"
-                        title="Previous Page"
-                      >
-                        <ChevronLeft className="w-3.5 h-3.5" />
-                        <span>Prev</span>
-                      </button>
-                      <span className="text-xs font-mono tabular-nums px-2.5 text-slate-600 dark:text-slate-400">
-                        Page <span className="font-bold text-slate-900 dark:text-slate-100">{safePage}</span> of{' '}
-                        <span className="font-bold text-slate-900 dark:text-slate-100">{totalPages}</span>
-                      </span>
-                      <button
-                        type="button"
-                        disabled={safePage >= totalPages}
-                        onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                        className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer text-xs font-semibold inline-flex items-center gap-1"
-                        title="Next Page"
-                      >
-                        <span>Next</span>
-                        <ChevronRight className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
+              {renderPaginationFooter(filteredBills.length, 'Supplier Bills', safePage, totalPages)}
             </div>
           </div>
         );
@@ -3384,60 +3462,29 @@ export default function ProcurementPayablesHub({
 
       {/* TAB 4: PAYMENT VOUCHERS & VENDOR RETURNS */}
       {activeTab === 'vouchers' && (() => {
-        const filteredVouchers = paymentVouchersAndReturns.filter((doc) => {
-          const vName =
-            doc.payment_voucher_metadata?.payee_name ||
-            doc.payment_voucher_metadata?.paid_to_vendor_name ||
-            doc.vendor_return_metadata?.supplier_name ||
-            doc.vendor_return_metadata?.vendor_name ||
-            doc.client_snapshot?.entity_name ||
-            '';
-          if (vendorFilter !== 'ALL' && vName !== vendorFilter) return false;
-          if (!searchQuery.trim()) return true;
-          const q = searchQuery.toLowerCase();
-          return (
-            (doc.formatted_quote_ref || '').toLowerCase().includes(q) ||
-            vName.toLowerCase().includes(q) ||
-            (doc.quotation_subject || '').toLowerCase().includes(q)
-          );
-        });
-        const hasActiveFilter = vendorFilter !== 'ALL' || searchQuery.trim() !== '';
         const totalPages = Math.max(1, Math.ceil(filteredVouchers.length / itemsPerPage));
         const safePage = Math.min(currentPage, totalPages);
         const paginatedVouchers = filteredVouchers.slice((safePage - 1) * itemsPerPage, safePage * itemsPerPage);
 
         return (
           <div className="space-y-3">
-            <SearchResultCounter
-              totalCount={paymentVouchersAndReturns.length}
-              filteredCount={filteredVouchers.length}
-              searchQuery={searchQuery}
-              entityLabel="Vouchers & Returns"
-              singularEntityLabel="Voucher / Return"
-              activeFiltersCount={vendorFilter !== 'ALL' ? 1 : 0}
-              activeFilterLabels={vendorFilter !== 'ALL' ? [`Vendor: ${vendorFilter}`] : []}
-              onClear={() => {
-                setSearchQuery('');
-                setVendorFilter('ALL');
-              }}
-            />
-            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 shadow-2xs overflow-clip">
-              <div className="p-3 border-b border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2">
-                <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs overflow-clip">
+              <div className="px-4 py-2.5 bg-slate-50/50 dark:bg-slate-800/30 border-b border-slate-200/80 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2">
+                <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">
                   Outbound Payment Vouchers (PV), Material Return Notes (MRN) &amp; Vendor Debit Notes (DN)
                 </span>
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
                     onClick={() => handleIssueVendorReturn('material_return_note')}
-                    className="px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold cursor-pointer"
+                    className="px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 text-xs font-semibold transition cursor-pointer"
                   >
                     + Material Return (MRN)
                   </button>
                   <button
                     type="button"
                     onClick={() => handleIssueVendorReturn('debit_note')}
-                    className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold cursor-pointer"
+                    className="px-2.5 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-semibold transition cursor-pointer"
                   >
                     + Vendor Debit Note (DN)
                   </button>
@@ -3535,19 +3582,25 @@ export default function ProcurementPayablesHub({
 
               {/* DESKTOP TABLE (>= 640px, or Empty State) */}
               <div className={`${filteredVouchers.length > 0 ? 'hidden sm:block' : 'block'} w-full overflow-x-auto lg:overflow-x-visible scrollbar-thin`}>
-                <table className="w-full min-w-[760px] lg:min-w-0 table-fixed text-left border-collapse text-xs font-sans">
-                  {filteredVouchers.length > 0 && (
-                    <thead className="sticky top-0 z-10 bg-slate-50/95 dark:bg-slate-800/95 backdrop-blur-xs border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
-                      <tr>
-                        <th className="py-3 px-3.5 w-[16%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Voucher / Doc Ref</th>
-                        <th className="py-3 px-3.5 w-[25%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Payee / Vendor</th>
-                        <th className="py-3 px-3 w-[14%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Date &amp; Mode</th>
-                        <th className="py-3 px-3 w-[15%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Status</th>
-                        <th className="py-3 pl-2 pr-5 w-[14%] text-right whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Amount</th>
-                        <th className="py-3 px-3.5 w-[120px] text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">Actions</th>
-                      </tr>
-                    </thead>
-                  )}
+                <table className="w-full min-w-[960px] lg:min-w-0 lg:table-fixed text-left border-collapse text-xs font-sans">
+                  <colgroup>
+                    <col className="w-[164px]" />
+                    <col className="w-auto" />
+                    <col className="w-[136px]" />
+                    <col className="w-[144px]" />
+                    <col className="w-[144px]" />
+                    <col className="w-[140px]" />
+                  </colgroup>
+                  <thead className="sticky top-0 z-10 bg-slate-50/95 dark:bg-slate-800/95 backdrop-blur-xs border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
+                    <tr>
+                      <th className="py-2.5 px-3.5 whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Voucher / Doc Ref</th>
+                      <th className="py-2.5 px-3.5 whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Payee / Vendor</th>
+                      <th className="py-2.5 px-3 whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Date &amp; Mode</th>
+                      <th className="py-2.5 px-3 whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Status</th>
+                      <th className="py-2.5 px-3 text-right whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Amount</th>
+                      <th className="py-2.5 pl-2 pr-4 text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">Actions</th>
+                    </tr>
+                  </thead>
                   <tbody className="divide-y divide-slate-200/80 dark:divide-slate-800 bg-white dark:bg-slate-900">
                     {paginatedVouchers.map((doc) => {
                       const isPv = doc.document_type === 'payment_voucher';
@@ -3590,13 +3643,14 @@ export default function ProcurementPayablesHub({
                         <tr
                           key={doc.id}
                           onClick={() => handleOpenInStudio(doc)}
-                          className="cursor-pointer border-l-2 border-l-transparent hover:border-l-indigo-500 hover:bg-slate-50/90 dark:hover:bg-slate-800/50 transition-colors"
+                          className="cursor-pointer hover:bg-slate-50/80 dark:hover:bg-slate-800/60 transition-colors"
                         >
-                          {/* 1. VOUCHER / DOC REF (Max 2 Lines) */}
+                          {/* 1. VOUCHER / DOC REF */}
                           <td className="py-2.5 px-3.5 align-middle overflow-hidden">
-                            <div className="font-mono text-xs font-bold text-slate-900 dark:text-slate-100 truncate" title={doc.formatted_quote_ref}>
-                              {doc.formatted_quote_ref}
-                            </div>
+                            <HoverScrollText
+                              text={doc.formatted_quote_ref || '—'}
+                              className="font-mono text-xs font-bold text-slate-900 dark:text-slate-100"
+                            />
                             <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400 truncate mt-0.5">
                               {isPv
                                 ? 'Payment Voucher (PV)'
@@ -3606,7 +3660,7 @@ export default function ProcurementPayablesHub({
                             </div>
                           </td>
 
-                          {/* 2. PAYEE / VENDOR (Max 2 Lines) */}
+                          {/* 2. PAYEE / VENDOR */}
                           <td className="py-2.5 px-3.5 align-middle overflow-hidden">
                             <div className="flex items-center gap-1 min-w-0">
                               {vCompId && onOpenCompany360 ? (
@@ -3616,34 +3670,40 @@ export default function ProcurementPayablesHub({
                                     e.stopPropagation();
                                     onOpenCompany360(vCompId);
                                   }}
-                                  className="text-left hover:text-indigo-600 hover:underline inline-flex items-center gap-1 max-w-full truncate cursor-pointer"
+                                  className="text-left group/v inline-flex items-center gap-1 max-w-full min-w-0 cursor-pointer"
                                   title={vName}
                                 >
-                                  <span className="font-semibold text-xs text-slate-900 dark:text-slate-100 truncate">{vName}</span>
-                                  <ArrowUpRight className="w-3 h-3 text-slate-400 shrink-0" />
+                                  <HoverScrollText
+                                    text={vName}
+                                    className="font-semibold text-xs text-slate-900 dark:text-slate-100 group-hover/v:text-blue-600 group-hover/v:underline"
+                                  />
+                                  <ArrowUpRight className="w-3 h-3 text-slate-400 group-hover/v:text-blue-600 shrink-0" />
                                 </button>
                               ) : (
-                                <span className="font-semibold text-xs text-slate-900 dark:text-slate-100 truncate" title={vName}>
-                                  {vName}
-                                </span>
+                                <HoverScrollText
+                                  text={vName}
+                                  className="font-semibold text-xs text-slate-900 dark:text-slate-100"
+                                />
                               )}
                             </div>
-                            <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5" title={doc.quotation_subject || ''}>
-                              {doc.quotation_subject || '—'}
-                            </div>
+                            <HoverScrollText
+                              text={doc.quotation_subject || '—'}
+                              className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5"
+                            />
                           </td>
 
-                          {/* 3. DATE & MODE (Max 2 Lines) */}
+                          {/* 3. DATE & MODE */}
                           <td className="py-2.5 px-3 align-middle overflow-hidden">
                             <div className="font-mono text-xs text-slate-700 dark:text-slate-200 whitespace-nowrap truncate">
                               {docDateStr}
                             </div>
-                            <div className="text-[11px] text-slate-400 dark:text-slate-500 truncate mt-0.5" title={modeOrReason}>
-                              {modeOrReason}
-                            </div>
+                            <HoverScrollText
+                              text={modeOrReason}
+                              className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5"
+                            />
                           </td>
 
-                          {/* 4. STATUS (Max 2 Lines) */}
+                          {/* 4. STATUS */}
                           <td className="py-2.5 px-3 align-middle overflow-hidden">
                             <div className="flex flex-col items-start gap-1 min-w-0">
                               <span
@@ -3668,8 +3728,8 @@ export default function ProcurementPayablesHub({
                             </div>
                           </td>
 
-                          {/* 5. AMOUNT (Max 2 Lines, pr-5) */}
-                          <td className="py-2.5 pl-2 pr-5 text-right align-middle overflow-hidden">
+                          {/* 5. AMOUNT */}
+                          <td className="py-2.5 px-3 text-right align-middle overflow-hidden">
                             <div className="font-mono font-bold text-xs text-slate-900 dark:text-slate-100 tabular-nums whitespace-nowrap truncate">
                               {isMrn
                                 ? 'Unpriced'
@@ -3685,18 +3745,19 @@ export default function ProcurementPayablesHub({
 
                           {/* 6. ACTIONS */}
                           <td
-                            className="py-2.5 px-3.5 w-[120px] text-right whitespace-nowrap align-middle"
+                            className="py-2.5 pl-2 pr-4 text-right whitespace-nowrap align-middle"
                             onClick={(e) => e.stopPropagation()}
                           >
-                            <div className="inline-flex items-center justify-end gap-1">
+                            <div className="flex w-full items-center justify-end gap-1">
                               <button
                                 type="button"
                                 onClick={() => handleOpenInStudio(doc)}
-                                className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 hover:bg-indigo-50 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 text-xs font-semibold shadow-2xs transition cursor-pointer"
+                                className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 hover:bg-blue-50 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 text-xs font-semibold shadow-2xs transition cursor-pointer"
                                 title="Open in A4 Studio"
                               >
                                 Studio
                               </button>
+                              <span className="w-px h-4 bg-slate-200 dark:bg-slate-700 mx-0.5" aria-hidden="true" />
                               <button
                                 type="button"
                                 onClick={() => {
@@ -3720,16 +3781,16 @@ export default function ProcurementPayablesHub({
                     })}
                     {filteredVouchers.length === 0 && (
                       <tr>
-                        <td colSpan={6} className="py-12 px-4 text-center">
+                        <td colSpan={6} className="py-14 px-4 text-center">
                           {hasActiveFilter ? (
                             <div className="max-w-md mx-auto flex flex-col items-center gap-2.5">
-                              <div className="w-10 h-10 rounded-full bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center">
+                              <div className="w-10 h-10 rounded-full bg-blue-50 border border-blue-100 text-blue-600 flex items-center justify-center">
                                 <Search className="w-5 h-5" />
                               </div>
-                              <div className="text-sm font-bold text-slate-800">
+                              <div className="text-sm font-bold text-slate-800 dark:text-slate-100">
                                 No Payment Vouchers or Returns Match Your Filter
                               </div>
-                              <p className="text-xs text-slate-500">
+                              <p className="text-xs text-slate-500 dark:text-slate-400">
                                 Clear the active search or vendor filter to view all {paymentVouchersAndReturns.length} vouchers and returns.
                               </p>
                               <button
@@ -3738,7 +3799,7 @@ export default function ProcurementPayablesHub({
                                   setSearchQuery('');
                                   setVendorFilter('ALL');
                                 }}
-                                className="mt-1 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-bold transition cursor-pointer"
+                                className="mt-1 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-xs font-bold transition cursor-pointer"
                               >
                                 <RotateCcw className="w-3.5 h-3.5" />
                                 <span>Clear Search / Reset Filters</span>
@@ -3746,20 +3807,20 @@ export default function ProcurementPayablesHub({
                             </div>
                           ) : (
                             <div className="max-w-md mx-auto flex flex-col items-center gap-2.5">
-                              <div className="w-11 h-11 rounded-2xl bg-amber-50 border border-amber-200 text-amber-600 flex items-center justify-center">
+                              <div className="w-11 h-11 rounded-2xl bg-blue-50 border border-blue-100 text-blue-600 flex items-center justify-center">
                                 <DollarSign className="w-5 h-5" />
                               </div>
-                              <div className="text-sm font-bold text-slate-900">
+                              <div className="text-sm font-bold text-slate-900 dark:text-slate-100">
                                 No Payment Vouchers or Vendor Returns Issued Yet
                               </div>
-                              <p className="text-xs text-slate-500">
+                              <p className="text-xs text-slate-500 dark:text-slate-400">
                                 Settle approved supplier bills with an Outbound Payment Voucher (PV), or issue a Material Return Note (MRN) / Debit Note (DN).
                               </p>
                               <div className="mt-1 flex flex-wrap items-center justify-center gap-2">
                                 <button
                                   type="button"
                                   onClick={() => handleIssuePaymentVoucher()}
-                                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shadow-xs transition cursor-pointer"
+                                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-xs transition cursor-pointer"
                                 >
                                   <Plus className="w-3.5 h-3.5" />
                                   <span>Issue First Payment Voucher</span>
@@ -3767,7 +3828,7 @@ export default function ProcurementPayablesHub({
                                 <button
                                   type="button"
                                   onClick={() => handleIssueVendorReturn('material_return_note')}
-                                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold transition cursor-pointer"
+                                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 text-xs font-bold transition cursor-pointer"
                                 >
                                   <span>Issue Material Return (MRN)</span>
                                 </button>
@@ -3780,58 +3841,7 @@ export default function ProcurementPayablesHub({
                   </tbody>
                 </table>
               </div>
-              {filteredVouchers.length > 0 && (
-                <div className="px-4 py-3 bg-slate-50/60 dark:bg-slate-900/60 border-t border-slate-200/80 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600 dark:text-slate-400">
-                  <div className="text-xs font-mono tabular-nums text-slate-600 dark:text-slate-400">
-                    Showing <span className="font-bold text-slate-900 dark:text-slate-100">{(safePage - 1) * itemsPerPage + 1}</span> to{' '}
-                    <span className="font-bold text-slate-900 dark:text-slate-100">{Math.min(safePage * itemsPerPage, filteredVouchers.length)}</span> of{' '}
-                    <span className="font-bold text-slate-900 dark:text-slate-100">{filteredVouchers.length}</span> Vouchers &amp; Returns
-                  </div>
-                  <div className="flex items-center space-x-4">
-                    <div className="flex items-center space-x-2">
-                      <span className="text-xs text-slate-500 dark:text-slate-400 font-sans">Rows per page:</span>
-                      <select
-                        value={itemsPerPage}
-                        onChange={(e) => {
-                          setItemsPerPage(Number(e.target.value));
-                          setCurrentPage(1);
-                        }}
-                        className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-xs font-semibold text-slate-700 dark:text-slate-200 focus:outline-none cursor-pointer"
-                      >
-                        <option value={25}>25</option>
-                        <option value={50}>50</option>
-                        <option value={100}>100</option>
-                      </select>
-                    </div>
-                    <div className="flex items-center space-x-1">
-                      <button
-                        type="button"
-                        disabled={safePage <= 1}
-                        onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                        className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer text-xs font-semibold inline-flex items-center gap-1"
-                        title="Previous Page"
-                      >
-                        <ChevronLeft className="w-3.5 h-3.5" />
-                        <span>Prev</span>
-                      </button>
-                      <span className="text-xs font-mono tabular-nums px-2.5 text-slate-600 dark:text-slate-400">
-                        Page <span className="font-bold text-slate-900 dark:text-slate-100">{safePage}</span> of{' '}
-                        <span className="font-bold text-slate-900 dark:text-slate-100">{totalPages}</span>
-                      </span>
-                      <button
-                        type="button"
-                        disabled={safePage >= totalPages}
-                        onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                        className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer text-xs font-semibold inline-flex items-center gap-1"
-                        title="Next Page"
-                      >
-                        <span>Next</span>
-                        <ChevronRight className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
+              {renderPaginationFooter(filteredVouchers.length, 'Vouchers & Returns', safePage, totalPages)}
             </div>
           </div>
         );

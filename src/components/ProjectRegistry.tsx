@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Project, Product, Workspace, UserProfile, LineItem, ProjectMilestone, Enquiry, Salesperson, Quotation, SupplierBill, getInitials } from '../types';
 import { dispatchProjectStock, releaseEnquiryStock } from '../services/inventoryService';
 import { updateProjectStatus, updateProjectMetadata, softDeleteProject } from '../services/projectService';
@@ -7,7 +7,6 @@ import { MetadataRepository } from '../services/repositories/MetadataRepository'
 import { canManageWorkspace, isAdmin } from '../utils/permissions';
 import { safeUpdateDoc, safeAddDoc } from '../firebase';
 import { PageHeader, PageBody, CardPanel, KpiStatCard } from './layout/UiContainer';
-import SearchResultCounter from './common/SearchResultCounter';
 import HoverScrollText from './common/HoverScrollText';
 import {
   Briefcase,
@@ -41,6 +40,9 @@ import {
   ExternalLink,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
+  SlidersHorizontal,
+  RotateCcw,
   Save
 } from 'lucide-react';
 
@@ -87,10 +89,32 @@ export default function ProjectRegistry({
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [itemsPerPage, setItemsPerPage] = useState<number>(25);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
+  const [isToolsDropdownOpen, setIsToolsDropdownOpen] = useState<boolean>(false);
+  const toolsDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setCurrentPage(1);
   }, [searchTerm, statusFilter, itemsPerPage]);
+
+  useEffect(() => {
+    if (!isToolsDropdownOpen) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (toolsDropdownRef.current && !toolsDropdownRef.current.contains(event.target as Node)) {
+        setIsToolsDropdownOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsToolsDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isToolsDropdownOpen]);
   const [isDispatching, setIsDispatching] = useState(false);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   const [confirmDispatchOpen, setConfirmDispatchOpen] = useState(false);
@@ -341,6 +365,24 @@ export default function ProjectRegistry({
       return wId === activeWorkspace.id || (!wId && activeWorkspace.id === 'ws_default');
     });
   }, [projects, activeWorkspace.id]);
+
+  // Status tab counts
+  const statusCounts = useMemo(() => {
+    const counts: Record<'All' | 'In Progress' | 'Delivered' | 'Completed' | 'Cancelled', number> = {
+      All: workspaceProjects.length,
+      'In Progress': 0,
+      Delivered: 0,
+      Completed: 0,
+      Cancelled: 0
+    };
+    for (const p of workspaceProjects) {
+      if (p.status === 'In Progress') counts['In Progress'] += 1;
+      else if (p.status === 'Delivered') counts.Delivered += 1;
+      else if (p.status === 'Completed') counts.Completed += 1;
+      else if (p.status === 'Cancelled') counts.Cancelled += 1;
+    }
+    return counts;
+  }, [workspaceProjects]);
 
   // Filtered projects
   const filteredProjects = useMemo(() => {
@@ -806,6 +848,8 @@ export default function ProjectRegistry({
     }
   };
 
+  const hasActiveFilter = Boolean(searchTerm.trim() || statusFilter !== 'All');
+
   return (
     <div>
       <PageHeader
@@ -815,165 +859,273 @@ export default function ProjectRegistry({
         badge={{ text: `${workspaceProjects.length} Projects`, variant: 'blue' }}
         currentUser={user}
         onOpenSidebar={onOpenMobileMenu}
-        secondaryActions={[
-          {
-            label: 'Export Projects CSV',
-            icon: Download,
-            onClick: handleExportCsv,
-            variant: 'outline'
-          }
-        ]}
+        beforePrimaryActions={
+          <div className="relative" ref={toolsDropdownRef}>
+            <button
+              type="button"
+              onClick={() => setIsToolsDropdownOpen((prev) => !prev)}
+              className="h-9 px-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold inline-flex items-center gap-1.5 shadow-2xs transition cursor-pointer"
+              aria-expanded={isToolsDropdownOpen}
+              aria-haspopup="menu"
+            >
+              <SlidersHorizontal className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
+              <span>Tools</span>
+              <ChevronDown
+                className={`w-3.5 h-3.5 text-slate-400 transition-transform ${
+                  isToolsDropdownOpen ? 'rotate-180' : ''
+                }`}
+              />
+            </button>
+            {isToolsDropdownOpen && (
+              <div
+                role="menu"
+                className="absolute right-0 mt-1.5 w-56 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-lg py-1.5 z-50"
+              >
+                <div className="px-3 py-1 text-[10px] font-mono font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                  Exports &amp; Actions
+                </div>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setIsToolsDropdownOpen(false);
+                    handleExportCsv();
+                  }}
+                  className="w-full px-3 py-2 text-left text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2 transition cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5 text-slate-400" />
+                  <span>Export Projects CSV</span>
+                </button>
+              </div>
+            )}
+          </div>
+        }
       />
 
-      <PageBody>
-        {/* Quick KPI Overview */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <PageBody className="!py-4 sm:!py-5 !space-y-3.5">
+        {/* Compact 4-Card KPI Strip */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           <KpiStatCard
+            compact
             label="Active Projects"
             value={kpis.activeCount}
             subtext="In Progress / Draft"
-            icon={<Briefcase className="w-5 h-5" />}
+            icon={<Briefcase className="w-4 h-4" />}
             tone="blue"
           />
 
           <KpiStatCard
+            compact
             label="Pending Dispatch"
             value={kpis.pendingDispatchCount}
             subtext="Awaiting Delivery"
-            icon={<Boxes className="w-5 h-5" />}
+            icon={<Boxes className="w-4 h-4" />}
             tone="amber"
           />
 
           <KpiStatCard
+            compact
             label="Dispatched & Completed"
             value={kpis.deliveredCount}
             subtext="Fulfilled Jobs"
-            icon={<Truck className="w-5 h-5" />}
+            icon={<Truck className="w-4 h-4" />}
             tone="emerald"
           />
 
           <KpiStatCard
+            compact
             label="Operational Value"
             value={`AED ${kpis.totalValue.toLocaleString('en-US', { maximumFractionDigits: 0 })}`}
             subtext="Total Portfolio Value"
-            icon={<DollarSign className="w-5 h-5" />}
+            icon={<DollarSign className="w-4 h-4" />}
             tone="purple"
           />
         </div>
 
-        {/* Standalone Filter Toolbar Card */}
-        <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-4 shadow-xs">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div className="relative flex-1 max-w-md min-w-[260px]">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-              <input
-                type="text"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Search projects by reference, client, title..."
-                className="w-full h-10 pl-10 pr-4 rounded-xl bg-slate-50/70 dark:bg-slate-800/80 focus:bg-white dark:focus:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs sm:text-sm text-slate-700 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-sans transition"
-              />
-            </div>
-
-            <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 md:pb-0">
-              {(['All', 'In Progress', 'Delivered', 'Completed', 'Cancelled'] as const).map((tab) => (
+        {/* Unified 2-Row White Toolbar Card */}
+        <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-3 shadow-2xs space-y-2.5">
+          {/* Row 1: Status Pill Tabs with Live Counts */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            {(['All', 'In Progress', 'Delivered', 'Completed', 'Cancelled'] as const).map((tab) => {
+              const isSelectedTab = statusFilter === tab;
+              const tabCount = statusCounts[tab] ?? 0;
+              return (
                 <button
                   key={tab}
                   type="button"
                   onClick={() => setStatusFilter(tab)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition whitespace-nowrap cursor-pointer ${
-                    statusFilter === tab
-                      ? 'bg-slate-900 dark:bg-blue-600 text-white border-slate-900 dark:border-blue-600 shadow-xs'
-                      : 'bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700'
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition whitespace-nowrap cursor-pointer ${
+                    isSelectedTab
+                      ? 'bg-slate-900 text-white border-slate-900 dark:bg-white dark:text-slate-900 dark:border-white shadow-2xs'
+                      : 'bg-slate-50 dark:bg-slate-800/70 text-slate-600 dark:text-slate-300 border-slate-200/80 dark:border-slate-700/80 hover:bg-slate-100 dark:hover:bg-slate-800'
                   }`}
                 >
-                  {tab}
+                  <span>{tab}</span>
+                  <span
+                    className={`px-1.5 py-0.5 rounded-full text-[10px] font-mono tabular-nums leading-none ${
+                      isSelectedTab
+                        ? 'bg-white/20 text-white dark:bg-slate-900/15 dark:text-slate-900'
+                        : 'bg-white dark:bg-slate-900/70 text-slate-500 dark:text-slate-400 border border-slate-200/80 dark:border-slate-700'
+                    }`}
+                  >
+                    {tabCount}
+                  </span>
                 </button>
-              ))}
+              );
+            })}
+          </div>
+
+          {/* Row 2: Compact Search Bar */}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative flex-1 min-w-[220px]">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Search projects by reference, client, title, or scope..."
+                className="w-full h-9 pl-9 pr-8 rounded-xl bg-slate-50/70 dark:bg-slate-800/80 focus:bg-white dark:focus:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs text-slate-700 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-sans transition"
+              />
+              {searchTerm && (
+                <button
+                  type="button"
+                  onClick={() => setSearchTerm('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                  title="Clear search"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
           </div>
-        </div>
 
-        <SearchResultCounter
-          totalCount={workspaceProjects.length}
-          filteredCount={filteredProjects.length}
-          searchQuery={searchTerm}
-          entityLabel="Projects"
-          singularEntityLabel="Project"
-          activeFiltersCount={statusFilter !== 'All' ? 1 : 0}
-          activeFilterLabels={statusFilter !== 'All' ? [`Status: ${statusFilter}`] : []}
-          onClear={() => {
-            setSearchTerm('');
-            setStatusFilter('All');
-          }}
-        />
+          {/* Active Filter Strip (Only Visible When Filtered) */}
+          {hasActiveFilter && (
+            <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="font-mono text-[11px] text-slate-500 dark:text-slate-400 tabular-nums">
+                  Showing <strong className="text-slate-800 dark:text-slate-100">{filteredProjects.length}</strong> of{' '}
+                  <strong className="text-slate-800 dark:text-slate-100">{workspaceProjects.length}</strong> projects
+                </span>
+                {statusFilter !== 'All' && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border border-blue-200/80 dark:border-blue-800 text-[11px] font-medium">
+                    <span>Status: {statusFilter}</span>
+                    <button
+                      type="button"
+                      onClick={() => setStatusFilter('All')}
+                      className="hover:text-blue-900 dark:hover:text-blue-100 cursor-pointer"
+                      aria-label="Remove status filter"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                )}
+                {searchTerm.trim() && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 text-[11px] font-medium">
+                    <span>Search: &ldquo;{searchTerm.trim()}&rdquo;</span>
+                    <button
+                      type="button"
+                      onClick={() => setSearchTerm('')}
+                      className="hover:text-slate-900 dark:hover:text-white cursor-pointer"
+                      aria-label="Clear search term"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchTerm('');
+                  setStatusFilter('All');
+                }}
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition cursor-pointer"
+              >
+                <RotateCcw className="w-3 h-3" />
+                <span>Reset Filters</span>
+              </button>
+            </div>
+          )}
+        </div>
 
         {/* Standalone Table Card */}
         <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl shadow-xs overflow-clip">
           {/* Projects Table */}
           <div className="w-full overflow-x-auto lg:overflow-x-visible scrollbar-thin relative">
-            {filteredProjects.length === 0 ? (
-              <div className="py-16 px-4 text-center font-sans">
-                {searchTerm.trim() || statusFilter !== 'All' ? (
-                  <div className="max-w-md mx-auto flex flex-col items-center gap-2.5">
-                    <div className="w-11 h-11 rounded-2xl bg-blue-50 border border-blue-100 text-blue-600 flex items-center justify-center">
-                      <Search className="w-5 h-5" />
-                    </div>
-                    <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100">
-                      No Projects Match Your Filter
-                    </h4>
-                    <p className="text-xs text-slate-500 dark:text-slate-400">
-                      {searchTerm.trim() ? (
-                        <>
-                          No projects match <span className="font-semibold text-slate-800 dark:text-slate-200">&ldquo;{searchTerm.trim()}&rdquo;</span>
-                          {statusFilter !== 'All' ? ` (${statusFilter})` : ''}.
-                        </>
-                      ) : (
-                        <>No projects found in the <span className="font-semibold text-slate-800 dark:text-slate-200">{statusFilter}</span> stage.</>
-                      )}{' '}
-                      Clear your search or status filter to view all {workspaceProjects.length} projects.
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSearchTerm('');
-                        setStatusFilter('All');
-                      }}
-                      className="mt-1 inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 transition cursor-pointer"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                      <span>Clear Search / Reset Filters</span>
-                    </button>
-                  </div>
-                ) : (
-                  <div className="max-w-md mx-auto flex flex-col items-center gap-2.5">
-                    <div className="w-12 h-12 rounded-2xl bg-slate-100 border border-slate-200 text-slate-500 flex items-center justify-center">
-                      <Briefcase className="w-6 h-6" />
-                    </div>
-                    <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100">
-                      No Active Projects Yet
-                    </h4>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto">
-                      Projects are instantiated when Won enquiries are converted via the &ldquo;Convert to Project / Fulfillment&rdquo; action in the Enquiries Log.
-                    </p>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <table className="w-full min-w-[760px] lg:min-w-0 table-fixed text-left border-collapse font-sans">
-                <thead className="sticky top-0 z-10 bg-slate-50/95 dark:bg-slate-800/95 backdrop-blur-xs border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
+            <table className="w-full min-w-[960px] lg:min-w-0 lg:table-fixed text-left border-collapse font-sans">
+              <colgroup>
+                <col className="w-[160px]" />
+                <col className="w-auto" />
+                <col className="w-[136px]" />
+                <col className="w-[148px]" />
+                <col className="w-[136px]" />
+                <col className="w-[140px]" />
+                <col className="w-[140px]" />
+              </colgroup>
+              <thead className="sticky top-0 z-10 bg-slate-50/95 dark:bg-slate-800/95 backdrop-blur-xs border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
+                <tr>
+                  <th className="py-2.5 px-3.5 whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Project / Ref</th>
+                  <th className="py-2.5 px-3.5 whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Client &amp; Site</th>
+                  <th className="py-2.5 px-3 whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Stage / Status</th>
+                  <th className="py-2.5 px-3 whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Fulfillment</th>
+                  <th className="py-2.5 px-3 text-right whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Contract Value</th>
+                  <th className="py-2.5 px-3 whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Owner / Date</th>
+                  <th className="py-2.5 pl-2 pr-4 text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200/80 dark:divide-slate-800 text-xs bg-white dark:bg-slate-900">
+                {filteredProjects.length === 0 ? (
                   <tr>
-                    <th className="py-3 px-3.5 w-[16%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Project / Ref</th>
-                    <th className="py-3 px-3.5 w-[22%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Client &amp; Site</th>
-                    <th className="py-3 px-3.5 w-[14%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Stage / Status</th>
-                    <th className="py-3 px-3.5 w-[16%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Fulfillment / Progress</th>
-                    <th className="py-3 pl-2 pr-5 w-[13%] text-right whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Contract Value</th>
-                    <th className="py-3 px-3 w-[9%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Owner / Timeline</th>
-                    <th className="py-3 px-3.5 w-[124px] text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">Actions</th>
+                    <td colSpan={7} className="py-14 px-4 text-center font-sans">
+                      {hasActiveFilter ? (
+                        <div className="max-w-md mx-auto flex flex-col items-center gap-2.5">
+                          <div className="w-11 h-11 rounded-2xl bg-blue-50 dark:bg-blue-950/50 border border-blue-100 dark:border-blue-800 text-blue-600 dark:text-blue-400 flex items-center justify-center">
+                            <Search className="w-5 h-5" />
+                          </div>
+                          <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                            No Projects Match Your Filter
+                          </h4>
+                          <p className="text-xs text-slate-500 dark:text-slate-400">
+                            {searchTerm.trim() ? (
+                              <>
+                                No projects match <span className="font-semibold text-slate-800 dark:text-slate-200">&ldquo;{searchTerm.trim()}&rdquo;</span>
+                                {statusFilter !== 'All' ? ` (${statusFilter})` : ''}.
+                              </>
+                            ) : (
+                              <>No projects found in the <span className="font-semibold text-slate-800 dark:text-slate-200">{statusFilter}</span> stage.</>
+                            )}{' '}
+                            Clear your search or status filter to view all {workspaceProjects.length} projects.
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSearchTerm('');
+                              setStatusFilter('All');
+                            }}
+                            className="mt-1 inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 transition cursor-pointer"
+                          >
+                            <RotateCcw className="w-3.5 h-3.5" />
+                            <span>Clear Search / Reset Filters</span>
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="max-w-md mx-auto flex flex-col items-center gap-2.5">
+                          <div className="w-12 h-12 rounded-2xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 flex items-center justify-center">
+                            <Briefcase className="w-6 h-6" />
+                          </div>
+                          <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                            No Active Projects Yet
+                          </h4>
+                          <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto">
+                            Projects are instantiated when Won enquiries are converted via the &ldquo;Convert to Project / Fulfillment&rdquo; action in the Enquiries Log.
+                          </p>
+                        </div>
+                      )}
+                    </td>
                   </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200/80 dark:divide-slate-800 text-xs bg-white dark:bg-slate-900">
-                  {filteredProjects
+                ) : (
+                  filteredProjects
                     .slice(
                       (Math.min(currentPage, Math.max(1, Math.ceil(filteredProjects.length / itemsPerPage))) - 1) *
                         itemsPerPage,
@@ -1125,51 +1277,48 @@ export default function ProjectRegistry({
                         .filter(Boolean)
                         .join(' · ') || project.project_type || 'Standard Scope';
 
+                      const refSubline = lpoNumber
+                        ? `LPO: #${lpoNumber}`
+                        : parentEnq?.sn
+                        ? `S/N #${parentEnq.sn} · ${project.project_type || 'Supply'}`
+                        : project.project_type || 'Supply';
+
                       return (
                         <tr
                           key={project.id || project.project_number}
-                          className={`border-l-2 transition-colors cursor-pointer group ${
+                          className={`transition-colors cursor-pointer group ${
                             isSelected
-                              ? 'border-l-blue-600 bg-blue-50/50 dark:bg-blue-950/30'
-                              : 'border-l-transparent hover:border-l-blue-500 hover:bg-slate-50/80 dark:hover:bg-slate-800/50'
+                              ? 'bg-blue-50/50 dark:bg-blue-950/30'
+                              : 'hover:bg-slate-50/80 dark:hover:bg-slate-800/60'
                           }`}
                           onClick={() => setSelectedProject(project)}
                         >
                           {/* 1. PROJECT / REF */}
                           <td className="py-2.5 px-3.5 align-middle overflow-hidden">
-                            <div
-                              className="font-mono text-xs font-semibold text-blue-600 dark:text-blue-400 truncate"
-                              title={project.project_number}
-                            >
-                              {project.project_number}
-                            </div>
-                            <div className="text-[11px] text-slate-400 dark:text-slate-500 font-mono truncate mt-0.5">
-                              {lpoNumber
-                                ? `LPO: #${lpoNumber}`
-                                : parentEnq?.sn
-                                ? `S/N #${parentEnq.sn} · ${project.project_type || 'Supply'}`
-                                : project.project_type || 'Supply'}
-                            </div>
+                            <HoverScrollText
+                              text={project.project_number || '—'}
+                              className="font-mono text-xs font-semibold text-blue-600 dark:text-blue-400"
+                            />
+                            <HoverScrollText
+                              text={refSubline}
+                              className="text-[11px] text-slate-400 dark:text-slate-500 font-mono mt-0.5"
+                            />
                           </td>
 
                           {/* 2. CLIENT & SITE */}
                           <td className="py-2.5 px-3.5 align-middle overflow-hidden">
-                            <div
-                              className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate"
-                              title={project.client_name}
-                            >
-                              {project.client_name}
-                            </div>
-                            <div
-                              className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5"
-                              title={siteOrTitleLine}
-                            >
-                              {siteOrTitleLine}
-                            </div>
+                            <HoverScrollText
+                              text={project.client_name || '—'}
+                              className="text-xs sm:text-[13px] font-semibold text-slate-900 dark:text-slate-100"
+                            />
+                            <HoverScrollText
+                              text={siteOrTitleLine}
+                              className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5"
+                            />
                           </td>
 
                           {/* 3. STAGE / STATUS */}
-                          <td className="py-2.5 px-3.5 align-middle overflow-hidden">
+                          <td className="py-2.5 px-3 align-middle overflow-hidden">
                             <div className="flex flex-col items-start gap-1 min-w-0">
                               <span
                                 className={`px-2 py-0.5 rounded-full text-[11px] font-semibold border truncate max-w-full leading-tight ${stagePillClass}`}
@@ -1184,9 +1333,9 @@ export default function ProjectRegistry({
                           </td>
 
                           {/* 4. FULFILLMENT / PROGRESS */}
-                          <td className="py-2.5 px-3.5 align-middle overflow-hidden">
+                          <td className="py-2.5 px-3 align-middle overflow-hidden">
                             <div className="flex items-center gap-2 min-w-0">
-                              <div className="flex-1 max-w-[96px] bg-slate-100 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                              <div className="flex-1 max-w-[92px] bg-slate-100 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden">
                                 <div
                                   className={`h-1.5 rounded-full transition-all ${
                                     project.status === 'Cancelled'
@@ -1209,7 +1358,7 @@ export default function ProjectRegistry({
                           </td>
 
                           {/* 5. CONTRACT VALUE */}
-                          <td className="py-2.5 pl-2 pr-5 text-right align-middle overflow-hidden">
+                          <td className="py-2.5 px-3 text-right align-middle overflow-hidden">
                             <div className="font-mono text-xs font-bold text-slate-900 dark:text-slate-100 tabular-nums truncate">
                               AED{' '}
                               {Number(project.contract_value || 0).toLocaleString('en-US', {
@@ -1224,20 +1373,18 @@ export default function ProjectRegistry({
 
                           {/* 6. OWNER / TIMELINE */}
                           <td className="py-2.5 px-3 align-middle overflow-hidden">
-                            <div
-                              className="text-xs font-medium text-slate-700 dark:text-slate-300 truncate"
-                              title={engineerDisplay}
-                            >
-                              {engineerDisplay}
-                            </div>
+                            <HoverScrollText
+                              text={engineerDisplay}
+                              className="text-xs font-medium text-slate-700 dark:text-slate-300"
+                            />
                             <div className="text-[11px] font-mono text-slate-400 dark:text-slate-500 truncate mt-0.5">
                               {timelineDateStr}
                             </div>
                           </td>
 
                           {/* 7. ACTIONS */}
-                          <td className="py-2.5 px-3.5 w-[124px] text-right whitespace-nowrap align-middle">
-                            <div className="inline-flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+                          <td className="py-2.5 pl-2 pr-4 text-right whitespace-nowrap align-middle">
+                            <div className="flex w-full items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
                               <button
                                 type="button"
                                 onClick={() => setSelectedProject(project)}
@@ -1245,6 +1392,7 @@ export default function ProjectRegistry({
                               >
                                 Open
                               </button>
+                              <span className="w-px h-4 bg-slate-200 dark:bg-slate-700 mx-0.5" aria-hidden="true" />
                               <button
                                 type="button"
                                 onClick={() => setDeleteConfirmTarget(project)}
@@ -1257,10 +1405,10 @@ export default function ProjectRegistry({
                           </td>
                         </tr>
                       );
-                    })}
-                </tbody>
-              </table>
-            )}
+                    })
+                )}
+              </tbody>
+            </table>
           </div>
 
           {/* Standardized Card Footer & Pagination Controls (UX-M4) */}
