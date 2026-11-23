@@ -16,6 +16,7 @@ import {
 import mammoth from 'mammoth';
 import { PdfViewer } from './PdfViewer';
 import { MarqueeLabel } from './MarqueeLabel';
+import { HoverScrollText } from './HoverScrollText';
 import { Enquiry, Company, Contact, Salesperson, LineItem, Attachment, ProductType, UnitType, EnquiryStatus, Product, ProductAttribute, CATEGORY_SUGGESTED_ATTRIBUTES, DropdownOption, Workspace, ENQUIRY_STATUS_OPTIONS, normalizeEnquiryStatus, LegalSuffix, PIPELINE_STATUS_GROUPS, WorkspaceSequenceCounters, resolveCountryCode, sanitizeCompanyCode, LineItemImageDisplayOverride, LineItemImageSizeOverride, LineItemImageAspectOverride, QuotationTaxMode, resolveSalespersonName } from '../types';
 import { db } from '../firebase';
 import { writeBatch, doc, updateDoc } from 'firebase/firestore';
@@ -244,62 +245,10 @@ const LineItemTier3BMediaGrid: React.FC<LineItemTier3BMediaGridProps> = ({
   };
 
   return (
-    <div className="space-y-3 pt-1" onPaste={handlePasteOnMedia}>
-      {/* Row 1: Balanced 3-column Brand / Model / Origin row */}
-      <div className="grid grid-cols-1 @[520px]:grid-cols-3 gap-3">
-        <div className="min-w-0">
-          <div className="flex items-center justify-between h-5 mb-1">
-            <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider truncate">
-              Brand / Make
-            </label>
-          </div>
-          <input
-            type="text"
-            placeholder="e.g. Siemens, ABB, Schneider"
-            value={item.brand_make ?? matchedProd?.brand_make ?? ''}
-            onChange={(e) => handleLineItemChange(index, 'brand_make', e.target.value)}
-            className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white focus:outline-none"
-          />
-        </div>
-
-        <div className="min-w-0">
-          <div className="flex items-center justify-between h-5 mb-1">
-            <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider truncate">
-              Model / Part No.
-            </label>
-          </div>
-          <input
-            type="text"
-            placeholder="e.g. MOD-200X"
-            value={item.model_part_no ?? matchedProd?.model_part_no ?? ''}
-            onChange={(e) => handleLineItemChange(index, 'model_part_no', e.target.value)}
-            className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 rounded-lg py-1.5 px-2.5 text-xs font-mono text-slate-900 dark:text-white focus:outline-none"
-          />
-        </div>
-
-        <div className="min-w-0">
-          <div className="flex items-center justify-between h-5 mb-1">
-            <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider truncate">
-              Origin
-            </label>
-          </div>
-          <input
-            type="text"
-            placeholder="e.g. USA, UAE"
-            value={item.country_of_origin ?? matchedProd?.country_of_origin ?? ''}
-            onChange={(e) => handleLineItemChange(index, 'country_of_origin', e.target.value)}
-            className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white focus:outline-none"
-          />
-        </div>
-      </div>
-
-      {/* Row 2: Dedicated full-width Media & Datasheet horizontal strip */}
-      <div className="pt-2.5 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2.5 flex-wrap">
+    <div className="space-y-2.5" onPaste={handlePasteOnMedia}>
+      {/* Compact single-row Media & Datasheet bar */}
+      <div className="flex items-center justify-between gap-2 flex-wrap">
         <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap min-w-0">
-          <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap shrink-0 mr-0.5">
-            Media &amp; Datasheet
-          </span>
-
           <div
             onDragOver={(e) => e.preventDefault()}
             onDrop={(e) => {
@@ -309,7 +258,7 @@ const LineItemTier3BMediaGrid: React.FC<LineItemTier3BMediaGridProps> = ({
                 handleUploadFile(file, 'primary');
               }
             }}
-            className="relative group w-8 h-8 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 overflow-hidden flex items-center justify-center shrink-0 transition hover:border-blue-400"
+            className="relative group w-9 h-9 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800/60 overflow-hidden flex items-center justify-center shrink-0 transition hover:border-blue-400"
             title={
               effectiveImageUrl
                 ? 'Click to Zoom / Adjust • Drop file or Ctrl+V to replace'
@@ -352,7 +301,7 @@ const LineItemTier3BMediaGrid: React.FC<LineItemTier3BMediaGridProps> = ({
           {secondaryImageUrl && (
             <div
               onClick={() => setIsLightboxOpen(true)}
-              className="relative group w-8 h-8 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/40 dark:bg-blue-950/40 overflow-hidden flex items-center justify-center shrink-0 cursor-zoom-in"
+              className="relative group w-9 h-9 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/40 dark:bg-blue-950/40 overflow-hidden flex items-center justify-center shrink-0 cursor-zoom-in"
               title="2nd Technical Diagram attached (Click to zoom)"
             >
               <img
@@ -394,7 +343,7 @@ const LineItemTier3BMediaGrid: React.FC<LineItemTier3BMediaGridProps> = ({
             type="button"
             onClick={() => primaryInputRef.current?.click()}
             disabled={isUploadingPrimary}
-            className="px-2.5 py-1 rounded-md text-[11px] font-semibold bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 flex items-center gap-1 transition cursor-pointer whitespace-nowrap shrink-0"
+            className="px-2.5 py-1 rounded-md text-[11px] font-semibold bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 inline-flex items-center gap-1 transition cursor-pointer whitespace-nowrap shrink-0"
             title="Upload or Replace Primary Image (or press Ctrl+V)"
           >
             <Upload className="w-3 h-3 text-slate-500 shrink-0" />
@@ -405,7 +354,7 @@ const LineItemTier3BMediaGrid: React.FC<LineItemTier3BMediaGridProps> = ({
             <button
               type="button"
               onClick={() => setIsLightboxOpen(true)}
-              className="px-2.5 py-1 rounded-md text-[11px] font-semibold bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 flex items-center gap-1 transition cursor-pointer whitespace-nowrap shrink-0"
+              className="px-2.5 py-1 rounded-md text-[11px] font-semibold bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 inline-flex items-center gap-1 transition cursor-pointer whitespace-nowrap shrink-0"
               title="Open Lightbox Zoom & Rotate"
             >
               <Maximize2 className="w-3 h-3 text-blue-600 shrink-0" />
@@ -416,10 +365,10 @@ const LineItemTier3BMediaGrid: React.FC<LineItemTier3BMediaGridProps> = ({
           <button
             type="button"
             onClick={() => setIsOpen((prev) => !prev)}
-            className={`px-2.5 py-1 rounded-md text-[11px] font-semibold border flex items-center gap-1 transition cursor-pointer whitespace-nowrap shrink-0 ${
+            className={`px-2.5 py-1 rounded-md text-[11px] font-semibold border inline-flex items-center gap-1 transition cursor-pointer whitespace-nowrap shrink-0 ${
               isOpen || hasCustomOverrides
                 ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800'
-                : 'bg-slate-100/80 dark:bg-slate-800 hover:bg-slate-200/70 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+                : 'bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
             }`}
             title="Configure Per-Item Image Placement, Size, 2nd Diagram & Caption"
           >
@@ -431,32 +380,35 @@ const LineItemTier3BMediaGrid: React.FC<LineItemTier3BMediaGridProps> = ({
             {isOpen ? <ChevronUp className="w-3 h-3 shrink-0" /> : <ChevronDown className="w-3 h-3 shrink-0" />}
           </button>
 
-          {effectiveImageUrl && (
-            <button
-              type="button"
-              onClick={() => onPatchMedia({ image_url: '' })}
-              className="p-1.5 rounded-md text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer shrink-0"
-              title="Remove Primary Image"
+          {effectiveDatasheet && (
+            <label
+              className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-indigo-50/70 dark:bg-indigo-950/40 border border-indigo-200/80 dark:border-indigo-800/70 text-[11px] text-indigo-700 dark:text-indigo-300 font-semibold cursor-pointer whitespace-nowrap shrink-0"
+              title={`Datasheet: ${effectiveDatasheet.name}`}
             >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
+              <input
+                type="checkbox"
+                checked={item.include_datasheet_in_quote !== false}
+                onChange={(e) =>
+                  handleLineItemChange(index, 'include_datasheet_in_quote', e.target.checked)
+                }
+                className="w-3 h-3 rounded text-indigo-600"
+              />
+              <FileText className="w-3 h-3 text-indigo-500 shrink-0" />
+              <span>Datasheet</span>
+            </label>
           )}
         </div>
 
-        {effectiveDatasheet && (
-          <label className="flex items-center gap-1.5 text-[11px] text-indigo-700 dark:text-indigo-300 font-semibold cursor-pointer whitespace-nowrap shrink-0 ml-auto">
-            <input
-              type="checkbox"
-              checked={item.include_datasheet_in_quote !== false}
-              onChange={(e) =>
-                handleLineItemChange(index, 'include_datasheet_in_quote', e.target.checked)
-              }
-              className="w-3.5 h-3.5 rounded text-indigo-600"
-            />
-            <span className="truncate max-w-[160px]" title={effectiveDatasheet.name}>
-              Annex PDF
-            </span>
-          </label>
+        {effectiveImageUrl && (
+          <button
+            type="button"
+            onClick={() => onPatchMedia({ image_url: '' })}
+            className="px-2 py-1 rounded-md text-[11px] font-medium text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 border border-transparent hover:border-rose-200 dark:hover:border-rose-800 inline-flex items-center gap-1 transition cursor-pointer whitespace-nowrap shrink-0 ml-auto"
+            title="Remove Primary Image"
+          >
+            <Trash2 className="w-3 h-3 shrink-0" />
+            <span>Clear</span>
+          </button>
         )}
       </div>
 
@@ -1478,6 +1430,30 @@ export default function EnquiryForm({
   }, []);
   const [activeFormSection, setActiveFormSection] = useState<'company' | 'line_items' | 'value'>('company');
   const disclosure = useEnquiryDisclosureState(Boolean(enquiryToEdit?.id));
+  const [lineItemReviewMode, setLineItemReviewMode] = useState<'compact' | 'expanded'>('compact');
+  const [linePanelOverrides, setLinePanelOverrides] = useState<
+    Record<number, Partial<Record<'specs' | 'included' | 'scope' | 'cost' | 'media', boolean>>>
+  >({});
+  const [openDescriptionNotes, setOpenDescriptionNotes] = useState<Record<number, boolean>>({});
+
+  const handleSetLineItemReviewMode = (mode: 'compact' | 'expanded') => {
+    setLineItemReviewMode(mode);
+    setLinePanelOverrides({});
+  };
+
+  const setLinePanelOverride = (
+    index: number,
+    panel: 'specs' | 'included' | 'scope' | 'cost' | 'media',
+    isOpen: boolean
+  ) => {
+    setLinePanelOverrides((prev) => ({
+      ...prev,
+      [index]: {
+        ...(prev[index] || {}),
+        [panel]: isOpen
+      }
+    }));
+  };
 
   const handleFormScroll = (e: React.UIEvent<HTMLFieldSetElement>) => {
     const container = e.currentTarget;
@@ -3355,6 +3331,24 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
   const handleRemoveLineItem = (index: number) => {
     setLineItems(lineItems.filter((_, i) => i !== index));
+    setLinePanelOverrides((prev) => {
+      const next: typeof prev = {};
+      Object.entries(prev).forEach(([k, val]) => {
+        const idx = Number(k);
+        if (idx < index) next[idx] = val;
+        else if (idx > index) next[idx - 1] = val;
+      });
+      return next;
+    });
+    setOpenDescriptionNotes((prev) => {
+      const next: typeof prev = {};
+      Object.entries(prev).forEach(([k, val]) => {
+        const idx = Number(k);
+        if (idx < index) next[idx] = val;
+        else if (idx > index) next[idx - 1] = val;
+      });
+      return next;
+    });
   };
 
   // File attachment uploading: Streams to Supabase Storage if configured and selected, or uses local IndexedDB fallback
@@ -5995,15 +5989,15 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
   const renderPreviewWidthPresets = () => (
     <div
-      className="hidden md:inline-flex items-center p-0.5 rounded-lg bg-slate-100 border border-slate-200 shrink-0"
+      className="hidden md:inline-flex items-center p-0.5 rounded-lg bg-slate-100 border border-slate-200/90 shrink-0"
       role="group"
       aria-label="Split-screen width ratio"
     >
       {(
         [
-          { id: 'narrow', label: '32/68', title: 'Narrow preview (32% preview / 68% form)' },
-          { id: 'balanced', label: '40/60', title: 'Balanced split (40% preview / 60% form)' },
-          { id: 'half', label: '50/50', title: 'Half split (50% preview / 50% form)' }
+          { id: 'narrow', label: '32%', title: 'Narrow preview (32% preview / 68% form)' },
+          { id: 'balanced', label: '40%', title: 'Balanced split (40% preview / 60% form)' },
+          { id: 'half', label: '50%', title: 'Half split (50% preview / 50% form)' }
         ] as const
       ).map((preset) => {
         const active = previewWidthPreset === preset.id;
@@ -6060,39 +6054,42 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
             {/* Case 1: Document File Preview (PDF or Image) */}
             {activePreviewUrl && (
               <>
-                <div className="px-3.5 py-3 border-b border-slate-200 flex items-center justify-between gap-2 bg-white shrink-0">
-                  <div className="flex items-center space-x-2 min-w-0 flex-1">
+                <div className="px-3 py-2.5 border-b border-slate-200 flex items-center justify-between gap-2 bg-white shrink-0">
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
                     <Eye className="w-4 h-4 text-blue-600 shrink-0" />
-                    <span className="font-bold text-slate-800 text-xs sm:text-sm truncate" title={previewFileName}>
-                      {previewFileName}
-                    </span>
+                    <HoverScrollText
+                      text={previewFileName || 'Document Preview'}
+                      containerClassName="flex-1 min-w-0"
+                      className="font-semibold text-slate-800 text-xs sm:text-[13px]"
+                      title={previewFileName}
+                    />
                   </div>
-                  <div className="flex items-center gap-1.5 shrink-0">
+                  <div className="flex items-center gap-1 shrink-0">
                     {renderPreviewWidthPresets()}
                     <a 
                       href={getSafeBlobUrl(activePreviewUrl)}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-[11px] font-sans rounded-lg transition border border-slate-200 whitespace-nowrap shrink-0"
-                      title="Open file in a new tab (bypasses browser iframe/adblock restrictions)"
+                      className="inline-flex items-center gap-1 px-2 py-1 bg-slate-50 hover:bg-slate-100 text-slate-700 font-semibold text-[11px] font-sans rounded-lg transition border border-slate-200/90 whitespace-nowrap shrink-0"
+                      title="Pop out file in a new tab"
                     >
                       <ExternalLink className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-                      <span className="hidden xl:inline">Open in New Tab</span>
+                      <span className="hidden 2xl:inline">Pop Out</span>
                     </a>
                     <button 
                       type="button"
                       onClick={() => setPreviewMinimized(true)}
-                      className="px-2 py-1 hover:bg-slate-100 text-slate-600 hover:text-slate-800 rounded-lg transition font-sans text-[11px] flex items-center gap-1 border border-slate-200 whitespace-nowrap shrink-0 cursor-pointer"
-                      title="Minimize preview & expand Register New Enquiry form to maximum width"
+                      className="inline-flex items-center gap-1 px-2 py-1 bg-white hover:bg-slate-100 text-slate-600 hover:text-slate-900 rounded-lg transition font-sans text-[11px] font-semibold border border-slate-200/90 whitespace-nowrap shrink-0 cursor-pointer"
+                      title="Hide preview & expand form to full width"
                     >
-                      <Minimize2 className="w-3.5 h-3.5 text-slate-600 shrink-0" />
-                      <span className="hidden lg:inline font-semibold">Minimize</span>
+                      <Minimize2 className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                      <span className="hidden 2xl:inline">Hide</span>
                     </button>
                     <button 
                       type="button"
                       onClick={() => setActivePreviewUrl(null)}
-                      className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-slate-600 transition shrink-0 cursor-pointer"
-                      title="Hide Preview Panel"
+                      className="p-1 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-slate-600 transition shrink-0 cursor-pointer"
+                      title="Close Preview Panel"
                     >
                       <X className="w-4 h-4" />
                     </button>
@@ -6162,31 +6159,35 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
             {/* Case 2: Smart Paste Raw Text Source & Field Mapping Preview */}
             {!activePreviewUrl && pastedSourceText && (
               <>
-                <div className="px-3.5 py-3 border-b border-slate-200 flex items-center justify-between gap-2 bg-white shrink-0 shadow-2xs">
-                  <div className="flex items-center space-x-2 min-w-0 flex-1">
+                <div className="px-3 py-2.5 border-b border-slate-200 flex items-center justify-between gap-2 bg-white shrink-0 shadow-2xs">
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
                     <FileSpreadsheet className="w-4 h-4 text-emerald-600 shrink-0" />
-                    <div className="min-w-0">
-                      <h4 className="font-bold text-slate-800 text-xs sm:text-sm font-sans flex items-center gap-1.5 truncate">
-                        <span className="truncate">Smart Paste Source</span>
-                        <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-mono rounded-full font-bold shrink-0">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <HoverScrollText
+                          text="Smart Paste Source"
+                          containerClassName="min-w-0"
+                          className="font-semibold text-slate-800 text-xs sm:text-[13px]"
+                        />
+                        <span className="px-1.5 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200/80 text-[10px] font-mono rounded-md font-semibold shrink-0 whitespace-nowrap">
                           AI Mapped
                         </span>
-                      </h4>
+                      </div>
                       <p className="text-[10px] text-slate-500 font-sans truncate">
-                        Click chips below to highlight mapped form fields
+                        Click chips below to highlight mapped fields
                       </p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1.5 shrink-0">
+                  <div className="flex items-center gap-1 shrink-0">
                     {renderPreviewWidthPresets()}
                     <button
                       type="button"
                       onClick={() => setPreviewMinimized(true)}
-                      className="px-2 py-1 hover:bg-slate-100 text-slate-600 hover:text-slate-900 rounded-lg transition font-sans text-[11px] flex items-center gap-1 border border-slate-200 whitespace-nowrap shrink-0 cursor-pointer"
-                      title="Minimize preview & expand Register New Enquiry form to full width"
+                      className="inline-flex items-center gap-1 px-2 py-1 bg-white hover:bg-slate-100 text-slate-600 hover:text-slate-900 rounded-lg transition font-sans text-[11px] font-semibold border border-slate-200/90 whitespace-nowrap shrink-0 cursor-pointer"
+                      title="Hide preview & expand form to full width"
                     >
-                      <Minimize2 className="w-3.5 h-3.5 text-slate-600 shrink-0" />
-                      <span className="hidden lg:inline font-semibold">Minimize</span>
+                      <Minimize2 className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                      <span className="hidden 2xl:inline">Hide</span>
                     </button>
                     <button
                       type="button"
@@ -6194,7 +6195,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                         setPastedSourceText(null);
                         setPastedExtractedData(null);
                       }}
-                      className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-slate-600 transition shrink-0 cursor-pointer"
+                      className="p-1 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-slate-600 transition shrink-0 cursor-pointer"
                       title="Close Smart Paste preview"
                     >
                       <X className="w-4 h-4" />
@@ -8295,7 +8296,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
           {/* Chapter 2: 2. Proposal Line Items */}
           <div id="field-line_items" className={`scroll-mt-4 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl p-5 space-y-4 shadow-2xs ${getHighlightClasses('line_items')}`}>
             <div className="flex flex-wrap items-center justify-between gap-2.5 pb-3.5 border-b border-slate-100 dark:border-slate-800">
-              <div className="flex items-center gap-3 min-w-0 flex-wrap">
+              <div className="flex items-center gap-2.5 min-w-0 flex-wrap">
                 <span className="w-6 h-6 rounded-lg bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 font-bold text-xs flex items-center justify-center shrink-0 border border-blue-200/60 dark:border-blue-800/60">
                   2
                 </span>
@@ -8303,13 +8304,13 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 leading-tight whitespace-nowrap">
                     Proposal Line Items
                   </h3>
-                  <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-mono text-[11px] font-bold">
+                  <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-mono tabular-nums text-[11px] font-bold">
                     {lineItems.length}
                   </span>
                 </div>
                 {renderConfidenceBadge('line_items')}
                 <div
-                  className="inline-flex items-center rounded-lg bg-slate-100 dark:bg-slate-800 p-0.5 border border-slate-200/80 dark:border-slate-700"
+                  className="inline-flex items-center rounded-lg bg-slate-100 dark:bg-slate-800 p-0.5 border border-slate-200/80 dark:border-slate-700 shrink-0"
                   title="Switch active proposal currency (converts existing line item rates between AED and USD)"
                 >
                   <button
@@ -8335,6 +8336,37 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     USD
                   </button>
                 </div>
+                {lineItems.length > 0 && (
+                  <div
+                    className="inline-flex items-center rounded-lg bg-slate-100 dark:bg-slate-800 p-0.5 border border-slate-200/80 dark:border-slate-700 shrink-0"
+                    role="group"
+                    aria-label="Line item review mode"
+                    title="Switch between Compact cards and Expand All review mode across every line item"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => handleSetLineItemReviewMode('compact')}
+                      className={`px-2 py-0.5 text-[11px] font-sans font-semibold rounded-md transition whitespace-nowrap cursor-pointer ${
+                        lineItemReviewMode === 'compact'
+                          ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs border border-slate-200/70 dark:border-slate-700'
+                          : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 border border-transparent'
+                      }`}
+                    >
+                      Compact
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleSetLineItemReviewMode('expanded')}
+                      className={`px-2 py-0.5 text-[11px] font-sans font-semibold rounded-md transition whitespace-nowrap cursor-pointer ${
+                        lineItemReviewMode === 'expanded'
+                          ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-2xs border border-slate-200/70 dark:border-slate-700'
+                          : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 border border-transparent'
+                      }`}
+                    >
+                      Expand All
+                    </button>
+                  </div>
+                )}
               </div>
               <div className="flex items-center gap-2 flex-wrap">
                 {lineItems.some((li) => !li.item_name?.trim() && li.description?.trim()) && (
@@ -8395,14 +8427,16 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 </datalist>
 
                 {lineItems.map((item, index) => {
-                  const isServiceOrFee =
-                    (item as any).classification === 'Charge / Fee (Service)' ||
+                  const isDiscountItem =
                     (item as any).classification === 'Discount / Rebate' ||
+                    item.item_type === 'discount';
+                  const isServiceChargeItem =
+                    (item as any).classification === 'Charge / Fee (Service)' ||
                     item.item_type === 'charge' ||
-                    item.item_type === 'discount' ||
                     (item.item_type as string) === 'service' ||
                     (item.item_type as string) === 'fee' ||
                     item.product_type === 'Service / Charge';
+                  const isServiceOrFee = isServiceChargeItem || isDiscountItem;
 
                   const isCompositeItem = Boolean(
                     item.is_composite_set || (item.sub_components && item.sub_components.length > 0)
@@ -8418,9 +8452,8 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                       key={index}
                       className="@container bg-slate-50/50 dark:bg-slate-800/30 border border-slate-200/90 dark:border-slate-700/80 p-4 rounded-xl space-y-3"
                     >
-                      {/* Card Header Block — Max 2 Clean Rows (Row 1: Identity & Actions, Row 2: Optional Variant Family Bar) */}
+                      {/* 1. Card Header Strip + 2. Optional Variant Family Bar */}
                       <div className="space-y-2 pb-2.5 border-b border-slate-200/80 dark:border-slate-700/80">
-                        {/* Row 1: Identity & Linked SKU on left, Clone & Remove anchored right */}
                         <div className="flex items-start sm:items-center justify-between gap-2">
                           <div className="flex items-center gap-1.5 min-w-0 flex-1 flex-wrap">
                             <span className="px-2 py-0.5 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 font-mono tabular-nums text-[11px] font-bold shrink-0">
@@ -8579,7 +8612,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                           </div>
                         </div>
 
-                        {/* Row 2 (Only if linked product belongs to a Variant Family) */}
+                        {/* Variant Family Bar (untouched functionally) */}
                         {matchedHeaderProduct && (
                           <VariantFamilyBar
                             item={item}
@@ -8597,15 +8630,18 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                         )}
                       </div>
 
-                      {/* Primary 80/20 Commercial Row: Item Name, Qty, Unit, Selling Price & Live Line Total */}
+                      {/* Core Commercial Row + Core Identity & Delivery Strip + Fixed Section Bar + Predictable Expanded Panels */}
                       {(() => {
-                        const panelState = disclosure.expandedLinePanels[index] || {};
+                        const overrides = linePanelOverrides[index] || {};
+                        const isGlobalExpanded = lineItemReviewMode === 'expanded';
                         const matchedProd = item.product_id
                           ? (products || []).find((p) => p.id === item.product_id)
                           : null;
                         const effectiveImageUrl = item.image_url || matchedProd?.image_url || '';
                         const effectiveDatasheet =
                           item.datasheet_attachment || matchedProd?.datasheet_attachment;
+                        const effectiveSecondaryImage =
+                          item.secondary_image_url || matchedProd?.secondary_image_url || '';
 
                         const qtyVal = Number(item.quantity) || 0;
                         const unitVal = Number(item.unit_price) || 0;
@@ -8626,33 +8662,45 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                         const sell = Number(item.unit_price) || 0;
                         const cost = Number(item.cost_price) || 0;
                         const marginPct = sell > 0 && cost > 0 ? ((sell - cost) / sell) * 100 : null;
+                        const lineProfit = cost > 0 ? Number((currentTotal - qtyVal * cost).toFixed(2)) : null;
 
-                        const specCount =
-                          (item.description?.trim() ? 1 : 0) +
-                          (item.attributes || []).filter((a) => a.key?.trim() || a.value?.trim()).length;
+                        const populatedAttrCount = (item.attributes || []).filter(
+                          (a) => a.key?.trim() || a.value?.trim()
+                        ).length;
+                        const specCount = populatedAttrCount + (item.description?.trim() ? 1 : 0);
+                        const subCount = (item.sub_components || []).length;
 
-                        const hasMediaOrBrand = Boolean(
-                          (item.brand_make ?? matchedProd?.brand_make) ||
-                            (item.model_part_no ?? matchedProd?.model_part_no) ||
-                            effectiveImageUrl ||
-                            effectiveDatasheet
+                        const hasMediaAsset = Boolean(
+                          effectiveImageUrl || effectiveSecondaryImage || effectiveDatasheet
                         );
 
                         const optLabel =
                           (item as any).option_designation || item.option || 'Default / Included';
                         const shortOpt =
                           optLabel === 'Default / Included' ? 'Baseline' : optLabel;
+                        const hasNonDefaultScope = Boolean(
+                          (optLabel && optLabel !== 'Default / Included') ||
+                            (item.product_type && item.product_type !== 'General') ||
+                            isServiceOrFee
+                        );
+                        const hasCostEntered = cost > 0 || isOverridden;
 
-                        const isScopeOpen = Boolean(panelState.scope);
-                        const isSpecsOpen = Boolean(panelState.specs);
-                        const isMediaOpen = Boolean(panelState.media);
-                        const isCostOpen = Boolean(panelState.cost || isEditingOverride);
-                        const subCount = (item.sub_components || []).length;
-                        const isIncludedOpen = Boolean(panelState.included ?? (isCompositeItem || subCount > 0));
+                        const isSpecsOpen = overrides.specs ?? isGlobalExpanded;
+                        const isIncludedOpen =
+                          overrides.included ?? (isCompositeItem || subCount > 0);
+                        const isScopeOpen = overrides.scope ?? isGlobalExpanded;
+                        const isCostOpen = overrides.cost ?? (isGlobalExpanded || isEditingOverride);
+                        const isMediaOpen = overrides.media ?? isGlobalExpanded;
+
+                        const showDescriptionEditor = Boolean(
+                          isServiceOrFee ||
+                            item.description?.trim() ||
+                            openDescriptionNotes[index]
+                        );
 
                         return (
                           <div className="space-y-3">
-                            {/* Consistent Primary Commercial Row for ALL Line Items (Single or Package) */}
+                            {/* 3. Row 1 — Core Commercial (Always Visible) */}
                             <div className="grid grid-cols-12 gap-2.5 items-end">
                               {/* Item Name / Heading */}
                               <div className="col-span-12 sm:col-span-5 min-w-0">
@@ -8725,23 +8773,24 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                 />
                               </div>
 
-                              {/* Selling Unit Price + Live Line Total Pill */}
+                              {/* Selling Unit Price + Live Line Total Badge */}
                               <div className="col-span-4 sm:col-span-3 min-w-0">
                                 <div className="flex items-center justify-between gap-1 h-5 mb-1 min-w-0">
                                   <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap">
                                     Rate ({formCurrency})
                                   </label>
-                                  <span
-                                    onClick={() => disclosure.toggleLinePanel(index, 'cost')}
-                                    className="text-[10px] font-mono font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/50 px-1.5 py-0.2 rounded border border-blue-200/70 dark:border-blue-800/70 whitespace-nowrap shrink-0 cursor-pointer"
-                                    title="Line Total = Qty × Selling Price (click to inspect Cost, Margin or Override)"
+                                  <button
+                                    type="button"
+                                    onClick={() => setLinePanelOverride(index, 'cost', !isCostOpen)}
+                                    className="text-[10px] font-mono tabular-nums font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/50 hover:bg-blue-100 dark:hover:bg-blue-900/60 px-1.5 py-0.2 rounded border border-blue-200/70 dark:border-blue-800/70 whitespace-nowrap shrink-0 cursor-pointer transition"
+                                    title="Line Total = Qty × Selling Price (click to toggle Cost & Margin)"
                                   >
                                     = {formCurrency}{' '}
                                     {currentTotal.toLocaleString(undefined, {
                                       minimumFractionDigits: 0,
                                       maximumFractionDigits: 2
                                     })}
-                                  </span>
+                                  </button>
                                 </div>
                                 <FormattedNumberInput
                                   required
@@ -8752,14 +8801,108 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                               </div>
                             </div>
 
-                            {/* Inline + Progressive Disclosure Trigger Strip for Line Item */}
-                            <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                            {/* 4. Row 2 — Core Identity & Delivery Strip (Always Visible, Fixed 4-Column Grid) */}
+                            {!isDiscountItem && (
+                              <div className="grid grid-cols-2 xl:grid-cols-4 gap-2.5">
+                                {!isServiceOrFee && (
+                                  <>
+                                    <div className="min-w-0">
+                                      <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1 truncate">
+                                        Brand / Make
+                                      </label>
+                                      <input
+                                        type="text"
+                                        placeholder="e.g. Siemens, ABB"
+                                        value={item.brand_make ?? matchedProd?.brand_make ?? ''}
+                                        onChange={(e) => handleLineItemChange(index, 'brand_make', e.target.value)}
+                                        className="w-full bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white focus:outline-none"
+                                      />
+                                    </div>
+
+                                    <div className="min-w-0">
+                                      <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1 truncate">
+                                        Model / Part No.
+                                      </label>
+                                      <input
+                                        type="text"
+                                        placeholder="e.g. MOD-200X"
+                                        value={item.model_part_no ?? matchedProd?.model_part_no ?? ''}
+                                        onChange={(e) => handleLineItemChange(index, 'model_part_no', e.target.value)}
+                                        className="w-full bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs font-mono text-slate-900 dark:text-white focus:outline-none"
+                                      />
+                                    </div>
+
+                                    <div className="min-w-0">
+                                      <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1 truncate">
+                                        Origin
+                                      </label>
+                                      <input
+                                        type="text"
+                                        placeholder="e.g. USA, UAE"
+                                        value={item.country_of_origin ?? matchedProd?.country_of_origin ?? ''}
+                                        onChange={(e) =>
+                                          handleLineItemChange(index, 'country_of_origin', e.target.value)
+                                        }
+                                        className="w-full bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white focus:outline-none"
+                                      />
+                                    </div>
+                                  </>
+                                )}
+
+                                <div className="min-w-0">
+                                  <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1 truncate">
+                                    {isServiceChargeItem ? 'Duration' : 'Lead Time'}
+                                  </label>
+                                  <input
+                                    type="text"
+                                    placeholder={isServiceChargeItem ? 'e.g. 1–2 Days' : 'Ex-Stock / 2-3 Wks'}
+                                    value={item.lead_time_note ?? ''}
+                                    onChange={(e) => handleLineItemChange(index, 'lead_time_note', e.target.value)}
+                                    className="w-full bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white focus:outline-none"
+                                  />
+                                </div>
+                              </div>
+                            )}
+
+                            {/* 5. Fixed, Standardized Single-Row Section Bar */}
+                            <div
+                              className="flex items-center gap-1.5 flex-nowrap overflow-x-auto pt-2 border-t border-slate-200/70 dark:border-slate-700/70"
+                              role="toolbar"
+                              aria-label={`Line item #${index + 1} sections`}
+                            >
+                              {/* 1. Specs */}
+                              <button
+                                type="button"
+                                onClick={() => setLinePanelOverride(index, 'specs', !isSpecsOpen)}
+                                className={`h-7 px-2.5 rounded-lg text-[11px] font-semibold border transition inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
+                                  isSpecsOpen
+                                    ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800 shadow-2xs'
+                                    : 'bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200/90 dark:border-slate-700'
+                                }`}
+                                title="Toggle Technical Specifications & Notes"
+                              >
+                                <Sliders className="w-3 h-3 shrink-0 opacity-75" />
+                                <span>Specs</span>
+                                {specCount > 0 && (
+                                  <span
+                                    className={`px-1.5 py-0.2 rounded text-[10px] font-mono tabular-nums font-bold ${
+                                      isSpecsOpen
+                                        ? 'bg-blue-100 dark:bg-blue-900/70 text-blue-700 dark:text-blue-200'
+                                        : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                                    }`}
+                                  >
+                                    {specCount}
+                                  </span>
+                                )}
+                              </button>
+
+                              {/* 2. Included Items */}
                               {!isServiceOrFee && (
                                 <button
                                   type="button"
                                   onClick={() => {
                                     const nextOpen = !isIncludedOpen;
-                                    disclosure.setLinePanelExpanded(index, 'included', nextOpen);
+                                    setLinePanelOverride(index, 'included', nextOpen);
                                     if (nextOpen && (!item.sub_components || item.sub_components.length === 0)) {
                                       // Seed 1 blank Included Item row without touching item.unit_price or item.total_price!
                                       const seed = [
@@ -8788,392 +8931,125 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                       });
                                     }
                                   }}
-                                  className={`px-2 py-1 rounded-lg text-[11px] font-semibold border transition inline-flex items-center gap-1 cursor-pointer ${
+                                  className={`h-7 px-2.5 rounded-lg text-[11px] font-semibold border transition inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
                                     isIncludedOpen
-                                      ? 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800'
-                                      : 'bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200/80 dark:border-slate-700'
+                                      ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800 shadow-2xs'
+                                      : 'bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200/90 dark:border-slate-700'
                                   }`}
+                                  title="Toggle Included Items & Package Contents"
                                 >
-                                  <Plus className={`w-2.5 h-2.5 transition-transform ${isIncludedOpen ? 'rotate-45 text-indigo-600' : 'text-slate-400'}`} />
+                                  <Layers className="w-3 h-3 shrink-0 opacity-75" />
                                   <span>Included Items</span>
                                   {subCount > 0 && (
-                                    <span className="px-1.5 py-0.2 rounded bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 text-[10px] font-mono font-bold">
+                                    <span
+                                      className={`px-1.5 py-0.2 rounded text-[10px] font-mono tabular-nums font-bold ${
+                                        isIncludedOpen
+                                          ? 'bg-blue-100 dark:bg-blue-900/70 text-blue-700 dark:text-blue-200'
+                                          : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                                      }`}
+                                    >
                                       {subCount}
                                     </span>
                                   )}
                                 </button>
                               )}
 
+                              {/* 3. Scope */}
                               <button
                                 type="button"
-                                onClick={() => disclosure.toggleLinePanel(index, 'specs')}
-                                className={`px-2 py-1 rounded-lg text-[11px] font-semibold border transition inline-flex items-center gap-1 cursor-pointer ${
-                                  isSpecsOpen
-                                    ? 'bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800'
-                                    : 'bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200/80 dark:border-slate-700'
+                                onClick={() => setLinePanelOverride(index, 'scope', !isScopeOpen)}
+                                className={`h-7 px-2.5 rounded-lg text-[11px] font-semibold border transition inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
+                                  isScopeOpen
+                                    ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800 shadow-2xs'
+                                    : 'bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200/90 dark:border-slate-700'
                                 }`}
+                                title={`Category & Scope: ${item.product_type || 'General'} · ${shortOpt}`}
                               >
-                                <Plus className={`w-2.5 h-2.5 transition-transform ${isSpecsOpen ? 'rotate-45 text-blue-600' : 'text-slate-400'}`} />
-                                <span>Tech Specs &amp; Attributes</span>
-                                {specCount > 0 && (
-                                  <span className="px-1.5 py-0.2 rounded bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 text-[10px] font-mono font-bold">
-                                    {specCount}
-                                  </span>
+                                <Tag className="w-3 h-3 shrink-0 opacity-75" />
+                                <span>Scope</span>
+                                {hasNonDefaultScope && (
+                                  <span
+                                    className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0"
+                                    aria-hidden="true"
+                                  />
                                 )}
                               </button>
 
+                              {/* 4. Cost & Margin */}
                               <button
                                 type="button"
-                                onClick={() => disclosure.toggleLinePanel(index, 'scope')}
-                                className={`px-2 py-1 rounded-lg text-[11px] font-semibold border transition inline-flex items-center gap-1 cursor-pointer ${
-                                  isScopeOpen
-                                    ? 'bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800'
-                                    : 'bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200/80 dark:border-slate-700'
+                                onClick={() => setLinePanelOverride(index, 'cost', !isCostOpen)}
+                                className={`h-7 px-2.5 rounded-lg text-[11px] font-semibold border transition inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
+                                  isCostOpen
+                                    ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800 shadow-2xs'
+                                    : 'bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200/90 dark:border-slate-700'
                                 }`}
+                                title={
+                                  marginPct !== null
+                                    ? `Cost & Margin (${marginPct.toFixed(1)}% margin${isOverridden ? ' · Overridden' : ''})`
+                                    : isOverridden
+                                    ? 'Cost & Margin (Total Overridden)'
+                                    : 'Toggle Unit Cost, Margin & Line Total Override'
+                                }
                               >
-                                <Plus className={`w-2.5 h-2.5 transition-transform ${isScopeOpen ? 'rotate-45 text-blue-600' : 'text-slate-400'}`} />
-                                <span>Category &amp; Scope</span>
-                                <span className="px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-[10px] font-mono text-slate-600 dark:text-slate-300">
-                                  {item.product_type || 'General'} · {shortOpt} ·{' '}
-                                  {item.lead_time_note &&
-                                  item.lead_time_note.trim() &&
-                                  !isGenericGlobalDeliveryPhrase(item.lead_time_note)
-                                    ? item.lead_time_note.trim()
-                                    : (!isGenericGlobalDeliveryPhrase(deliveryPeriod)
-                                        ? deliveryPeriod?.trim()
-                                        : '') ||
-                                      item.lead_time_note?.trim() ||
-                                      'Standard'}
-                                </span>
+                                <DollarSign className="w-3 h-3 shrink-0 opacity-75" />
+                                <span>Cost &amp; Margin</span>
+                                {hasCostEntered && (
+                                  <span
+                                    className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                                      isOverridden
+                                        ? 'bg-amber-500'
+                                        : marginPct !== null && marginPct < 0
+                                        ? 'bg-rose-500'
+                                        : marginPct !== null && marginPct < 20
+                                        ? 'bg-amber-500'
+                                        : 'bg-emerald-500'
+                                    }`}
+                                    aria-hidden="true"
+                                  />
+                                )}
                               </button>
 
+                              {/* 5. Media */}
                               {!isServiceOrFee && (
                                 <button
                                   type="button"
-                                  onClick={() => disclosure.toggleLinePanel(index, 'media')}
-                                  className={`px-2 py-1 rounded-lg text-[11px] font-semibold border transition inline-flex items-center gap-1 cursor-pointer ${
+                                  onClick={() => setLinePanelOverride(index, 'media', !isMediaOpen)}
+                                  className={`h-7 px-2.5 rounded-lg text-[11px] font-semibold border transition inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
                                     isMediaOpen
-                                      ? 'bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800'
-                                      : 'bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200/80 dark:border-slate-700'
+                                      ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800 shadow-2xs'
+                                      : 'bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200/90 dark:border-slate-700'
                                   }`}
+                                  title={
+                                    hasMediaAsset
+                                      ? 'Media & Datasheet (Attached)'
+                                      : 'Toggle Product Image & Datasheet'
+                                  }
                                 >
-                                  <Plus className={`w-2.5 h-2.5 transition-transform ${isMediaOpen ? 'rotate-45 text-blue-600' : 'text-slate-400'}`} />
-                                  <span>Brand, Model &amp; Media</span>
-                                  {hasMediaOrBrand && (
-                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
+                                  <ImageIcon className="w-3 h-3 shrink-0 opacity-75" />
+                                  <span>Media</span>
+                                  {hasMediaAsset && (
+                                    <span
+                                      className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0"
+                                      aria-hidden="true"
+                                    />
                                   )}
                                 </button>
                               )}
-
-                              <button
-                                type="button"
-                                onClick={() => disclosure.toggleLinePanel(index, 'cost')}
-                                className={`px-2 py-1 rounded-lg text-[11px] font-semibold border transition inline-flex items-center gap-1 cursor-pointer ${
-                                  isCostOpen
-                                    ? 'bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800'
-                                    : 'bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200/80 dark:border-slate-700'
-                                }`}
-                              >
-                                <Plus className={`w-2.5 h-2.5 transition-transform ${isCostOpen ? 'rotate-45 text-blue-600' : 'text-slate-400'}`} />
-                                <span>Cost &amp; Margin</span>
-                                {marginPct !== null && (
-                                  <span
-                                    className={`px-1.5 py-0.2 rounded font-mono text-[10px] font-bold ${
-                                      marginPct >= 20
-                                        ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300'
-                                        : marginPct >= 0
-                                        ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300'
-                                        : 'bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300'
-                                    }`}
-                                  >
-                                    {marginPct.toFixed(1)}%
-                                  </span>
-                                )}
-                                {isOverridden && (
-                                  <span className="px-1.5 py-0.2 rounded bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-300 text-[10px] font-mono font-bold">
-                                    Overridden
-                                  </span>
-                                )}
-                              </button>
                             </div>
 
-                            {/* Expandable Panel 0: Included Items & Package Contents */}
-                            {!isServiceOrFee && isIncludedOpen && (
-                              <CompositePackageEditor
-                                item={item}
-                                isCompositeSet={true}
-                                subComponents={item.sub_components || []}
-                                packagePricingMode={item.package_pricing_mode || 'itemized'}
-                                optionScopeNotes={item.option_scope_notes || ''}
-                                parentQuantity={item.quantity || 1}
-                                currency={formCurrency || 'AED'}
-                                products={products || []}
-                                setProducts={setProducts}
-                                activeWorkspace={activeWorkspace}
-                                onChange={(patch) => {
-                                  if (patch.is_composite_set === false) {
-                                    disclosure.setLinePanelExpanded(index, 'included', false);
-                                  }
-                                  setLineItems((prev) => {
-                                    const next = [...prev];
-                                    next[index] = {
-                                      ...next[index],
-                                      ...patch
-                                    };
-                                    return next;
-                                  });
-                                }}
-                              />
-                            )}
+                            {/* 6. Expanded Section Panels in Strict Predictable Order */}
 
-                            {/* Expandable Panel 1: Category, Classification, Option Scope & Lead Time */}
-                            {isScopeOpen && (
-                              <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-700/80 grid grid-cols-1 @[460px]:grid-cols-2 @[760px]:grid-cols-4 gap-3 animate-in fade-in duration-150">
-                                <div className="min-w-0">
-                                  <div className="flex items-center justify-between h-5 mb-1">
-                                    <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap">
-                                      Classification
-                                    </label>
-                                  </div>
-                                  <select
-                                    value={
-                                      (item as any).classification === 'Charge / Fee (Service)' || item.item_type === 'charge'
-                                        ? 'charge'
-                                        : (item as any).classification === 'Discount / Rebate' || item.item_type === 'discount'
-                                        ? 'discount'
-                                        : 'product'
-                                    }
-                                    onChange={(e) => handleLineItemChange(index, 'item_type', e.target.value)}
-                                    className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none font-sans font-medium"
-                                  >
-                                    <option value="product">Product (Hardware)</option>
-                                    <option value="charge">Charge / Fee</option>
-                                    <option value="discount">Discount / Rebate</option>
-                                  </select>
-                                </div>
-
-                                <div className="min-w-0">
-                                  {item.item_type === 'charge' || item.item_type === 'discount' ? (
-                                    <>
-                                      <div className="flex items-center justify-between h-5 mb-1">
-                                        <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap">
-                                          Charge Type
-                                        </label>
-                                      </div>
-                                      <select
-                                        value={item.charge_type || 'Transportation'}
-                                        onChange={(e) => handleLineItemChange(index, 'charge_type', e.target.value)}
-                                        className="w-full bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 rounded-lg py-1.5 px-2.5 text-xs text-amber-900 dark:text-amber-300 focus:outline-none font-sans font-semibold"
-                                      >
-                                        <option value="Transportation">Transportation / Freight</option>
-                                        <option value="Installation">Installation &amp; Commissioning</option>
-                                        <option value="Customs">Customs &amp; Clearance</option>
-                                        <option value="Testing">Testing &amp; Inspection</option>
-                                        <option value="Discount">Discount / Rebate</option>
-                                        <option value="Other Charge">Other Non-Product Fee</option>
-                                      </select>
-                                    </>
-                                  ) : (
-                                    <>
-                                      <div className="flex items-center justify-between gap-1.5 h-5 mb-1">
-                                        <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap">
-                                          Category
-                                        </label>
-                                        {renderSortButton(categoriesSort, setCategoriesSort, 'Product Categories')}
-                                      </div>
-                                      <CreatableCombobox
-                                        options={sortedCategories}
-                                        value={item.product_type}
-                                        onChange={(val: string) => handleLineItemChange(index, 'product_type', val)}
-                                        onCreateOption={async (val: string) => {
-                                          const cleaned = String(val || '').trim();
-                                          if (!cleaned) return;
-                                          handleLineItemChange(index, 'product_type', cleaned);
-                                          const lower = cleaned.toLowerCase();
-                                          setLocalCustomCategories((prev) => {
-                                            const next = prev.some((c) => c.toLowerCase() === lower)
-                                              ? prev
-                                              : [...prev, cleaned];
-                                            try {
-                                              localStorage.setItem(
-                                                'omni_product_categories',
-                                                JSON.stringify(next)
-                                              );
-                                            } catch {}
-                                            return next;
-                                          });
-                                          try {
-                                            const docRef = await safeAddDoc('dropdown_product_categories', {
-                                              name: cleaned,
-                                              workspace_id: activeWorkspace?.id || undefined
-                                            });
-                                            const newOpt: DropdownOption = {
-                                              id: docRef?.id || 'cat_' + Date.now(),
-                                              name: cleaned,
-                                              workspace_id: activeWorkspace?.id || undefined
-                                            };
-                                            if (setProductCategories) {
-                                              setProductCategories((prev) => {
-                                                if (prev.some((c) => c.name.toLowerCase() === lower)) {
-                                                  return prev;
-                                                }
-                                                return [...prev, newOpt];
-                                              });
-                                            }
-                                            if (triggerToast) {
-                                              triggerToast(
-                                                `Saved "${cleaned}" to Product Categories.`,
-                                                'success'
-                                              );
-                                            }
-                                          } catch (err) {
-                                            console.warn('Failed to persist new product category:', err);
-                                          }
-                                        }}
-                                        className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none font-sans font-medium"
-                                      />
-                                    </>
-                                  )}
-                                </div>
-
-                                <div className="min-w-0">
-                                  <div className="flex items-center justify-between h-5 mb-1">
-                                    <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap">
-                                      Option Scope
-                                    </label>
-                                  </div>
-                                  <select
-                                    value={(item as any).option_designation || item.option || 'Default / Included'}
-                                    onChange={(e) => {
-                                      const val = e.target.value;
-                                      handleLineItemChange(index, 'option', val);
-                                      handleLineItemChange(index, 'option_designation' as any, val);
-                                    }}
-                                    className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none font-sans font-medium"
-                                  >
-                                    <option value="Default / Included">Baseline / Included</option>
-                                    <option value="Option A">Option A (Baseline)</option>
-                                    <option value="Option B">Option B (Alternative)</option>
-                                    <option value="Option C">Option C (Alternative)</option>
-                                    <option value="Option D">Option D (Alternative)</option>
-                                    <option value="Optional / Add-On">Optional / Add-On</option>
-                                    {((item as any).option_designation || item.option) &&
-                                      ![
-                                        'Default / Included',
-                                        'Option A',
-                                        'Option B',
-                                        'Option C',
-                                        'Option D',
-                                        'Optional / Add-On',
-                                        ''
-                                      ].includes((item as any).option_designation || item.option) && (
-                                        <option value={(item as any).option_designation || item.option}>
-                                          {(item as any).option_designation || item.option}
-                                        </option>
-                                      )}
-                                  </select>
-                                </div>
-
-                                {(() => {
-                                  const isDiscount =
-                                    (item as any).classification === 'Discount / Rebate' || item.item_type === 'discount';
-                                  const isService =
-                                    (item as any).classification === 'Charge / Fee (Service)' ||
-                                    item.item_type === 'charge' ||
-                                    (item.item_type as string) === 'service';
-
-                                  if (isDiscount) {
-                                    return <div className="opacity-0 pointer-events-none" />;
-                                  }
-
-                                  return (
-                                    <div className="min-w-0">
-                                      <div className="flex items-center justify-between h-5 mb-1">
-                                        <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap">
-                                          {isService ? 'Duration' : 'Lead Time'}
-                                        </label>
-                                      </div>
-                                      <input
-                                        type="text"
-                                        placeholder={isService ? 'e.g. 1–2 Days' : 'Ex-Stock / 2-3 Wks'}
-                                        value={item.lead_time_note ?? ''}
-                                        onChange={(e) => handleLineItemChange(index, 'lead_time_note', e.target.value)}
-                                        className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white focus:outline-none"
-                                      />
-                                    </div>
-                                  );
-                                })()}
-                              </div>
-                            )}
-
-                            {/* Expandable Panel 2: Item Description & Technical Specification Attributes */}
+                            {/* Panel 1: Specs & Notes (Structured Spec Attributes FIRST, Slim Description/Notes BELOW) */}
                             {isSpecsOpen && (
-                              <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-700/80 space-y-3 animate-in fade-in duration-150">
-                                <div className="min-w-0">
-                                  <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
-                                    <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider truncate">
-                                      Item Description &amp; Technical Specifications
-                                    </label>
-                                    <div className="flex items-center gap-1 flex-wrap">
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          const cur = (item.description ?? '').trim();
-                                          const next = cur
-                                            ? `${cur}\n\nMOTOR SPECIFICATIONS:-\n• `
-                                            : `MOTOR SPECIFICATIONS:-\n• `;
-                                          handleLineItemChange(index, 'description', next);
-                                        }}
-                                        className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 hover:bg-blue-50 dark:bg-slate-800 dark:hover:bg-blue-950/40 text-slate-700 hover:text-blue-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 transition cursor-pointer"
-                                        title="Insert a bold uppercase sub-heading section (e.g. MOTOR SPECIFICATIONS:-)"
-                                      >
-                                        + Sub-Heading
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          const cur = item.description ?? '';
-                                          const next = cur.trim()
-                                            ? `${cur.replace(/\s+$/, '')}\n• `
-                                            : `• `;
-                                          handleLineItemChange(index, 'description', next);
-                                        }}
-                                        className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-slate-100 hover:bg-blue-50 dark:bg-slate-800 dark:hover:bg-blue-950/40 text-slate-700 hover:text-blue-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 transition cursor-pointer"
-                                        title="Insert a bullet point line"
-                                      >
-                                        • Bullet
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          const formatted = formatSlashSeparatedDescription(item.description ?? '');
-                                          if (formatted) {
-                                            handleLineItemChange(index, 'description', formatted);
-                                          }
-                                        }}
-                                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/50 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 transition cursor-pointer"
-                                        title="Automatically split slash-separated (' / ') technical specs and section headings into clean multi-line blocks"
-                                      >
-                                        <Sparkles className="w-2.5 h-2.5 shrink-0" />
-                                        <span>Split &ldquo;/&rdquo; into Lines</span>
-                                      </button>
-                                    </div>
-                                  </div>
-                                  <textarea
-                                    rows={Math.min(8, Math.max(3, (item.description || '').split('\n').length))}
-                                    placeholder={"e.g. Supply of Submersible Mixer for Anoxic Tank.\nMOTOR SPECIFICATIONS:-\n• Make: PYTHON\n• Origin: Poland\n• Power: 2.5 kW"}
-                                    value={item.description ?? ''}
-                                    onChange={(e) => handleLineItemChange(index, 'description', e.target.value)}
-                                    className="w-full bg-slate-50/70 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white focus:outline-none leading-relaxed resize-y"
-                                  />
-                                </div>
-
+                              <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-700/80 space-y-3">
                                 {!isServiceOrFee && (
-                                  <div className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-2">
+                                  <div className="space-y-2">
                                     <div className="flex items-center justify-between gap-2 flex-wrap">
                                       <div className="flex items-center flex-wrap gap-1.5">
-                                        <span className="text-[10px] font-mono text-slate-500 dark:text-slate-400 uppercase tracking-wider font-bold mr-1">
-                                          Spec Attributes:
+                                        <span className="inline-flex items-center gap-1 text-[10px] font-mono text-slate-500 dark:text-slate-400 uppercase tracking-wider font-bold mr-1">
+                                          <Sliders className="w-3 h-3 text-slate-400 shrink-0" />
+                                          <span>Spec Attributes</span>
                                         </span>
                                         {(() => {
                                           const categoryPresets = CATEGORY_SUGGESTED_ATTRIBUTES[item.product_type];
@@ -9224,7 +9100,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                     </div>
 
                                     {item.attributes && item.attributes.length > 0 && (
-                                      <div className="grid grid-cols-1 @[860px]:grid-cols-2 gap-2">
+                                      <div className="grid grid-cols-1 @[760px]:grid-cols-2 gap-2">
                                         {item.attributes.map((attr, attrIdx) => {
                                           const suggestedKeys = CATEGORY_SUGGESTED_ATTRIBUTES[item.product_type] || [];
                                           const isCustom = attr.key && !suggestedKeys.includes(attr.key);
@@ -9237,7 +9113,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                               className="flex items-center gap-2 bg-slate-50/70 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 p-1.5 rounded-lg shadow-2xs min-w-0"
                                             >
                                               {showCustomInput ? (
-                                                <div className="w-[42%] min-w-[135px] max-w-[240px] @[860px]:w-40 @[860px]:max-w-[175px] flex-shrink-0 flex items-center gap-1 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 font-medium text-xs px-2 py-1.5 rounded-md border border-slate-200/80 dark:border-slate-700 focus-within:ring-2 focus-within:ring-blue-500/20 focus-within:border-blue-500 transition-colors">
+                                                <div className="w-[42%] min-w-[130px] max-w-[220px] @[760px]:w-36 @[760px]:max-w-[165px] flex-shrink-0 flex items-center gap-1 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 font-medium text-xs px-2 py-1.5 rounded-md border border-slate-200/80 dark:border-slate-700 focus-within:ring-2 focus-within:ring-blue-500/20 focus-within:border-blue-500 transition-colors">
                                                   <input
                                                     type="text"
                                                     value={attr.key === '__custom_editing__' ? '' : attr.key ?? ''}
@@ -9291,7 +9167,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                                     updated[index] = { ...updated[index], attributes: attrList };
                                                     setLineItems(updated);
                                                   }}
-                                                  className="w-[42%] min-w-[135px] max-w-[240px] @[860px]:w-40 @[860px]:max-w-[175px] flex-shrink-0 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 font-medium text-xs px-2 py-1.5 rounded-md border border-slate-200/80 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors cursor-pointer truncate"
+                                                  className="w-[42%] min-w-[130px] max-w-[220px] @[760px]:w-36 @[760px]:max-w-[165px] flex-shrink-0 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 font-medium text-xs px-2 py-1.5 rounded-md border border-slate-200/80 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors cursor-pointer truncate"
                                                 >
                                                   <option value="">Select Key...</option>
                                                   {suggestedKeys.map((k) => (
@@ -9316,7 +9192,10 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                                     value: val
                                                   };
                                                   const currentKey = (attrList[attrIdx]?.key || '').trim().toLowerCase();
-                                                  const isDeliveryKey = currentKey === 'delivery' || currentKey === 'lead time' || currentKey === 'availability';
+                                                  const isDeliveryKey =
+                                                    currentKey === 'delivery' ||
+                                                    currentKey === 'lead time' ||
+                                                    currentKey === 'availability';
                                                   const targetItem = {
                                                     ...updated[index],
                                                     attributes: attrList,
@@ -9350,6 +9229,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                                   setLineItems(updated);
                                                 }}
                                                 className="p-1 hover:bg-rose-50 dark:hover:bg-rose-950/50 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 rounded-md transition shrink-0 cursor-pointer"
+                                                title="Remove attribute"
                                               >
                                                 <X className="w-3.5 h-3.5" />
                                               </button>
@@ -9360,12 +9240,408 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                     )}
                                   </div>
                                 )}
+
+                                {/* Additional Description / Notes BELOW Spec Attributes */}
+                                <div className={!isServiceOrFee ? 'pt-2.5 border-t border-slate-100 dark:border-slate-800' : ''}>
+                                  {showDescriptionEditor ? (
+                                    <div className="min-w-0">
+                                      <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
+                                        <label className="text-[10px] font-mono font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider truncate">
+                                          Additional Description / Notes
+                                        </label>
+                                        <div className="flex items-center gap-1 flex-wrap">
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              const cur = (item.description ?? '').trim();
+                                              const next = cur
+                                                ? `${cur}\n\nMOTOR SPECIFICATIONS:-\n• `
+                                                : `MOTOR SPECIFICATIONS:-\n• `;
+                                              handleLineItemChange(index, 'description', next);
+                                            }}
+                                            className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 hover:bg-blue-50 dark:bg-slate-800 dark:hover:bg-blue-950/40 text-slate-700 hover:text-blue-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 transition cursor-pointer"
+                                            title="Insert a bold uppercase sub-heading section (e.g. MOTOR SPECIFICATIONS:-)"
+                                          >
+                                            + Sub-Heading
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              const cur = item.description ?? '';
+                                              const next = cur.trim()
+                                                ? `${cur.replace(/\s+$/, '')}\n• `
+                                                : `• `;
+                                              handleLineItemChange(index, 'description', next);
+                                            }}
+                                            className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-slate-100 hover:bg-blue-50 dark:bg-slate-800 dark:hover:bg-blue-950/40 text-slate-700 hover:text-blue-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 transition cursor-pointer"
+                                            title="Insert a bullet point line"
+                                          >
+                                            • Bullet
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              const formatted = formatSlashSeparatedDescription(item.description ?? '');
+                                              if (formatted) {
+                                                handleLineItemChange(index, 'description', formatted);
+                                              }
+                                            }}
+                                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/50 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 transition cursor-pointer"
+                                            title="Automatically split slash-separated (' / ') technical specs and section headings into clean multi-line blocks"
+                                          >
+                                            <Sparkles className="w-2.5 h-2.5 shrink-0" />
+                                            <span>Split &ldquo;/&rdquo; into Lines</span>
+                                          </button>
+                                        </div>
+                                      </div>
+                                      <textarea
+                                        rows={Math.min(6, Math.max(2, (item.description || '').split('\n').length))}
+                                        placeholder="Optional scope notes, duty conditions, or multi-line technical description..."
+                                        value={item.description ?? ''}
+                                        onChange={(e) => handleLineItemChange(index, 'description', e.target.value)}
+                                        className="w-full bg-slate-50/70 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white focus:outline-none leading-relaxed resize-y"
+                                      />
+                                    </div>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setOpenDescriptionNotes((prev) => ({ ...prev, [index]: true }))
+                                      }
+                                      className="inline-flex items-center gap-1.5 text-[11px] font-medium text-slate-500 hover:text-blue-600 dark:text-slate-400 dark:hover:text-blue-400 transition cursor-pointer"
+                                    >
+                                      <Plus className="w-3 h-3 shrink-0" />
+                                      <span>Add Description / Scope Note</span>
+                                    </button>
+                                  )}
+                                </div>
                               </div>
                             )}
 
-                            {/* Expandable Panel 3: Brand, Model, Origin, Product Image & Datasheet */}
+                            {/* Panel 2: Included Items / Package Contents */}
+                            {!isServiceOrFee && isIncludedOpen && (
+                              <CompositePackageEditor
+                                item={item}
+                                isCompositeSet={true}
+                                subComponents={item.sub_components || []}
+                                packagePricingMode={item.package_pricing_mode || 'itemized'}
+                                optionScopeNotes={item.option_scope_notes || ''}
+                                parentQuantity={item.quantity || 1}
+                                currency={formCurrency || 'AED'}
+                                products={products || []}
+                                setProducts={setProducts}
+                                activeWorkspace={activeWorkspace}
+                                onChange={(patch) => {
+                                  if (patch.is_composite_set === false) {
+                                    setLinePanelOverride(index, 'included', false);
+                                  }
+                                  setLineItems((prev) => {
+                                    const next = [...prev];
+                                    next[index] = {
+                                      ...next[index],
+                                      ...patch
+                                    };
+                                    return next;
+                                  });
+                                }}
+                              />
+                            )}
+
+                            {/* Panel 3: Category & Scope (Compact 3-Column Row) */}
+                            {isScopeOpen && (
+                              <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-700/80 space-y-2.5">
+                                <div className="flex items-center gap-1.5 text-[10px] font-mono font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                                  <Tag className="w-3 h-3 text-slate-400 shrink-0" />
+                                  <span>Category &amp; Scope</span>
+                                </div>
+                                <div className="grid grid-cols-1 @[520px]:grid-cols-3 gap-3">
+                                  <div className="min-w-0">
+                                    <div className="flex items-center justify-between h-5 mb-1">
+                                      <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap">
+                                        Classification
+                                      </label>
+                                    </div>
+                                    <select
+                                      value={
+                                        (item as any).classification === 'Charge / Fee (Service)' ||
+                                        item.item_type === 'charge'
+                                          ? 'charge'
+                                          : (item as any).classification === 'Discount / Rebate' ||
+                                            item.item_type === 'discount'
+                                          ? 'discount'
+                                          : 'product'
+                                      }
+                                      onChange={(e) => handleLineItemChange(index, 'item_type', e.target.value)}
+                                      className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none font-sans font-medium"
+                                    >
+                                      <option value="product">Product (Hardware)</option>
+                                      <option value="charge">Charge / Fee</option>
+                                      <option value="discount">Discount / Rebate</option>
+                                    </select>
+                                  </div>
+
+                                  <div className="min-w-0">
+                                    {item.item_type === 'charge' || item.item_type === 'discount' ? (
+                                      <>
+                                        <div className="flex items-center justify-between h-5 mb-1">
+                                          <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap">
+                                            Charge Type
+                                          </label>
+                                        </div>
+                                        <select
+                                          value={item.charge_type || 'Transportation'}
+                                          onChange={(e) => handleLineItemChange(index, 'charge_type', e.target.value)}
+                                          className="w-full bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 rounded-lg py-1.5 px-2.5 text-xs text-amber-900 dark:text-amber-300 focus:outline-none font-sans font-semibold"
+                                        >
+                                          <option value="Transportation">Transportation / Freight</option>
+                                          <option value="Installation">Installation &amp; Commissioning</option>
+                                          <option value="Customs">Customs &amp; Clearance</option>
+                                          <option value="Testing">Testing &amp; Inspection</option>
+                                          <option value="Discount">Discount / Rebate</option>
+                                          <option value="Other Charge">Other Non-Product Fee</option>
+                                        </select>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <div className="flex items-center justify-between gap-1.5 h-5 mb-1">
+                                          <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap">
+                                            Category
+                                          </label>
+                                          {renderSortButton(categoriesSort, setCategoriesSort, 'Product Categories')}
+                                        </div>
+                                        <CreatableCombobox
+                                          options={sortedCategories}
+                                          value={item.product_type}
+                                          onChange={(val: string) => handleLineItemChange(index, 'product_type', val)}
+                                          onCreateOption={async (val: string) => {
+                                            const cleaned = String(val || '').trim();
+                                            if (!cleaned) return;
+                                            handleLineItemChange(index, 'product_type', cleaned);
+                                            const lower = cleaned.toLowerCase();
+                                            setLocalCustomCategories((prev) => {
+                                              const next = prev.some((c) => c.toLowerCase() === lower)
+                                                ? prev
+                                                : [...prev, cleaned];
+                                              try {
+                                                localStorage.setItem(
+                                                  'omni_product_categories',
+                                                  JSON.stringify(next)
+                                                );
+                                              } catch {}
+                                              return next;
+                                            });
+                                            try {
+                                              const docRef = await safeAddDoc('dropdown_product_categories', {
+                                                name: cleaned,
+                                                workspace_id: activeWorkspace?.id || undefined
+                                              });
+                                              const newOpt: DropdownOption = {
+                                                id: docRef?.id || 'cat_' + Date.now(),
+                                                name: cleaned,
+                                                workspace_id: activeWorkspace?.id || undefined
+                                              };
+                                              if (setProductCategories) {
+                                                setProductCategories((prev) => {
+                                                  if (prev.some((c) => c.name.toLowerCase() === lower)) {
+                                                    return prev;
+                                                  }
+                                                  return [...prev, newOpt];
+                                                });
+                                              }
+                                              if (triggerToast) {
+                                                triggerToast(
+                                                  `Saved "${cleaned}" to Product Categories.`,
+                                                  'success'
+                                                );
+                                              }
+                                            } catch (err) {
+                                              console.warn('Failed to persist new product category:', err);
+                                            }
+                                          }}
+                                          className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none font-sans font-medium"
+                                        />
+                                      </>
+                                    )}
+                                  </div>
+
+                                  <div className="min-w-0">
+                                    <div className="flex items-center justify-between h-5 mb-1">
+                                      <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap">
+                                        Option Scope
+                                      </label>
+                                    </div>
+                                    <select
+                                      value={(item as any).option_designation || item.option || 'Default / Included'}
+                                      onChange={(e) => {
+                                        const val = e.target.value;
+                                        handleLineItemChange(index, 'option', val);
+                                        handleLineItemChange(index, 'option_designation' as any, val);
+                                      }}
+                                      className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none font-sans font-medium"
+                                    >
+                                      <option value="Default / Included">Baseline / Included</option>
+                                      <option value="Option A">Option A (Baseline)</option>
+                                      <option value="Option B">Option B (Alternative)</option>
+                                      <option value="Option C">Option C (Alternative)</option>
+                                      <option value="Option D">Option D (Alternative)</option>
+                                      <option value="Optional / Add-On">Optional / Add-On</option>
+                                      {((item as any).option_designation || item.option) &&
+                                        ![
+                                          'Default / Included',
+                                          'Option A',
+                                          'Option B',
+                                          'Option C',
+                                          'Option D',
+                                          'Optional / Add-On',
+                                          ''
+                                        ].includes((item as any).option_designation || item.option) && (
+                                          <option value={(item as any).option_designation || item.option}>
+                                            {(item as any).option_designation || item.option}
+                                          </option>
+                                        )}
+                                    </select>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Panel 4: Cost & Margin (Unit Cost, Margin %, Line Profit & Total Override) */}
+                            {isCostOpen && (
+                              <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-700/80 space-y-2.5">
+                                <div className="flex items-center gap-1.5 text-[10px] font-mono font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                                  <DollarSign className="w-3 h-3 text-slate-400 shrink-0" />
+                                  <span>Cost &amp; Margin</span>
+                                </div>
+                                <div className="grid grid-cols-1 @[640px]:grid-cols-12 gap-3 items-end">
+                                  {/* Unit Cost */}
+                                  <div className="@[640px]:col-span-4 min-w-0">
+                                    <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1 whitespace-nowrap">
+                                      Unit Cost ({formCurrency})
+                                    </label>
+                                    <FormattedNumberInput
+                                      value={item.cost_price ?? ''}
+                                      placeholder="0.00"
+                                      onChange={(val: number) => handleLineItemChange(index, 'cost_price', val)}
+                                      className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white font-mono tabular-nums focus:outline-none"
+                                    />
+                                  </div>
+
+                                  {/* Margin % & Line Profit */}
+                                  <div className="@[640px]:col-span-4 min-w-0">
+                                    <div className="grid grid-cols-2 gap-2 bg-slate-50/80 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700/80 rounded-lg px-2.5 py-1.5">
+                                      <div className="min-w-0">
+                                        <span className="block text-[9px] font-bold uppercase tracking-wider text-slate-400">
+                                          Margin %
+                                        </span>
+                                        {marginPct !== null ? (
+                                          <span
+                                            className={`font-mono tabular-nums text-xs font-bold ${
+                                              marginPct >= 20
+                                                ? 'text-emerald-700 dark:text-emerald-400'
+                                                : marginPct >= 0
+                                                ? 'text-amber-700 dark:text-amber-400'
+                                                : 'text-rose-600 dark:text-rose-400'
+                                            }`}
+                                          >
+                                            {marginPct.toFixed(1)}%
+                                          </span>
+                                        ) : (
+                                          <span className="font-mono text-xs text-slate-400">—</span>
+                                        )}
+                                      </div>
+                                      <div className="min-w-0 border-l border-slate-200/80 dark:border-slate-700/80 pl-2">
+                                        <span className="block text-[9px] font-bold uppercase tracking-wider text-slate-400">
+                                          Line Profit
+                                        </span>
+                                        {lineProfit !== null ? (
+                                          <span
+                                            className={`font-mono tabular-nums text-xs font-bold truncate block ${
+                                              lineProfit >= 0
+                                                ? 'text-emerald-700 dark:text-emerald-400'
+                                                : 'text-rose-600 dark:text-rose-400'
+                                            }`}
+                                            title={`${formCurrency} ${lineProfit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                                          >
+                                            {lineProfit < 0 ? '−' : ''}
+                                            {formCurrency}{' '}
+                                            {Math.abs(lineProfit).toLocaleString(undefined, {
+                                              minimumFractionDigits: 0,
+                                              maximumFractionDigits: 2
+                                            })}
+                                          </span>
+                                        ) : (
+                                          <span className="font-mono text-xs text-slate-400">—</span>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  {/* Line Total & Override */}
+                                  <div className="@[640px]:col-span-4 min-w-0 flex items-center justify-between gap-2 bg-slate-50/80 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700/80 rounded-lg px-2.5 py-1.5">
+                                    <div className="min-w-0">
+                                      <span className="block text-[9px] font-bold uppercase tracking-wider text-slate-400">
+                                        Line Total ({qtyVal} {cleanUom})
+                                      </span>
+                                      {isEditingOverride ? (
+                                        <div className="flex items-center gap-1.5 mt-0.5">
+                                          <FormattedNumberInput
+                                            value={item.total_price}
+                                            onChange={(val: number) => handleLineItemChange(index, 'total_price', val)}
+                                            className="w-24 bg-white dark:bg-slate-900 border border-blue-400 dark:border-blue-600 rounded-md py-0.5 px-1.5 text-xs font-bold text-slate-900 dark:text-white text-right font-mono tabular-nums focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                                          />
+                                          {isOverridden ? (
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                handleLineItemChange(index, 'total_price', calcTotal);
+                                                setEditingLineTotalIdx(null);
+                                              }}
+                                              className="px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 text-[10px] font-sans font-semibold text-amber-700 dark:text-amber-300 hover:bg-amber-100 transition cursor-pointer whitespace-nowrap"
+                                            >
+                                              Reset
+                                            </button>
+                                          ) : (
+                                            <button
+                                              type="button"
+                                              onClick={() => setEditingLineTotalIdx(null)}
+                                              className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[10px] font-sans font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-200 transition cursor-pointer whitespace-nowrap"
+                                            >
+                                              Done
+                                            </button>
+                                          )}
+                                        </div>
+                                      ) : (
+                                        <span className="font-mono tabular-nums text-xs font-bold text-slate-900 dark:text-white">
+                                          {formCurrency}{' '}
+                                          {currentTotal.toLocaleString(undefined, {
+                                            minimumFractionDigits: 2,
+                                            maximumFractionDigits: 2
+                                          })}
+                                        </span>
+                                      )}
+                                    </div>
+
+                                    {!isEditingOverride && !isReadOnly && (
+                                      <button
+                                        type="button"
+                                        onClick={() => setEditingLineTotalIdx(index)}
+                                        className="px-2 py-1 rounded-md text-[10px] font-sans font-semibold text-slate-500 hover:text-blue-600 dark:text-slate-400 dark:hover:text-blue-400 bg-white hover:bg-blue-50 dark:bg-slate-900 dark:hover:bg-blue-950/40 border border-slate-200/80 dark:border-slate-700 transition cursor-pointer whitespace-nowrap shrink-0"
+                                      >
+                                        Override
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Panel 5: Media & Datasheet (Compact Single-Row Media Bar) */}
                             {!isServiceOrFee && isMediaOpen && (
-                              <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-700/80 animate-in fade-in duration-150">
+                              <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-700/80 space-y-2">
+                                <div className="flex items-center gap-1.5 text-[10px] font-mono font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                                  <ImageIcon className="w-3 h-3 text-slate-400 shrink-0" />
+                                  <span>Media &amp; Datasheet</span>
+                                </div>
                                 <LineItemTier3BMediaGrid
                                   index={index}
                                   item={item}
@@ -9399,107 +9675,6 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                     });
                                   }}
                                 />
-                              </div>
-                            )}
-
-                            {/* Expandable Panel 4: Supplier Cost, Gross Margin & Line Total Override */}
-                            {isCostOpen && (
-                              <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-700/80 grid grid-cols-1 sm:grid-cols-12 gap-3 items-center animate-in fade-in duration-150">
-                                <div className="sm:col-span-4 min-w-0">
-                                  <div className="flex items-center justify-between gap-1 h-5 mb-1 min-w-0">
-                                    <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap">
-                                      Unit Cost ({formCurrency})
-                                    </label>
-                                    {marginPct !== null ? (
-                                      <span
-                                        className={`font-mono tabular-nums text-[10px] font-bold px-1.5 py-0.2 rounded whitespace-nowrap shrink-0 ${
-                                          marginPct >= 20
-                                            ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300'
-                                            : marginPct >= 0
-                                            ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300'
-                                            : 'bg-rose-50 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300'
-                                        }`}
-                                      >
-                                        {marginPct.toFixed(1)}% Margin
-                                      </span>
-                                    ) : (
-                                      <span className="text-[10px] font-mono text-slate-400 whitespace-nowrap shrink-0">
-                                        Base Cost
-                                      </span>
-                                    )}
-                                  </div>
-                                  <FormattedNumberInput
-                                    value={item.cost_price ?? ''}
-                                    placeholder="0.00"
-                                    onChange={(val: number) => handleLineItemChange(index, 'cost_price', val)}
-                                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white font-mono tabular-nums focus:outline-none"
-                                  />
-                                </div>
-
-                                <div className="sm:col-span-8 flex flex-wrap items-center justify-between gap-2 bg-slate-50/80 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700/80 rounded-xl px-3.5 py-2">
-                                  <div className="flex items-center gap-2 flex-wrap text-xs font-mono tabular-nums">
-                                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300">
-                                      Line Total ({formCurrency})
-                                    </span>
-                                    <span className="px-2 py-0.5 rounded-md bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-700 text-[11px] font-medium text-slate-600 dark:text-slate-300">
-                                      {qtyVal} {cleanUom} × {formCurrency}{' '}
-                                      {unitVal.toLocaleString(undefined, {
-                                        minimumFractionDigits: 2,
-                                        maximumFractionDigits: 2
-                                      })}
-                                    </span>
-                                  </div>
-
-                                  <div className="flex items-center gap-2 font-mono tabular-nums">
-                                    {isEditingOverride ? (
-                                      <>
-                                        <FormattedNumberInput
-                                          value={item.total_price}
-                                          onChange={(val: number) => handleLineItemChange(index, 'total_price', val)}
-                                          className="w-32 bg-white dark:bg-slate-900 border border-blue-400 dark:border-blue-600 rounded-lg py-1 px-2.5 text-xs font-bold text-slate-900 dark:text-white text-right focus:outline-none focus:ring-2 focus:ring-blue-500/20 shrink-0"
-                                        />
-                                        {isOverridden ? (
-                                          <button
-                                            type="button"
-                                            onClick={() => {
-                                              handleLineItemChange(index, 'total_price', calcTotal);
-                                              setEditingLineTotalIdx(null);
-                                            }}
-                                            className="px-2 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 text-[10px] font-sans font-semibold text-amber-700 dark:text-amber-300 hover:bg-amber-100 transition cursor-pointer whitespace-nowrap"
-                                          >
-                                            Reset
-                                          </button>
-                                        ) : (
-                                          <button
-                                            type="button"
-                                            onClick={() => setEditingLineTotalIdx(null)}
-                                            className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[10px] font-sans font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-200 transition cursor-pointer whitespace-nowrap"
-                                          >
-                                            Done
-                                          </button>
-                                        )}
-                                      </>
-                                    ) : (
-                                      <span className="text-sm font-bold text-slate-900 dark:text-white">
-                                        {formCurrency}{' '}
-                                        {currentTotal.toLocaleString(undefined, {
-                                          minimumFractionDigits: 2,
-                                          maximumFractionDigits: 2
-                                        })}
-                                      </span>
-                                    )}
-
-                                    {!isEditingOverride && !isReadOnly && (
-                                      <button
-                                        type="button"
-                                        onClick={() => setEditingLineTotalIdx(index)}
-                                        className="px-2 py-0.5 rounded-md text-[10px] font-sans font-semibold text-slate-500 hover:text-blue-600 dark:text-slate-400 dark:hover:text-blue-400 bg-white hover:bg-blue-50 dark:bg-slate-900 dark:hover:bg-blue-950/40 border border-slate-200/80 dark:border-slate-700 transition cursor-pointer whitespace-nowrap"
-                                      >
-                                        Override Total
-                                      </button>
-                                    )}
-                                  </div>
-                                </div>
                               </div>
                             )}
                           </div>
