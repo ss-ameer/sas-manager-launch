@@ -267,7 +267,7 @@ export const GapDetectorRow = React.memo(function GapDetectorRow({
 
   return (
     <tr key={`gap-${prevSn}-${curSn}`} className="bg-amber-500/5 border-y border-dashed border-amber-500/20">
-      <td colSpan={9} className="py-1.5 px-3">
+      <td colSpan={8} className="py-1.5 pl-3 pr-4">
         <div className="flex items-center justify-between gap-2 text-xs text-amber-600/90 dark:text-amber-400 font-mono">
           <div className="flex items-center space-x-2 min-w-0">
             <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0 inline-block" />
@@ -669,7 +669,7 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
                   )}
                   {compactContextParts.length > 0 && (
                     <span
-                      className="2xl:hidden inline-flex items-center gap-1 text-[11px] text-slate-400 dark:text-slate-500 truncate"
+                      className="inline-flex items-center gap-1 text-[11px] text-slate-400 dark:text-slate-500 truncate"
                       title={compactContextParts.join(' · ')}
                     >
                       {(resolvedCompany || secondaryParts.length > 0) && (
@@ -683,40 +683,6 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
             })()}
           </div>
         )}
-      </td>
-
-      {/* 2B. CONTACT & LOCATION (Dedicated column on 2xl+ screens; stacked under Company Account on < 2xl) */}
-      <td className="hidden 2xl:table-cell py-2.5 px-2.5 whitespace-nowrap overflow-hidden align-middle">
-        {(() => {
-          const cleanContact = (e.contact_person_name || (e as any).contact_person || '').trim();
-          const cleanLocation = (
-            e.project_location ||
-            resolvedCompany?.city ||
-            (companies || []).find((c) => c && c.id === e.company_id)?.city ||
-            ''
-          ).trim();
-          if (!cleanContact && !cleanLocation) {
-            return <span className="text-xs text-slate-400 dark:text-slate-600">—</span>;
-          }
-          return (
-            <div className="flex flex-col gap-0.5 min-w-0 overflow-hidden">
-              <span
-                className="text-xs font-medium text-slate-700 dark:text-slate-200 truncate"
-                title={cleanContact || cleanLocation}
-              >
-                {cleanContact || cleanLocation}
-              </span>
-              {cleanContact && cleanLocation && (
-                <span
-                  className="text-[11px] text-slate-400 dark:text-slate-500 truncate"
-                  title={cleanLocation}
-                >
-                  {cleanLocation}
-                </span>
-              )}
-            </div>
-          );
-        })()}
       </td>
 
       {/* 3. QUOTE REF NO (Generous Width + Uniform Neutral Slate Pill + HoverScrollText) */}
@@ -2903,15 +2869,14 @@ export default function EnquiryList({
             </div>
 
             <div className="hidden sm:block w-full overflow-x-auto scrollbar-thin relative border-b border-slate-200 dark:border-slate-800">
-            <table className="w-full min-w-[960px] lg:table-fixed text-left border-collapse">
+            <table className="w-full min-w-[960px] lg:min-w-0 lg:table-fixed text-left border-collapse">
               <colgroup>
                 <col className={isMarkingMode ? 'w-[88px]' : 'w-[64px]'} />
                 <col className="w-auto" />
-                <col className="hidden 2xl:table-column w-[132px]" />
-                <col className="w-[208px]" />
+                <col className="w-[220px]" />
                 <col className="w-[48px]" />
                 <col className="w-[104px]" />
-                <col className="w-[132px]" />
+                <col className="w-[152px]" />
                 <col className="w-[118px]" />
                 <col className="w-[140px]" />
               </colgroup>
@@ -2954,7 +2919,6 @@ export default function EnquiryList({
                     </div>
                   </th>
                   <th className="py-2 px-3 truncate bg-slate-50 dark:bg-slate-900">Company Account</th>
-                  <th className="hidden 2xl:table-cell py-2 px-2.5 truncate bg-slate-50 dark:bg-slate-900">Contact / Location</th>
                   <th className="py-2 px-2 truncate bg-slate-50 dark:bg-slate-900">Quote Ref No</th>
                   <th className="py-2 px-1 text-center truncate bg-slate-50 dark:bg-slate-900">Rep</th>
                   <th onClick={() => handleSort('enquiry_date')} className="py-2 px-2 cursor-pointer hover:text-slate-800 dark:hover:text-slate-200 transition whitespace-nowrap bg-slate-50 dark:bg-slate-900">

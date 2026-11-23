@@ -4609,11 +4609,17 @@ export default function CallLogManager({
                 </div>
 
                 {/* DESKTOP ACTIVITY TABLE (>= 640px, aligned to Enquiries & Quotes baseline) */}
+                {(() => {
+                  const isInternalTable =
+                    historyActivityType === 'internal' ||
+                    channelFilter.toLowerCase().trim() === 'internal task';
+                  const tableColCount = isInternalTable ? 8 : 6;
+                  return (
                 <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-xl shadow-2xs overflow-hidden">
                   <div className="hidden sm:block w-full overflow-x-auto scrollbar-thin relative border-b border-slate-200 dark:border-slate-800">
                     <table className="w-full min-w-[920px] lg:min-w-0 lg:table-fixed text-left border-collapse text-xs font-sans text-slate-600 dark:text-slate-400">
                       <colgroup>
-                        {historyActivityType === 'internal' ? (
+                        {isInternalTable ? (
                           <>
                             <col className={isMarkingMode ? 'w-[140px]' : 'w-[120px]'} />
                             <col className="w-auto" />
@@ -4636,7 +4642,7 @@ export default function CallLogManager({
                         )}
                       </colgroup>
                       <thead className="sticky top-0 z-10 bg-slate-50/95 dark:bg-slate-800/95 backdrop-blur-xs border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
-                    {historyActivityType === 'internal' ? (
+                    {isInternalTable ? (
                       <tr>
                         <th className="py-2 px-3 whitespace-nowrap bg-slate-50 dark:bg-slate-900">
                           <div className="inline-flex items-center gap-2">
@@ -4716,7 +4722,7 @@ export default function CallLogManager({
                         <React.Fragment key={log.id || `tr-log-${index}`}>
                           {isFirstInGroup && (
                             <tr key={`divider-row-${currentDateKey}-${index}`} className="bg-slate-50/80 dark:bg-slate-950/60 border-y border-slate-200/80 dark:border-slate-800">
-                              <td colSpan={historyActivityType === 'internal' ? 8 : 6} className="px-3 py-1.5">
+                              <td colSpan={tableColCount} className="px-3 py-1.5">
                                 <div className="flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-200 select-none">
                                   <Calendar className="w-3.5 h-3.5 text-blue-500 shrink-0" />
                                   <span>{formatDateDivider(log.date || log.createdAt)}</span>
@@ -4731,13 +4737,13 @@ export default function CallLogManager({
                             key={log.id}
                             className={`group transition-colors hover:bg-slate-50/80 dark:hover:bg-slate-800/60 ${
                               isSelected && isMarkingMode
-                                ? log.isInternalOps
+                                ? isInternalTable
                                   ? 'bg-indigo-50/60 dark:bg-indigo-950/30'
                                   : 'bg-blue-50/60 dark:bg-blue-950/30'
                                 : ''
                             }`}
                           >
-                          {log.isInternalOps ? (
+                          {isInternalTable ? (
                             <>
                               <td className="py-2.5 px-3 align-middle overflow-hidden">
                                 <div className="flex items-center gap-2 min-w-0">
@@ -5199,6 +5205,8 @@ export default function CallLogManager({
                   );
                 })()}
                 </div>
+                  );
+                })()}
               </div>
             )}
             
