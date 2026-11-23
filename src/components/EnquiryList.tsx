@@ -50,10 +50,24 @@ import {
   isCreatorOnlyViewer
 } from '../utils/permissions';
 import GoogleSearchButton from './common/GoogleSearchButton';
+import HoverScrollText from './HoverScrollText';
 import { InitiateActivityOptions, useActivityLauncher } from '../context/ActivityLauncherContext';
 import Company360Modal from './Company360Modal';
 import { QuickClaimModal } from './QuickClaimModal';
 import { syncSequenceHighWaterMark } from '../services/enquirySequences';
+
+/**
+ * Canonical predicate matching Dashboard's exclusion of Gap / Reserved sequence placeholders.
+ */
+export function isGapReservedEnquiry(e?: Partial<Enquiry> | null): boolean {
+  if (!e) return false;
+  const statusUpper = String(e.status || '').trim().toUpperCase();
+  return Boolean(
+    e.is_gap_placeholder === true ||
+      statusUpper === 'GAP / RESERVED' ||
+      (typeof e.company_name === 'string' && e.company_name.includes('[Reserved Sequence'))
+  );
+}
 
 // ==========================================
 // PURE UTILITY HELPERS (Module Level)
@@ -253,10 +267,10 @@ export const GapDetectorRow = React.memo(function GapDetectorRow({
 
   return (
     <tr key={`gap-${prevSn}-${curSn}`} className="bg-amber-500/5 border-y border-dashed border-amber-500/20">
-      <td colSpan={isMarkingMode ? 9 : 8} className="py-1.5 px-3">
+      <td colSpan={9} className="py-1.5 px-3">
         <div className="flex items-center justify-between gap-2 text-xs text-amber-600/90 dark:text-amber-400 font-mono">
           <div className="flex items-center space-x-2 min-w-0">
-            <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0 inline-block animate-pulse" />
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0 inline-block" />
             <span className="font-semibold truncate">Missing Sequence: {gapLabel}</span>
           </div>
           {isEditable && (
@@ -304,6 +318,7 @@ export interface EnquiryTableRowProps {
   onStatusChange: (enquiry: Enquiry, newStatus: string) => void;
   onCompanyClick: (enquiry: Enquiry) => void;
   activeQuotation?: Quotation | null;
+  quoteCount?: number;
 }
 
 export function areRowPropsEqual(
@@ -318,6 +333,7 @@ export function areRowPropsEqual(
   if (prevProps.canViewConfidentialMargins !== nextProps.canViewConfidentialMargins) return false;
   if (prevProps.isCreatorOnly !== nextProps.isCreatorOnly) return false;
   if (prevProps.companyName !== nextProps.companyName) return false;
+  if (prevProps.quoteCount !== nextProps.quoteCount) return false;
 
   // Active quotation status and value changes check
   if (prevProps.activeQuotation !== nextProps.activeQuotation) {
@@ -390,6 +406,7 @@ export function areRowPropsEqual(
       prevE.creator_access_released !== nextE.creator_access_released ||
       prevE.contact_person_name !== nextE.contact_person_name ||
       prevE.project_location !== nextE.project_location ||
+      prevE.next_followup_date !== nextE.next_followup_date ||
       prevE.attachments?.length !== nextE.attachments?.length ||
       prevE.line_items?.length !== nextE.line_items?.length
     ) {
@@ -428,13 +445,10 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
   onDeleteEnquiry,
   onStatusChange,
   onCompanyClick,
-  activeQuotation
+  activeQuotation,
+  quoteCount = 0
 }: EnquiryTableRowProps) {
-  const isGapReserved = Boolean(
-    e.is_gap_placeholder ||
-    (e.status && (e.status === 'Gap / Reserved' || e.status.toUpperCase() === 'GAP / RESERVED')) ||
-    (e.company_name && e.company_name.includes('[Reserved Sequence'))
-  );
+  const isGapReserved = isGapReservedEnquiry(e);
 
   const isClickable = !isGapReserved && Boolean(resolvedCompany?.id || e.company_id || resolvedCompany);
 
@@ -454,13 +468,46 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
     ? `${baseRepTitle} • Logged by you on behalf of the assigned salesperson`
     : `Assigned Rep: ${baseRepTitle}`;
 
-  const relTime = formatRelativeTime(e.statusUpdatedAt || e.sentAt || e.wonAt || e.lostAt || e.updatedAt);
-  const lastUpdater = e.statusUpdatedBy || (e.statusHistory && e.statusHistory.length > 0 ? e.statusHistory[e.statusHistory.length - 1].updatedBy : undefined);
-  const shortUpdater = lastUpdater ? (lastUpdater.includes('@') ? lastUpdater.split('@')[0] : lastUpdater) : '';
-  const statusSubline = [relTime, shortUpdater].filter(Boolean).join(' · ');
+  const lastUpdater =
+    e.statusUpdatedBy ||
+    (e.statusHistory && e.statusHistory.length > 0
+      ? e.statusHistory[e.statusHistory.length - 1].updatedBy
+      : undefined);
   const tooltipTitle = e.statusUpdatedAt
-    ? `Status: ${e.status} • Updated on ${new Date(e.statusUpdatedAt).toLocaleString()}${lastUpdater ? ` by ${lastUpdater}` : ''}`
+    ? `Status: ${e.status} • Updated on ${new Date(e.statusUpdatedAt).toLocaleString()}${
+        lastUpdater ? ` by ${lastUpdater}` : ''
+      }`
     : `Status: ${e.status} • Click to update`;
+
+  // Distinct status metadata only (never duplicate DATE's relative timestamp under STATUS)
+  const todayIso = new Date().toISOString().split('T')[0];
+  const normRowStatus = normalizeEnquiryStatus(e.status);
+  const isRowClosed =
+    activeQuotation?.status === 'Approved' ||
+    activeQuotation?.status === 'Declined' ||
+    normRowStatus === 'Won / Order Confirmed' ||
+    normRowStatus === 'Won / Approved' ||
+    normRowStatus === 'Lost / Cancelled' ||
+    e.status === 'Order Received' ||
+    e.status === 'Invoiced' ||
+    e.status === 'Lost' ||
+    e.status === 'Dead' ||
+    e.status === 'Cancelled';
+  const isOverdueFollowup = Boolean(
+    !isGapReserved && !isRowClosed && e.next_followup_date && e.next_followup_date < todayIso
+  );
+  const activeRevisionNum = Number(activeQuotation?.revision_number ?? 0);
+  const statusMetaParts: string[] = [];
+  if (isOverdueFollowup) {
+    statusMetaParts.push('Overdue');
+  }
+  if (quoteCount > 1) {
+    statusMetaParts.push(`${quoteCount} Quotes`);
+  }
+  if (activeRevisionNum > 0) {
+    statusMetaParts.push(`Rev ${activeRevisionNum}`);
+  }
+  const statusDistinctSubline = statusMetaParts.join(' · ');
 
   const { prefix, formattedAmount } = getEnquiryCurrencyParts(e);
   const dateRelativeAge = formatEnquiryRelativeAge(e.enquiry_date);
@@ -510,60 +557,62 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
           : 'hover:bg-slate-50/80 dark:hover:bg-slate-800/60'
       }`}
     >
-      {isMarkingMode && (
-        <td className="py-2.5 px-2 text-center overflow-hidden align-middle" onClick={(evt) => evt.stopPropagation()}>
-          <input
-            type="checkbox"
-            checked={isChecked}
-            onClick={(evt) => evt.stopPropagation()}
-            onChange={(chk) => onToggleSelect(e.id!, chk.target.checked)}
-            className="rounded border-slate-300 dark:border-slate-700 text-blue-600 focus:ring-blue-500 cursor-pointer"
-          />
-        </td>
-      )}
-
-      {/* 1. S/N */}
-      <td className="py-2.5 px-1.5 font-mono text-xs text-slate-500 dark:text-slate-400 font-semibold whitespace-nowrap text-center overflow-hidden align-middle tabular-nums">
-        #{e.sn}
+      {/* 1. S/N (with inline Select checkbox when Marking Mode is active) */}
+      <td
+        className="py-2.5 px-2 font-mono text-xs text-slate-500 dark:text-slate-400 font-semibold whitespace-nowrap text-center overflow-hidden align-middle tabular-nums"
+        onClick={isMarkingMode ? (evt) => evt.stopPropagation() : undefined}
+      >
+        <div className="inline-flex items-center justify-center gap-1.5">
+          {isMarkingMode && (
+            <input
+              type="checkbox"
+              checked={isChecked}
+              onClick={(evt) => evt.stopPropagation()}
+              onChange={(chk) => onToggleSelect(e.id!, chk.target.checked)}
+              className="rounded border-slate-300 dark:border-slate-700 text-blue-600 focus:ring-blue-500 cursor-pointer shrink-0"
+              aria-label={`Select enquiry #${e.sn}`}
+            />
+          )}
+          <span>#{e.sn}</span>
+        </div>
       </td>
 
-      {/* 2. COMPANY ACCOUNT (Generous Fluid Width + Clean 2-Line Wrap) */}
-      <td className="py-2.5 px-3 overflow-hidden align-middle" title={companyName}>
+      {/* 2. COMPANY ACCOUNT (Single-line HoverScrollText + Subtle Inline Google Search) */}
+      <td className="py-2.5 px-3 overflow-hidden align-middle">
         {isGapReserved ? (
           <div className="flex flex-col gap-0.5 min-w-0 overflow-hidden">
             <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-700 dark:text-amber-400 font-mono truncate">
               <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
               <span className="truncate">Reserved Sequence #{e.sn}</span>
             </span>
-            <span
-              className="text-xs font-normal text-slate-500 dark:text-slate-400 truncate"
-              title={cleanGapMemo || 'Unassigned sequence placeholder'}
-            >
-              {cleanGapMemo || 'Unassigned sequence placeholder'}
-            </span>
+            <HoverScrollText
+              text={cleanGapMemo || 'Unassigned sequence placeholder'}
+              className="text-xs font-normal text-slate-500 dark:text-slate-400"
+            />
           </div>
         ) : (
           <div className="flex flex-col gap-0.5 min-w-0 overflow-hidden">
-            <div className="flex items-start gap-1.5 min-w-0">
-              <span
-                onClick={(evt) => {
-                  if (isClickable) {
-                    evt.stopPropagation();
-                    onCompanyClick(e);
-                  }
-                }}
-                title={companyName}
-                className={`text-[13.5px] font-semibold leading-snug line-clamp-2 break-words ${
-                  isClickable
-                    ? 'text-slate-900 dark:text-slate-100 hover:text-blue-600 dark:hover:text-blue-400 hover:underline cursor-pointer'
-                    : 'text-slate-800 dark:text-slate-200'
-                }`}
-              >
-                {companyName}
-              </span>
+            <div className="flex items-center gap-1.5 min-w-0 w-full">
+              <div className="min-w-0 flex-1">
+                <HoverScrollText
+                  text={companyName}
+                  title={companyName}
+                  onClick={(evt) => {
+                    if (isClickable) {
+                      evt.stopPropagation();
+                      onCompanyClick(e);
+                    }
+                  }}
+                  className={`text-[13.5px] font-semibold leading-snug ${
+                    isClickable
+                      ? 'text-slate-900 dark:text-slate-100 hover:text-blue-600 dark:hover:text-blue-400 hover:underline cursor-pointer'
+                      : 'text-slate-800 dark:text-slate-200'
+                  }`}
+                />
+              </div>
               {companyName && companyName !== 'Unknown Client' && (
                 <div
-                  className="shrink-0 mt-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity"
+                  className="shrink-0 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity"
                   onClick={(evt) => evt.stopPropagation()}
                 >
                   <GoogleSearchButton
@@ -670,7 +719,7 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
         })()}
       </td>
 
-      {/* 3. QUOTE REF NO (Tightly Fitted Monospace Badge) */}
+      {/* 3. QUOTE REF NO (Generous Width + Uniform Neutral Slate Pill + HoverScrollText) */}
       <td className="py-2.5 px-2 whitespace-nowrap overflow-hidden align-middle">
         {(() => {
           const quoteDoc = e.attachments?.find((att) =>
@@ -691,40 +740,46 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
             (canonicalEnquiryRef && /^QT-\d+/i.test(canonicalEnquiryRef))
           );
 
-          const displayRef = (hasFormalQuote && formalRef) ? formalRef : (canonicalEnquiryRef || '—');
-
-          if (hasFormalQuote && formalRef) {
-            const quoteStatus =
-              activeQuotation?.status ||
-              (e.status === 'Won / Order Confirmed' || e.status === 'Won / Approved'
-                ? 'Approved'
-                : e.status === 'Lost / Cancelled' || e.status === 'Lost'
-                ? 'Declined'
-                : 'Sent');
-            const isApproved = quoteStatus === 'Approved';
-            const isDeclined = quoteStatus === 'Declined';
-            const badgeColorClass = isApproved
-              ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/60'
-              : isDeclined
-              ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-400 border-rose-200 dark:border-rose-800/60'
-              : 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800/60';
-
-            return (
-              <span
-                className={`inline-flex items-center max-w-full font-mono text-[11px] tracking-tight font-medium px-2 py-0.5 rounded-md border whitespace-nowrap ${badgeColorClass}`}
-                title={`Formal Quotation (${quoteStatus}): ${formalRef}${canonicalEnquiryRef && canonicalEnquiryRef !== formalRef ? ` • Enquiry Ref: ${canonicalEnquiryRef}` : ''}`}
-              >
-                <span className="truncate">{formalRef}</span>
-              </span>
-            );
-          }
+          const displayRef = hasFormalQuote && formalRef ? formalRef : canonicalEnquiryRef || '—';
+          const quoteStatus =
+            activeQuotation?.status ||
+            (e.status === 'Won / Order Confirmed' || e.status === 'Won / Approved'
+              ? 'Approved'
+              : e.status === 'Lost / Cancelled' || e.status === 'Lost'
+              ? 'Declined'
+              : 'Sent');
+          const formalDotClass =
+            quoteStatus === 'Approved'
+              ? 'bg-emerald-500'
+              : quoteStatus === 'Declined'
+              ? 'bg-rose-500'
+              : 'bg-blue-500';
+          const refTooltip =
+            hasFormalQuote && formalRef
+              ? `Formal Quotation (${quoteStatus}): ${formalRef}${
+                  canonicalEnquiryRef && canonicalEnquiryRef !== formalRef
+                    ? ` • Enquiry Ref: ${canonicalEnquiryRef}`
+                    : ''
+                }`
+              : displayRef;
 
           return (
             <span
-              className="inline-flex items-center max-w-full font-mono text-[11px] tracking-tight font-medium px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200/80 dark:border-slate-700/60 whitespace-nowrap"
-              title={displayRef}
+              className="inline-flex items-center gap-1.5 max-w-full font-mono text-[11px] tracking-tight font-medium px-2 py-0.5 rounded-md bg-slate-100/90 dark:bg-slate-800/90 text-slate-700 dark:text-slate-200 border border-slate-200/90 dark:border-slate-700/80 whitespace-nowrap"
+              title={refTooltip}
             >
-              <span className="truncate">{displayRef}</span>
+              {hasFormalQuote && formalRef && (
+                <span
+                  className={`w-1.5 h-1.5 rounded-full shrink-0 ${formalDotClass}`}
+                  aria-hidden="true"
+                />
+              )}
+              <HoverScrollText
+                text={displayRef}
+                title={refTooltip}
+                containerClassName="flex-1 min-w-0"
+                className="font-mono text-[11px] tracking-tight font-medium"
+              />
             </span>
           );
         })()}
@@ -796,12 +851,16 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
             <ChevronDown className="w-3 h-3 pointer-events-none absolute right-1.5 text-current opacity-60" />
           </div>
 
-          {statusSubline && (
+          {statusDistinctSubline && (
             <span
-              className="text-[11px] text-slate-400 dark:text-slate-500 truncate max-w-full pl-0.5"
+              className={`text-[10.5px] truncate max-w-full pl-1 font-medium ${
+                isOverdueFollowup
+                  ? 'text-amber-600 dark:text-amber-400'
+                  : 'text-slate-400 dark:text-slate-500'
+              }`}
               title={tooltipTitle}
             >
-              {statusSubline}
+              {statusDistinctSubline}
             </span>
           )}
         </div>
@@ -859,16 +918,16 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
         </div>
       </td>
 
-      {/* 8. ACTIONS (Tight Open + Compact Icon Buttons) */}
-      <td className="py-2.5 pl-1 pr-2.5 text-right whitespace-nowrap overflow-hidden align-middle" onClick={(evt) => evt.stopPropagation()}>
-        <div className="inline-flex items-center justify-end gap-0.5" onClick={(evt) => evt.stopPropagation()}>
+      {/* 8. ACTIONS (Guaranteed Fixed Width + Safe Right Padding + Separated Delete Divider) */}
+      <td className="py-2.5 pl-2 pr-5 text-right whitespace-nowrap align-middle" onClick={(evt) => evt.stopPropagation()}>
+        <div className="inline-flex items-center justify-end gap-1" onClick={(evt) => evt.stopPropagation()}>
           <button
             type="button"
             onClick={(evt) => {
               evt.stopPropagation();
               if (e.id) onSelectEnquiry(e.id);
             }}
-            className="h-7 px-2 rounded-lg text-xs font-semibold bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 shadow-2xs transition inline-flex items-center justify-center cursor-pointer shrink-0"
+            className="h-7 px-2.5 rounded-lg text-xs font-semibold bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 shadow-2xs transition inline-flex items-center justify-center cursor-pointer shrink-0"
             title="Open enquiry details"
           >
             Open
@@ -892,18 +951,20 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
             </button>
           )}
           {canDelete && (
-            <button
-              type="button"
-              onClick={(evt) => {
-                evt.stopPropagation();
-                onDeleteEnquiry(e);
-              }}
-              className="w-7 h-7 rounded-lg inline-flex items-center justify-center text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 border border-transparent hover:border-rose-200 dark:hover:border-rose-800/60 transition cursor-pointer shrink-0"
-              title={isGapReserved ? 'Delete reserved gap' : 'Delete enquiry'}
-              aria-label={isGapReserved ? 'Delete reserved gap' : 'Delete enquiry'}
-            >
-              <Trash className="w-3.5 h-3.5" />
-            </button>
+            <span className="inline-flex items-center border-l border-slate-200 dark:border-slate-700/80 pl-2 ml-1 shrink-0">
+              <button
+                type="button"
+                onClick={(evt) => {
+                  evt.stopPropagation();
+                  onDeleteEnquiry(e);
+                }}
+                className="w-7 h-7 rounded-lg inline-flex items-center justify-center text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 border border-transparent hover:border-rose-200 dark:hover:border-rose-800/60 transition cursor-pointer shrink-0"
+                title={isGapReserved ? 'Delete reserved gap' : 'Delete enquiry'}
+                aria-label={isGapReserved ? 'Delete reserved gap' : 'Delete enquiry'}
+              >
+                <Trash className="w-3.5 h-3.5" />
+              </button>
+            </span>
           )}
         </div>
       </td>
@@ -1295,9 +1356,10 @@ export default function EnquiryList({
     return Array.from(set).sort();
   }, [authorizedEnquiries]);
 
-  // Memoized map: enquiry_id -> active Quotation
-  const activeQuotationByEnquiryId = React.useMemo(() => {
+  // Memoized maps: enquiry_id -> active Quotation & commercial quotation count
+  const { activeQuotationByEnquiryId, quoteCountByEnquiryId } = React.useMemo(() => {
     const map = new Map<string, Quotation>();
+    const countMap = new Map<string, number>();
 
     // Group strictly commercial quotations ('quotation') by enquiry_id — never auxiliary DO/PO/REC/PV/MRN/DN
     const grouped = new Map<string, Quotation[]>();
@@ -1310,8 +1372,11 @@ export default function EnquiryList({
       grouped.set(q.enquiry_id, list);
     }
 
-    // For each enquiry_id, resolve the active quotation
+    // For each enquiry_id, resolve the active quotation and count non-superseded commercial quotes
     grouped.forEach((quotes, enquiryId) => {
+      const nonSuperseded = quotes.filter((q) => q.status !== 'Superseded');
+      countMap.set(enquiryId, nonSuperseded.length > 0 ? nonSuperseded.length : quotes.length);
+
       // 1. Check if there's an Approved quotation (the winning quote)
       const approved = quotes.find((q) => q.status === 'Approved');
       if (approved) {
@@ -1334,7 +1399,6 @@ export default function EnquiryList({
         return;
       }
       // 4. Otherwise, pick highest revision non-superseded or first quote
-      const nonSuperseded = quotes.filter((q) => q.status !== 'Superseded');
       if (nonSuperseded.length > 0) {
         nonSuperseded.sort((a, b) => (b.revision_number ?? 0) - (a.revision_number ?? 0));
         map.set(enquiryId, nonSuperseded[0]);
@@ -1344,11 +1408,14 @@ export default function EnquiryList({
       }
     });
 
-    return map;
+    return { activeQuotationByEnquiryId: map, quoteCountByEnquiryId: countMap };
   }, [quotations]);
 
   // Aggregate lifecycle counts and KPI pipeline metrics across authorized enquiries
+  // Strictly excludes Gap / Reserved placeholders from KPI metrics & header proposal count (parity with Dashboard)
   const lifecycleCounts = React.useMemo(() => {
+    let totalReal = 0;
+    let open = 0;
     let pending = 0;
     let won = 0;
     let lost = 0;
@@ -1360,7 +1427,8 @@ export default function EnquiryList({
     const today = new Date().toISOString().split('T')[0];
 
     (authorizedEnquiries || []).forEach((e) => {
-      if (!e || e.is_gap_placeholder) return;
+      if (!e || isGapReservedEnquiry(e)) return;
+      totalReal++;
       const quote = e.id ? activeQuotationByEnquiryId.get(e.id) : null;
       const normStatus = normalizeEnquiryStatus(e.status);
       const quoteSubtotal = Number(quote?.subtotal || 0);
@@ -1373,13 +1441,18 @@ export default function EnquiryList({
         normStatus === 'Won / Order Confirmed' ||
         normStatus === 'Won / Approved' ||
         e.status === 'Won / Order Confirmed' ||
-        e.status === 'Won / Approved';
+        e.status === 'Won / Approved' ||
+        e.status === 'Order Received' ||
+        e.status === 'Invoiced';
 
       const isLost =
         quote?.status === 'Declined' ||
         normStatus === 'Lost / Cancelled' ||
         e.status === 'Lost / Cancelled' ||
-        e.status === 'Lost';
+        e.status === 'Lost' ||
+        e.status === 'Dead' ||
+        e.status === 'Cancelled' ||
+        e.status === 'Cancelled PO';
 
       const isPending =
         !isWon &&
@@ -1401,6 +1474,7 @@ export default function EnquiryList({
       } else if (isLost) {
         lost++;
       } else {
+        open++;
         activePipelineValueAed += valAed;
         if (isPending) {
           pending++;
@@ -1416,10 +1490,13 @@ export default function EnquiryList({
       }
     });
 
+    const conversionRatePct = totalReal > 0 ? Math.round((won / totalReal) * 100) : 0;
     const winRatePct = won + lost > 0 ? Math.round((won / (won + lost)) * 100) : 0;
 
     return {
       all: authorizedEnquiries.length,
+      totalReal,
+      open,
       pending,
       won,
       lost,
@@ -1427,6 +1504,7 @@ export default function EnquiryList({
       activePipelineValueAed,
       pendingQuotesValueAed,
       wonValueAed,
+      conversionRatePct,
       winRatePct,
       overdueFollowups
     };
@@ -1491,9 +1569,11 @@ export default function EnquiryList({
         sourceFilter === 'All' ||
         normalizeEnquirySource(e.enquiry_source) === sourceFilter;
 
-      // 6. Quotation Lifecycle Filter
+      // 6. Quotation Lifecycle Filter (exclude Gap / Reserved from lifecycle slices while keeping them in 'all')
       let matchQuoteLifecycle = true;
-      if (quoteLifecycleFilter === 'pending') {
+      if (quoteLifecycleFilter !== 'all' && isGapReservedEnquiry(e)) {
+        matchQuoteLifecycle = false;
+      } else if (quoteLifecycleFilter === 'pending') {
         const quote = e.id ? activeQuotationByEnquiryId.get(e.id) : null;
         const normStatus = normalizeEnquiryStatus(e.status);
         const isWon =
@@ -1501,12 +1581,17 @@ export default function EnquiryList({
           normStatus === 'Won / Order Confirmed' ||
           normStatus === 'Won / Approved' ||
           e.status === 'Won / Order Confirmed' ||
-          e.status === 'Won / Approved';
+          e.status === 'Won / Approved' ||
+          e.status === 'Order Received' ||
+          e.status === 'Invoiced';
         const isLost =
           quote?.status === 'Declined' ||
           normStatus === 'Lost / Cancelled' ||
           e.status === 'Lost / Cancelled' ||
-          e.status === 'Lost';
+          e.status === 'Lost' ||
+          e.status === 'Dead' ||
+          e.status === 'Cancelled' ||
+          e.status === 'Cancelled PO';
         matchQuoteLifecycle =
           !isWon &&
           !isLost &&
@@ -1523,7 +1608,9 @@ export default function EnquiryList({
           normStatus === 'Won / Order Confirmed' ||
           normStatus === 'Won / Approved' ||
           e.status === 'Won / Order Confirmed' ||
-          e.status === 'Won / Approved';
+          e.status === 'Won / Approved' ||
+          e.status === 'Order Received' ||
+          e.status === 'Invoiced';
       } else if (quoteLifecycleFilter === 'lost') {
         const quote = e.id ? activeQuotationByEnquiryId.get(e.id) : null;
         const normStatus = normalizeEnquiryStatus(e.status);
@@ -1531,7 +1618,10 @@ export default function EnquiryList({
           quote?.status === 'Declined' ||
           normStatus === 'Lost / Cancelled' ||
           e.status === 'Lost / Cancelled' ||
-          e.status === 'Lost';
+          e.status === 'Lost' ||
+          e.status === 'Dead' ||
+          e.status === 'Cancelled' ||
+          e.status === 'Cancelled PO';
       } else if (quoteLifecycleFilter === 'unquoted') {
         const quote = e.id ? activeQuotationByEnquiryId.get(e.id) : null;
         const normStatus = normalizeEnquiryStatus(e.status);
@@ -1540,12 +1630,17 @@ export default function EnquiryList({
           normStatus === 'Won / Order Confirmed' ||
           normStatus === 'Won / Approved' ||
           e.status === 'Won / Order Confirmed' ||
-          e.status === 'Won / Approved';
+          e.status === 'Won / Approved' ||
+          e.status === 'Order Received' ||
+          e.status === 'Invoiced';
         const isLost =
           quote?.status === 'Declined' ||
           normStatus === 'Lost / Cancelled' ||
           e.status === 'Lost / Cancelled' ||
-          e.status === 'Lost';
+          e.status === 'Lost' ||
+          e.status === 'Dead' ||
+          e.status === 'Cancelled' ||
+          e.status === 'Cancelled PO';
         const hasFormal =
           (quote && quote.status !== 'Draft') ||
           e.attachments?.some((a) => a.name?.startsWith('QT-') && a.name?.endsWith('.pdf')) ||
@@ -2257,7 +2352,7 @@ export default function EnquiryList({
         title="Enquiries & Quotes"
         subtitle={`Maintain ${BRAND_CONFIG.shortName} sales proposals, track delivery lead times, and update customer status.`}
         icon={FileText}
-        badge={{ text: `${authorizedEnquiries.length} Proposals`, variant: 'blue' }}
+        badge={{ text: `${lifecycleCounts.totalReal} Proposals`, variant: 'blue' }}
         currentUser={user}
         onOpenSidebar={onOpenMobileMenu}
         primaryAction={
@@ -2394,7 +2489,7 @@ export default function EnquiryList({
           compact
           label="Active Pipeline"
           value={`AED ${lifecycleCounts.activePipelineValueAed.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`}
-          subtext={`${lifecycleCounts.all - lifecycleCounts.won - lifecycleCounts.lost} open enquiries · ${lifecycleCounts.unquoted} unquoted`}
+          subtext={`${lifecycleCounts.open} open enquiries · ${lifecycleCounts.unquoted} unquoted`}
           icon={<TrendingUp className="w-4 h-4" />}
           tone="blue"
           onClick={() => setQuoteLifecycleFilter('all')}
@@ -2416,7 +2511,7 @@ export default function EnquiryList({
           compact
           label="Won Orders"
           value={`AED ${lifecycleCounts.wonValueAed.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`}
-          subtext={`${lifecycleCounts.won} won · ${lifecycleCounts.winRatePct}% conversion rate`}
+          subtext={`${lifecycleCounts.won} / ${lifecycleCounts.totalReal} converted · ${lifecycleCounts.conversionRatePct}% conversion rate`}
           icon={<CheckCircle2 className="w-4 h-4" />}
           tone="emerald"
           onClick={() => setQuoteLifecycleFilter('won')}
@@ -2807,58 +2902,68 @@ export default function EnquiryList({
               })}
             </div>
 
-            <div className="hidden sm:block w-full overflow-x-auto xl:overflow-x-visible scrollbar-thin relative border-b border-slate-200 dark:border-slate-800">
-            <table className="w-full min-w-[1040px] xl:min-w-0 table-fixed text-left border-collapse">
+            <div className="hidden sm:block w-full overflow-x-auto scrollbar-thin relative border-b border-slate-200 dark:border-slate-800">
+            <table className="w-full min-w-[1076px] lg:table-fixed text-left border-collapse">
               <thead className="sticky top-0 z-10 bg-slate-50/95 dark:bg-slate-800/95 backdrop-blur-xs border-b border-slate-200 dark:border-slate-800 text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] select-none">
                 <tr>
-                  {isMarkingMode && (
-                    <th className="py-2 px-2 w-9 text-center bg-slate-50 dark:bg-slate-900">
-                      <input
-                        type="checkbox"
-                        checked={paginatedEnquiries.length > 0 && paginatedEnquiries.every((e) => selectedEnquiryIds.includes(e.id!))}
-                        onChange={(e) => {
-                          const pageIds = paginatedEnquiries.map((eq) => eq.id!).filter(Boolean);
-                          if (e.target.checked) {
-                            setSelectedEnquiryIds((prev) => {
-                              const union = [...prev];
-                              pageIds.forEach((id) => {
-                                if (!union.includes(id)) union.push(id);
+                  <th
+                    className={`py-2 px-2 ${
+                      isMarkingMode ? 'w-[96px]' : 'w-[68px]'
+                    } text-center bg-slate-50 dark:bg-slate-900 whitespace-nowrap`}
+                  >
+                    <div className="inline-flex items-center justify-center gap-1.5">
+                      {isMarkingMode && (
+                        <input
+                          type="checkbox"
+                          checked={paginatedEnquiries.length > 0 && paginatedEnquiries.every((e) => selectedEnquiryIds.includes(e.id!))}
+                          onClick={(e) => e.stopPropagation()}
+                          onChange={(e) => {
+                            const pageIds = paginatedEnquiries.map((eq) => eq.id!).filter(Boolean);
+                            if (e.target.checked) {
+                              setSelectedEnquiryIds((prev) => {
+                                const union = [...prev];
+                                pageIds.forEach((id) => {
+                                  if (!union.includes(id)) union.push(id);
+                                });
+                                return union;
                               });
-                              return union;
-                            });
-                          } else {
-                            setSelectedEnquiryIds((prev) => prev.filter((id) => !pageIds.includes(id)));
-                          }
-                        }}
-                        className="rounded border-slate-300 dark:border-slate-700 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                        title="Select all on current page"
-                      />
-                    </th>
-                  )}
-                  <th onClick={() => handleSort('sn')} className="py-2 px-1.5 w-[52px] text-center cursor-pointer hover:text-slate-800 dark:hover:text-slate-200 transition bg-slate-50 dark:bg-slate-900 whitespace-nowrap">
-                    <div className="flex items-center space-x-0.5 justify-center">
-                      <span>S/N</span>
-                      <ArrowUpDown className="w-3 h-3 shrink-0 opacity-70" />
+                            } else {
+                              setSelectedEnquiryIds((prev) => prev.filter((id) => !pageIds.includes(id)));
+                            }
+                          }}
+                          className="rounded border-slate-300 dark:border-slate-700 text-blue-600 focus:ring-blue-500 cursor-pointer shrink-0"
+                          title="Select all on current page"
+                          aria-label="Select all on current page"
+                        />
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => handleSort('sn')}
+                        className="inline-flex items-center space-x-0.5 cursor-pointer hover:text-slate-800 dark:hover:text-slate-200 transition"
+                      >
+                        <span>S/N</span>
+                        <ArrowUpDown className="w-3 h-3 shrink-0 opacity-70" />
+                      </button>
                     </div>
                   </th>
-                  <th className="py-2 px-3 w-auto truncate bg-slate-50 dark:bg-slate-900">Company Account</th>
-                  <th className="hidden 2xl:table-cell py-2 px-2.5 w-[148px] truncate bg-slate-50 dark:bg-slate-900">Contact / Location</th>
-                  <th className="py-2 px-2 w-[164px] truncate bg-slate-50 dark:bg-slate-900">Quote Ref No</th>
-                  <th className="py-2 px-1 w-[46px] text-center truncate bg-slate-50 dark:bg-slate-900">Rep</th>
-                  <th onClick={() => handleSort('enquiry_date')} className="py-2 px-2 w-[96px] cursor-pointer hover:text-slate-800 dark:hover:text-slate-200 transition whitespace-nowrap bg-slate-50 dark:bg-slate-900">
+                  <th className="py-2 px-3 w-auto min-w-[200px] truncate bg-slate-50 dark:bg-slate-900">Company Account</th>
+                  <th className="hidden 2xl:table-cell py-2 px-2.5 w-[136px] truncate bg-slate-50 dark:bg-slate-900">Contact / Location</th>
+                  <th className="py-2 px-2 w-[224px] truncate bg-slate-50 dark:bg-slate-900">Quote Ref No</th>
+                  <th className="py-2 px-1 w-[56px] text-center truncate bg-slate-50 dark:bg-slate-900">Rep</th>
+                  <th onClick={() => handleSort('enquiry_date')} className="py-2 px-2 w-[112px] cursor-pointer hover:text-slate-800 dark:hover:text-slate-200 transition whitespace-nowrap bg-slate-50 dark:bg-slate-900">
                     <div className="flex items-center space-x-1">
                       <span>Date</span>
                       <ArrowUpDown className="w-3 h-3 shrink-0 opacity-70" />
                     </div>
                   </th>
-                  <th className="py-2 px-2 w-[172px] truncate bg-slate-50 dark:bg-slate-900">Status</th>
-                  <th onClick={() => handleSort('value_aed')} className="py-2 pl-2 pr-2.5 w-[164px] cursor-pointer hover:text-slate-800 dark:hover:text-slate-200 transition text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">
+                  <th className="py-2 px-2 w-[140px] truncate bg-slate-50 dark:bg-slate-900">Status</th>
+                  <th onClick={() => handleSort('value_aed')} className="py-2 pl-2 pr-2.5 w-[124px] cursor-pointer hover:text-slate-800 dark:hover:text-slate-200 transition text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">
                     <div className="flex items-center space-x-1 justify-end">
                       <span>Value</span>
                       <ArrowUpDown className="w-3 h-3 shrink-0 opacity-70" />
                     </div>
                   </th>
-                  <th className="py-2 pl-1 pr-2.5 w-[104px] text-right truncate bg-slate-50 dark:bg-slate-900">Actions</th>
+                  <th className="py-2 pl-2 pr-5 w-[152px] text-right truncate bg-slate-50 dark:bg-slate-900">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 dark:divide-slate-800 font-sans">
@@ -2914,6 +3019,7 @@ export default function EnquiryList({
                         onStatusChange={handleStatusChange}
                         onCompanyClick={handleCompanyClick}
                         activeQuotation={e.id ? activeQuotationByEnquiryId.get(e.id) : null}
+                        quoteCount={e.id ? quoteCountByEnquiryId.get(e.id) || 0 : 0}
                       />
                     </React.Fragment>
                   );
