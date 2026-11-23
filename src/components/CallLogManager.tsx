@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { CallLogEntry, Company, Contact, Enquiry, Workspace, UserProfile, LegalSuffix, Salesperson, getCompanyPhones, getContactPhones, getCompanyEmails, isSamePhoneNumber, CallStatus } from '../types';
 import { useActivityLauncher, InitiateActivityOptions } from '../context/ActivityLauncherContext';
 import { useEntityEdit } from '../context/EntityEditContext';
@@ -25,6 +25,7 @@ import {
   FileText,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   PhoneOff,
   Edit3,
   Pencil,
@@ -57,9 +58,10 @@ import {
   History,
   X,
   RotateCcw,
-  CheckSquare
+  CheckSquare,
+  SlidersHorizontal
 } from 'lucide-react';
-import SearchResultCounter from './common/SearchResultCounter';
+import { HoverScrollText } from './HoverScrollText';
 import PhoneDataDiagnosticModal from './PhoneDataDiagnosticModal';
 import CallLogDetailModal from './CallLogDetailModal';
 import Company360Modal from './Company360Modal';
@@ -343,8 +345,8 @@ export default function CallLogManager({
   const [subTab, setSubTab] = useState<'queue' | 'log'>(initialSubTab);
   const [historyActivityType, setHistoryActivityType] = useState<'sales' | 'internal'>('sales');
   
-  // Table vs Card View
-  const [viewMode, setViewMode] = useState<'card' | 'table'>(() => (localStorage.getItem('callLogViewMode') as 'card' | 'table') || 'card');
+  // Table vs Card View (defaults to Table to match Enquiries & Quotes density)
+  const [viewMode, setViewMode] = useState<'card' | 'table'>(() => (localStorage.getItem('callLogViewMode') as 'card' | 'table') || 'table');
   
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
@@ -870,6 +872,29 @@ export default function CallLogManager({
   const [showFastQueueDrawer, setShowFastQueueDrawer] = useState(false);
   const [selectedEntry, setSelectedEntry] = useState<CallLogEntry | null>(null);
   const [showDiagnosticModal, setShowDiagnosticModal] = useState(false);
+
+  // Header Tools dropdown & Secondary Filters drawer state
+  const [showToolsMenu, setShowToolsMenu] = useState(false);
+  const toolsMenuRef = useRef<HTMLDivElement | null>(null);
+  const [showMoreFilters, setShowMoreFilters] = useState(false);
+
+  useEffect(() => {
+    if (!showToolsMenu) return;
+    const handleOutsideClick = (evt: MouseEvent) => {
+      if (toolsMenuRef.current && !toolsMenuRef.current.contains(evt.target as Node)) {
+        setShowToolsMenu(false);
+      }
+    };
+    const handleKeyDown = (evt: KeyboardEvent) => {
+      if (evt.key === 'Escape') setShowToolsMenu(false);
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [showToolsMenu]);
 
   // New Modals State
   const [selectedDetailEntry, setSelectedDetailEntry] = useState<CallLogEntry | null>(null);
@@ -2310,6 +2335,16 @@ export default function CallLogManager({
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [salespersons, workspaceCallLogs]);
 
+  // Secondary (expandable) filter count for "More Filters" badge
+  const secondaryFiltersCount = useMemo(() => {
+    let count = 0;
+    if (datePresetFilter !== 'all') count++;
+    if (industryFilter !== 'all') count++;
+    if (geographyFilter !== 'all') count++;
+    if (historySortOrder !== 'newest') count++;
+    return count;
+  }, [datePresetFilter, industryFilter, geographyFilter, historySortOrder]);
+
   // Active filter count
   const activeFiltersCount = useMemo(() => {
     let count = 0;
@@ -2318,12 +2353,12 @@ export default function CallLogManager({
     if (statusFilter !== 'all') count++;
     if (outcomeFilter !== 'all') count++;
     if (datePresetFilter !== 'all') count++;
-    if (datePresetFilter === 'custom' && (customDateStart || customDateEnd)) count++;
     if (agentFilter !== 'all') count++;
     if (industryFilter !== 'all') count++;
     if (geographyFilter !== 'all') count++;
+    if (historySortOrder !== 'newest') count++;
     return count;
-  }, [searchTerm, channelFilter, statusFilter, outcomeFilter, datePresetFilter, customDateStart, customDateEnd, agentFilter, industryFilter, geographyFilter]);
+  }, [searchTerm, channelFilter, statusFilter, outcomeFilter, datePresetFilter, agentFilter, industryFilter, geographyFilter, historySortOrder]);
 
   // 1-Click Reset All Filters back to defaults
   const handleResetFilters = useCallback(() => {
@@ -2337,6 +2372,7 @@ export default function CallLogManager({
     setAgentFilter('all');
     setIndustryFilter('all');
     setGeographyFilter('all');
+    setHistorySortOrder('newest');
   }, []);
 
   // Human-readable labels for active filters in SearchResultCounter
@@ -2668,7 +2704,7 @@ export default function CallLogManager({
         currentUser={user}
         onOpenSidebar={onOpenMobileMenu}
         primaryAction={{
-          label: 'Log / Schedule New Call',
+          label: 'Log / Schedule Call',
           icon: Plus,
           onClick: () => {
             setDrawerMode('create');
@@ -2682,208 +2718,715 @@ export default function CallLogManager({
         }}
         secondaryActions={[
           {
-            label: 'Export Call Report',
-            icon: Printer,
-            onClick: () => setShowReportExportModal(true)
-          },
-          {
-            label: 'Readiness Audit',
-            icon: BarChart2,
-            onClick: () => setShowDiagnosticModal(true)
+            label: isMarkingMode ? 'Done Selecting' : 'Select',
+            icon: CheckSquare,
+            active: isMarkingMode,
+            onClick: () => {
+              const next = !isMarkingMode;
+              setIsMarkingMode(next);
+              if (next && subTab !== 'log') {
+                setSubTab('log');
+              }
+              if (!next) {
+                setSelectedLogIds([]);
+              }
+            }
           }
         ]}
+        beforePrimaryActions={
+          <div ref={toolsMenuRef} className="relative shrink-0">
+            <button
+              type="button"
+              onClick={() => setShowToolsMenu((prev) => !prev)}
+              aria-expanded={showToolsMenu}
+              aria-haspopup="menu"
+              className={`px-3 py-1.5 sm:px-3.5 sm:py-2 text-xs font-semibold rounded-xl border transition cursor-pointer inline-flex items-center gap-1.5 whitespace-nowrap shadow-2xs ${
+                showToolsMenu
+                  ? 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border-slate-400 dark:border-slate-600'
+                  : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/60'
+              }`}
+            >
+              <SlidersHorizontal className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400 shrink-0" />
+              <span>Tools</span>
+              <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform ${showToolsMenu ? 'rotate-180' : ''}`} />
+            </button>
+
+            {showToolsMenu && (
+              <div
+                role="menu"
+                className="absolute right-0 mt-1.5 w-52 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-lg py-1.5 z-40 animate-in fade-in zoom-in-95 duration-100"
+              >
+                <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                  Reports &amp; Diagnostics
+                </div>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setShowToolsMenu(false);
+                    setShowReportExportModal(true);
+                  }}
+                  className="w-full px-3 py-2 text-left text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2.5 cursor-pointer transition"
+                >
+                  <Printer className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400 shrink-0" />
+                  <span>Export Call Report</span>
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setShowToolsMenu(false);
+                    setShowDiagnosticModal(true);
+                  }}
+                  className="w-full px-3 py-2 text-left text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2.5 cursor-pointer transition"
+                >
+                  <BarChart2 className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
+                  <span>Readiness Audit</span>
+                </button>
+              </div>
+            )}
+          </div>
+        }
       />
 
-      <PageBody>
+      <PageBody className="!py-4 sm:!py-5 !space-y-3.5">
 
-      {/* Metrics Counter Banner */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* Slim Top 4-Card KPI Summary Strip (Matched to Enquiries & Quotes) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <KpiStatCard
+          compact
           label="Scheduled Queue (Today)"
           value={stats.scheduledToday}
           subtext="Due for immediate follow-up"
-          icon={<Calendar className="w-5 h-5" />}
+          icon={<Calendar className="w-4 h-4" />}
           tone="blue"
+          onClick={() => {
+            setSubTab('queue');
+            setQueueTimeframe('today');
+          }}
+          active={subTab === 'queue' && queueTimeframe === 'today'}
         />
 
         <KpiStatCard
+          compact
           label="Overdue Calls"
           value={stats.overdueCount}
           subtext="Requires priority attention"
-          icon={<Clock className="w-5 h-5" />}
+          icon={<Clock className="w-4 h-4" />}
           tone={stats.overdueCount > 0 ? 'rose' : 'slate'}
+          onClick={() => {
+            setSubTab('queue');
+            setQueueTimeframe('today');
+            setQueueSortOrder('oldest');
+          }}
         />
 
         <KpiStatCard
+          compact
           label="Calls Today"
           value={stats.completedToday}
           subtext="Logged & completed today"
-          icon={<CheckCircle2 className="w-5 h-5" />}
+          icon={<CheckCircle2 className="w-4 h-4" />}
           tone="emerald"
+          onClick={() => {
+            setSubTab('log');
+            setDatePresetFilter((prev) => (prev === 'today' ? 'all' : 'today'));
+          }}
+          active={subTab === 'log' && datePresetFilter === 'today'}
         />
 
         <KpiStatCard
+          compact
           label="Completed This Week"
           value={stats.completedThisWeek}
           subtext="Total operator call activity"
-          icon={<Zap className="w-5 h-5" />}
+          icon={<Zap className="w-4 h-4" />}
           tone="purple"
+          onClick={() => {
+            setSubTab('log');
+            setDatePresetFilter((prev) => (prev === 'this_week' ? 'all' : 'this_week'));
+          }}
+          active={subTab === 'log' && datePresetFilter === 'this_week'}
         />
       </div>
 
-      {/* Navigation Sub-Tabs */}
-      <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 pb-2">
-        <button
-          onClick={() => setSubTab('queue')}
-          className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-bold transition whitespace-nowrap ${
-            subTab === 'queue'
-              ? 'bg-slate-900 text-white shadow'
-              : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-          }`}
-        >
-          <PhoneCall className="w-4 h-4 shrink-0" />
-          <span>Activity Queue ({queueItems.length})</span>
-        </button>
-
-        <button
-          onClick={() => setSubTab('log')}
-          className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-bold transition whitespace-nowrap ${
-            subTab === 'log'
-              ? 'bg-slate-900 text-white shadow'
-              : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-          }`}
-        >
-          <ListFilter className="w-4 h-4 shrink-0" />
-          <span>Activity History ({filteredHistoryLogs.length !== workspaceCallLogs.length ? `${filteredHistoryLogs.length} of ${workspaceCallLogs.length}` : filteredHistoryLogs.length})</span>
-        </button>
-      </div>
-
-      {/* VIEW 1: ACTIVITY QUEUE */}
-      {subTab === 'queue' && (
-        <div className="space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-3 bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs">
-            <div className="min-w-[240px] flex-1">
-              <h2 className="text-sm font-extrabold text-slate-900 dark:text-slate-100 uppercase tracking-wider flex items-center gap-2 flex-wrap">
+      {/* Unified Compact Toolbar & Filter Card (Matched to Enquiries & Quotes) */}
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl p-3 shadow-2xs space-y-2.5">
+        {/* Row 1: Primary Tabs + Scope/Timeframe Controls + View/Secondary Toggles */}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2 min-w-0">
+            {/* Primary Tabs: Activity Queue vs Activity History */}
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setSubTab('queue')}
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all cursor-pointer whitespace-nowrap ${
+                  subTab === 'queue'
+                    ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 border-transparent shadow-2xs'
+                    : 'bg-slate-50/80 dark:bg-slate-950/60 text-slate-600 dark:text-slate-400 border-slate-200/80 dark:border-slate-800 hover:bg-slate-100/70 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-200'
+                }`}
+              >
+                <PhoneCall className="w-3.5 h-3.5 shrink-0" />
                 <span>Activity Queue</span>
-                <span className="text-xs px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800 dark:bg-blue-900/60 dark:text-blue-200 font-bold font-mono whitespace-nowrap">
-                  {queueItems.length} {queueTimeframe === 'today' ? 'Due Today / Overdue' : queueTimeframe === 'upcoming' ? 'Upcoming' : 'Total Scheduled'}
+                <span
+                  className={`text-[10px] font-mono tabular-nums px-1.5 py-0.2 rounded-full font-bold ${
+                    subTab === 'queue'
+                      ? 'bg-white/20 text-current'
+                      : 'bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200/60 dark:border-slate-700'
+                  }`}
+                >
+                  {queueItems.length}
                 </span>
-              </h2>
-              <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                {queueTimeframe === 'today' && "Showing tasks due today or overdue. Overdue tasks listed first."}
-                {queueTimeframe === 'upcoming' && "Showing future scheduled follow-ups across your pipeline."}
-                {queueTimeframe === 'all' && "Showing all scheduled follow-ups across all dates."}
-              </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setSubTab('log')}
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all cursor-pointer whitespace-nowrap ${
+                  subTab === 'log'
+                    ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 border-transparent shadow-2xs'
+                    : 'bg-slate-50/80 dark:bg-slate-950/60 text-slate-600 dark:text-slate-400 border-slate-200/80 dark:border-slate-800 hover:bg-slate-100/70 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-200'
+                }`}
+              >
+                <ListFilter className="w-3.5 h-3.5 shrink-0" />
+                <span>Activity History</span>
+                <span
+                  className={`text-[10px] font-mono tabular-nums px-1.5 py-0.2 rounded-full font-bold ${
+                    subTab === 'log'
+                      ? 'bg-white/20 text-current'
+                      : 'bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200/60 dark:border-slate-700'
+                  }`}
+                >
+                  {filteredHistoryLogs.length}
+                </span>
+              </button>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2 shrink-0">
-              {/* Timeframe Filter Buttons */}
-              <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200 dark:border-slate-800 flex-wrap">
+            <div className="hidden sm:block h-5 w-px bg-slate-200 dark:bg-slate-700 shrink-0" aria-hidden="true" />
+
+            {/* Contextual Segmented Scope Pills (History) or Timeframe Pills (Queue) */}
+            {subTab === 'log' ? (
+              <div className="inline-flex items-center gap-0.5 p-0.5 bg-slate-100 dark:bg-slate-800/80 rounded-lg border border-slate-200/70 dark:border-slate-700/80">
                 <button
                   type="button"
-                  onClick={() => setQueueTimeframe('today')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
-                    queueTimeframe === 'today'
-                      ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs'
+                  onClick={() => {
+                    setHistoryActivityType('sales');
+                    setCurrentPage(1);
+                  }}
+                  className={`px-2.5 py-1 rounded-md text-xs font-semibold transition inline-flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
+                    historyActivityType === 'sales'
+                      ? 'bg-white dark:bg-slate-700 text-blue-700 dark:text-blue-300 shadow-2xs'
                       : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
                   }`}
                 >
-                  <Clock className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-                  <span>Today ({allScheduledQueueItems.filter(i => isTaskDueTodayOrOverdue(i.next_followup_date || i.date)).length})</span>
+                  <PhoneCall className="w-3 h-3 shrink-0" />
+                  <span>Sales Outreach</span>
+                  <span className="font-mono tabular-nums text-[10.5px] opacity-75">({salesHistoryCount})</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setHistoryActivityType('internal');
+                    setCurrentPage(1);
+                  }}
+                  className={`px-2.5 py-1 rounded-md text-xs font-semibold transition inline-flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
+                    historyActivityType === 'internal'
+                      ? 'bg-white dark:bg-slate-700 text-indigo-700 dark:text-indigo-300 shadow-2xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                  }`}
+                >
+                  <Briefcase className="w-3 h-3 shrink-0" />
+                  <span>Internal Ops</span>
+                  <span className="font-mono tabular-nums text-[10.5px] opacity-75">({opsHistoryCount})</span>
+                </button>
+              </div>
+            ) : (
+              <div className="inline-flex items-center gap-0.5 p-0.5 bg-slate-100 dark:bg-slate-800/80 rounded-lg border border-slate-200/70 dark:border-slate-700/80">
+                <button
+                  type="button"
+                  onClick={() => setQueueTimeframe('today')}
+                  className={`px-2.5 py-1 rounded-md text-xs font-semibold transition inline-flex items-center gap-1 cursor-pointer whitespace-nowrap ${
+                    queueTimeframe === 'today'
+                      ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-2xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                  }`}
+                >
+                  <Clock className="w-3 h-3 text-blue-500 shrink-0" />
+                  <span>Today</span>
+                  <span className="font-mono tabular-nums text-[10.5px] opacity-75">
+                    ({allScheduledQueueItems.filter((i) => isTaskDueTodayOrOverdue(i.next_followup_date || i.date)).length})
+                  </span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setQueueTimeframe('upcoming')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
+                  className={`px-2.5 py-1 rounded-md text-xs font-semibold transition inline-flex items-center gap-1 cursor-pointer whitespace-nowrap ${
                     queueTimeframe === 'upcoming'
-                      ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs'
+                      ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-2xs'
                       : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
                   }`}
                 >
-                  <Calendar className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                  <span>Upcoming ({allScheduledQueueItems.filter(i => isTaskUpcoming(i.next_followup_date || i.date)).length})</span>
+                  <Calendar className="w-3 h-3 text-amber-500 shrink-0" />
+                  <span>Upcoming</span>
+                  <span className="font-mono tabular-nums text-[10.5px] opacity-75">
+                    ({allScheduledQueueItems.filter((i) => isTaskUpcoming(i.next_followup_date || i.date)).length})
+                  </span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setQueueTimeframe('all')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
+                  className={`px-2.5 py-1 rounded-md text-xs font-semibold transition inline-flex items-center gap-1 cursor-pointer whitespace-nowrap ${
                     queueTimeframe === 'all'
-                      ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs'
+                      ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-2xs'
                       : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
                   }`}
                 >
-                  <ListFilter className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
-                  <span>All ({allScheduledQueueItems.length})</span>
+                  <span>All</span>
+                  <span className="font-mono tabular-nums text-[10.5px] opacity-75">({allScheduledQueueItems.length})</span>
                 </button>
               </div>
-
-              {/* Sort Toggle for Queue */}
-              <button
-                type="button"
-                onClick={() => setQueueSortOrder((prev) => (prev === 'oldest' ? 'newest' : 'oldest'))}
-                className="px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-800 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer whitespace-nowrap"
-                title="Toggle Queue Date Sorting"
-              >
-                <ArrowUpDown className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
-                <span>Sort: {queueSortOrder === 'oldest' ? 'Oldest First' : 'Newest First'}</span>
-              </button>
-
-              {/* Launch Live Execution Queue (Strict Overdue + Today Queue) */}
-              <button
-                type="button"
-                id="launch-live-execution-queue-btn"
-                onClick={handleStartLiveExecutionQueue}
-                className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shadow-xs whitespace-nowrap"
-                title="Start Live Execution Command Center for overdue and due today tasks"
-              >
-                <Zap className="w-3.5 h-3.5 text-amber-300 fill-amber-300 shrink-0" />
-                <span>Live Queue ({getStrictExecutionQueue().length})</span>
-              </button>
-            </div>
+            )}
           </div>
 
-          {/* High-Density Real-Time Task Queue Search Bar */}
-          <div className="bg-white dark:bg-slate-900 p-3 sm:p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+          {/* Right Controls: Table/Cards + More Filters (History) OR Sort + Live Queue (Queue) */}
+          <div className="flex items-center gap-2 shrink-0">
+            {subTab === 'log' ? (
+              <>
+                <div className="inline-flex items-center p-0.5 bg-slate-100 dark:bg-slate-800/80 rounded-lg border border-slate-200/70 dark:border-slate-700/80">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setViewMode('table');
+                      localStorage.setItem('callLogViewMode', 'table');
+                    }}
+                    className={`h-7 px-2.5 text-xs font-semibold rounded-md inline-flex items-center gap-1.5 transition cursor-pointer ${
+                      viewMode === 'table'
+                        ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 shadow-2xs'
+                        : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
+                    }`}
+                  >
+                    <List className="w-3.5 h-3.5" />
+                    <span>Table</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setViewMode('card');
+                      localStorage.setItem('callLogViewMode', 'card');
+                    }}
+                    className={`h-7 px-2.5 text-xs font-semibold rounded-md inline-flex items-center gap-1.5 transition cursor-pointer ${
+                      viewMode === 'card'
+                        ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 shadow-2xs'
+                        : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
+                    }`}
+                  >
+                    <LayoutGrid className="w-3.5 h-3.5" />
+                    <span>Cards</span>
+                  </button>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setShowMoreFilters((prev) => !prev)}
+                  aria-expanded={showMoreFilters}
+                  className={`h-8 px-2.5 rounded-lg text-xs font-semibold border transition inline-flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
+                    showMoreFilters || secondaryFiltersCount > 0
+                      ? 'bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800'
+                      : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/60'
+                  }`}
+                  title="Toggle Time, Industry, Location, and Sort filters"
+                >
+                  <SlidersHorizontal className="w-3.5 h-3.5 shrink-0" />
+                  <span>More Filters</span>
+                  {secondaryFiltersCount > 0 && (
+                    <span className="px-1.5 py-0.2 rounded-full bg-blue-600 text-white text-[10px] font-mono tabular-nums font-bold leading-tight">
+                      {secondaryFiltersCount}
+                    </span>
+                  )}
+                  <ChevronDown className={`w-3.5 h-3.5 opacity-60 transition-transform ${showMoreFilters ? 'rotate-180' : ''}`} />
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setQueueSortOrder((prev) => (prev === 'oldest' ? 'newest' : 'oldest'))}
+                  className="h-8 px-2.5 rounded-lg bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 text-xs font-semibold inline-flex items-center gap-1.5 transition cursor-pointer whitespace-nowrap"
+                  title="Toggle Queue Date Sorting"
+                >
+                  <ArrowUpDown className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
+                  <span>{queueSortOrder === 'oldest' ? 'Oldest First' : 'Newest First'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  id="launch-live-execution-queue-btn"
+                  onClick={handleStartLiveExecutionQueue}
+                  className="h-8 px-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold inline-flex items-center gap-1.5 transition cursor-pointer shadow-2xs whitespace-nowrap"
+                  title="Start Live Execution Command Center for overdue and due today tasks"
+                >
+                  <Zap className="w-3.5 h-3.5 text-amber-300 fill-amber-300 shrink-0" />
+                  <span>Live Queue ({getStrictExecutionQueue().length})</span>
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Row 2: Single-Row Primary Search & Filters (h-9) */}
+        {subTab === 'log' ? (
+          <>
+            <div className="flex flex-wrap lg:flex-nowrap items-center gap-2 w-full">
+              {/* Fast Search Input */}
+              <div className="relative flex-[2] min-w-[220px]">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5 pointer-events-none" />
+                <input
+                  type="text"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder="Search company, contact, phone, notes..."
+                  className="w-full h-9 bg-slate-50/60 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 focus:bg-white dark:focus:bg-slate-950 focus:border-blue-500 rounded-lg py-1.5 pl-9 pr-8 text-[13px] text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none transition"
+                />
+                {searchTerm && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchTerm('')}
+                    className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                    title="Clear search"
+                    aria-label="Clear search"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+
+              {/* 1. Channel Dropdown (replaces 7-pill row) */}
+              <div className="flex-1 min-w-[132px] lg:max-w-[175px]">
+                <select
+                  value={channelFilter}
+                  onChange={(e) => setChannelFilter(e.target.value)}
+                  aria-label="Filter by channel"
+                  className="w-full h-9 px-2.5 rounded-lg bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-200 cursor-pointer focus:outline-none focus:border-blue-500 transition"
+                >
+                  <option value="all">All Channels</option>
+                  <option value="Phone Call">Phone Call</option>
+                  <option value="WhatsApp / Message">WhatsApp / Message</option>
+                  <option value="Email">Email</option>
+                  <option value="Site Visit">Site Visit</option>
+                  <option value="Meeting">Meeting</option>
+                  <option value="Internal Task">Internal Task</option>
+                </select>
+              </div>
+
+              {/* 2. Status Dropdown */}
+              <div className="flex-1 min-w-[132px] lg:max-w-[175px]">
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  aria-label="Filter by status"
+                  className="w-full h-9 px-2.5 rounded-lg bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-200 cursor-pointer focus:outline-none focus:border-blue-500 transition"
+                >
+                  <option value="all">All Statuses</option>
+                  <option value="Connected">Connected</option>
+                  <option value="Scheduled / Planned">Scheduled / Planned</option>
+                  <option value="No Answer / Busy">No Answer / Busy</option>
+                  <option value="Call Dropped">Call Dropped</option>
+                  <option value="Sent">Sent</option>
+                  <option value="Invalid Number">Invalid Number</option>
+                  {activeStatuses
+                    .filter((s) => {
+                      const norm = s.toLowerCase();
+                      return ![
+                        'connected',
+                        'scheduled / planned',
+                        'scheduled',
+                        'no answer / busy',
+                        'no answer',
+                        'busy',
+                        'voicemail',
+                        'call dropped',
+                        'dropped',
+                        'sent',
+                        'invalid number',
+                        'invalid / wrong number'
+                      ].includes(norm);
+                    })
+                    .map((st) => (
+                      <option key={st} value={st}>
+                        {st}
+                      </option>
+                    ))}
+                </select>
+              </div>
+
+              {/* 3. Outcome Dropdown */}
+              <div className="flex-1 min-w-[132px] lg:max-w-[185px]">
+                <select
+                  value={outcomeFilter}
+                  onChange={(e) => setOutcomeFilter(e.target.value)}
+                  aria-label="Filter by outcome"
+                  className="w-full h-9 px-2.5 rounded-lg bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-200 cursor-pointer focus:outline-none focus:border-blue-500 transition"
+                >
+                  <option value="all">All Outcomes</option>
+                  {activeOutcomes.map((oc) => (
+                    <option key={oc} value={oc}>
+                      {oc}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* 4. Agent Dropdown */}
+              <div className="flex-1 min-w-[132px] lg:max-w-[175px]">
+                <select
+                  value={agentFilter}
+                  onChange={(e) => setAgentFilter(e.target.value)}
+                  aria-label="Filter by agent"
+                  className="w-full h-9 px-2.5 rounded-lg bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-200 cursor-pointer focus:outline-none focus:border-blue-500 transition"
+                >
+                  <option value="all">All Agents</option>
+                  {availableAgents.map((ag, idx) => (
+                    <option key={`agent-${ag || idx}`} value={ag}>
+                      {ag}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Expandable Row 3: Secondary Filters (Time, Industry, Location, Sort) */}
+            {showMoreFilters && (
+              <div className="pt-2.5 border-t border-slate-100 dark:border-slate-800/80 space-y-2.5">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+                  {/* Date Preset */}
+                  <select
+                    value={datePresetFilter}
+                    onChange={(e) => setDatePresetFilter(e.target.value)}
+                    aria-label="Filter by time range"
+                    className="w-full h-9 px-2.5 rounded-lg bg-slate-50/70 dark:bg-slate-950 focus:bg-white border border-slate-200 dark:border-slate-800 text-xs font-medium text-slate-700 dark:text-slate-200 cursor-pointer focus:outline-none focus:border-blue-500 transition"
+                  >
+                    <option value="all">All Time</option>
+                    <option value="today">Today</option>
+                    <option value="yesterday">Yesterday</option>
+                    <option value="this_week">This Week</option>
+                    <option value="this_month">This Month</option>
+                    <option value="custom">Custom Range...</option>
+                  </select>
+
+                  {/* Industry */}
+                  <select
+                    value={industryFilter}
+                    onChange={(e) => setIndustryFilter(e.target.value)}
+                    aria-label="Filter by industry"
+                    className="w-full h-9 px-2.5 rounded-lg bg-slate-50/70 dark:bg-slate-950 focus:bg-white border border-slate-200 dark:border-slate-800 text-xs font-medium text-slate-700 dark:text-slate-200 cursor-pointer focus:outline-none focus:border-blue-500 transition"
+                  >
+                    <option value="all">All Industries</option>
+                    {PARENT_INDUSTRIES.map((pi) => (
+                      <option key={pi.id} value={pi.id}>
+                        {pi.label}
+                      </option>
+                    ))}
+                  </select>
+
+                  {/* Location / Geography */}
+                  <select
+                    value={geographyFilter}
+                    onChange={(e) => setGeographyFilter(e.target.value)}
+                    aria-label="Filter by location"
+                    className="w-full h-9 px-2.5 rounded-lg bg-slate-50/70 dark:bg-slate-950 focus:bg-white border border-slate-200 dark:border-slate-800 text-xs font-medium text-slate-700 dark:text-slate-200 cursor-pointer focus:outline-none focus:border-blue-500 transition"
+                  >
+                    <option value="all">All Locations</option>
+                    {(activeWorkspace.geography_options || []).map((g) => (
+                      <option key={g} value={g}>
+                        {g}
+                      </option>
+                    ))}
+                  </select>
+
+                  {/* Sort Order */}
+                  <select
+                    value={historySortOrder}
+                    onChange={(e) => setHistorySortOrder(e.target.value as 'newest' | 'oldest')}
+                    aria-label="Sort activity history"
+                    className="w-full h-9 px-2.5 rounded-lg bg-slate-50/70 dark:bg-slate-950 focus:bg-white border border-slate-200 dark:border-slate-800 text-xs font-medium text-slate-700 dark:text-slate-200 cursor-pointer focus:outline-none focus:border-blue-500 transition"
+                  >
+                    <option value="newest">Sort: Newest First</option>
+                    <option value="oldest">Sort: Oldest First</option>
+                  </select>
+                </div>
+
+                {/* Custom Date Range Row (when "Custom Range..." is selected) */}
+                {datePresetFilter === 'custom' && (
+                  <div className="flex flex-wrap items-center gap-2.5 px-3 py-2 bg-blue-50/60 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900/50 rounded-xl text-xs">
+                    <span className="font-semibold text-blue-900 dark:text-blue-300 flex items-center gap-1.5">
+                      <Calendar className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                      <span>Custom Date Range:</span>
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <label htmlFor="custom-date-start" className="text-slate-500 dark:text-slate-400 font-medium">From:</label>
+                      <input
+                        id="custom-date-start"
+                        type="date"
+                        value={customDateStart}
+                        onChange={(e) => setCustomDateStart(e.target.value)}
+                        className="px-2.5 py-1 text-xs border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 focus:ring-1 focus:ring-blue-500 dark:[color-scheme:dark]"
+                      />
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <label htmlFor="custom-date-end" className="text-slate-500 dark:text-slate-400 font-medium">To:</label>
+                      <input
+                        id="custom-date-end"
+                        type="date"
+                        value={customDateEnd}
+                        onChange={(e) => setCustomDateEnd(e.target.value)}
+                        className="px-2.5 py-1 text-xs border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 focus:ring-1 focus:ring-blue-500 dark:[color-scheme:dark]"
+                      />
+                    </div>
+                    {(customDateStart || customDateEnd) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCustomDateStart('');
+                          setCustomDateEnd('');
+                        }}
+                        className="text-xs text-blue-600 dark:text-blue-400 hover:underline font-medium ml-1 cursor-pointer"
+                      >
+                        Clear dates
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Slim Active Filter Chips & Reset Strip (only rendered when filters/search are active) */}
+            {activeFiltersCount > 0 && (
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 dark:border-slate-800/80 text-xs">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-[11px] font-mono tabular-nums text-slate-500 dark:text-slate-400 mr-1">
+                    Showing <strong className="text-slate-800 dark:text-slate-200">{filteredHistoryLogs.length}</strong> of{' '}
+                    <strong className="text-slate-800 dark:text-slate-200">
+                      {historyActivityType === 'internal' ? opsHistoryCount : salesHistoryCount}
+                    </strong>
+                  </span>
+                  {datePresetFilter !== 'all' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDatePresetFilter('all');
+                        setCustomDateStart('');
+                        setCustomDateEnd('');
+                      }}
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 hover:bg-blue-100 transition cursor-pointer"
+                    >
+                      <span>
+                        Date:{' '}
+                        {datePresetFilter === 'custom'
+                          ? `${customDateStart || 'any'} → ${customDateEnd || 'any'}`
+                          : datePresetFilter === 'today'
+                          ? 'Today'
+                          : datePresetFilter === 'yesterday'
+                          ? 'Yesterday'
+                          : datePresetFilter === 'this_week'
+                          ? 'This Week'
+                          : datePresetFilter === 'this_month'
+                          ? 'This Month'
+                          : datePresetFilter}
+                      </span>
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                  {industryFilter !== 'all' && (
+                    <button
+                      type="button"
+                      onClick={() => setIndustryFilter('all')}
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 hover:bg-slate-200/70 transition cursor-pointer"
+                    >
+                      <span>Industry: {PARENT_INDUSTRIES.find((p) => p.id === industryFilter)?.label || industryFilter}</span>
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                  {geographyFilter !== 'all' && (
+                    <button
+                      type="button"
+                      onClick={() => setGeographyFilter('all')}
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 hover:bg-slate-200/70 transition cursor-pointer"
+                    >
+                      <span>Location: {geographyFilter}</span>
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                  {historySortOrder !== 'newest' && (
+                    <button
+                      type="button"
+                      onClick={() => setHistorySortOrder('newest')}
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 hover:bg-slate-200/70 transition cursor-pointer"
+                    >
+                      <span>Sort: Oldest First</span>
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleResetFilters}
+                  className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition cursor-pointer whitespace-nowrap"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  <span>Reset Filters</span>
+                </button>
+              </div>
+            )}
+          </>
+        ) : (
+          /* Row 2 (Queue Mode): Real-Time Task Queue Search + Results Counter */
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2">
             <div className="relative flex-1">
-              <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+              <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400 pointer-events-none" />
               <input
                 type="text"
                 id="task-queue-search-input"
                 value={queueSearchTerm}
                 onChange={(e) => setQueueSearchTerm(e.target.value)}
                 placeholder="Search queue by company, ref #, contact name, phone, or follow-up notes..."
-                className="w-full h-10 pl-10 pr-9 rounded-xl bg-slate-50/70 focus:bg-white border border-slate-200 text-xs font-medium text-slate-700 placeholder-slate-400 focus:outline-hidden focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition font-sans"
+                className="w-full h-9 pl-9 pr-8 rounded-lg bg-slate-50/60 dark:bg-slate-950 focus:bg-white dark:focus:bg-slate-950 border border-slate-200 dark:border-slate-800 text-[13px] text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:border-blue-500 transition font-sans"
               />
               {queueSearchTerm && (
                 <button
                   type="button"
                   id="task-queue-clear-search-btn"
                   onClick={() => setQueueSearchTerm('')}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200/60 dark:hover:bg-slate-700 rounded-md transition cursor-pointer"
+                  className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition cursor-pointer"
                   title="Clear queue search"
                   aria-label="Clear search"
                 >
-                  <X className="w-3.5 h-3.5" />
+                  <X className="w-4 h-4" />
                 </button>
               )}
             </div>
 
-            <div className="flex items-center space-x-2 shrink-0 self-end sm:self-auto">
+            <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
               <span
                 id="task-queue-results-counter-pill"
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold border font-mono transition-all ${
+                className={`h-9 px-3 rounded-lg text-xs font-semibold border font-mono tabular-nums inline-flex items-center transition-all ${
                   queueSearchTerm.trim()
-                    ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800 shadow-2xs'
-                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700'
+                    ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800'
+                    : 'bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700'
                 }`}
               >
                 {queueSearchTerm.trim()
-                  ? `Showing ${queueItems.length} of ${queueTimeframeItems.length} scheduled tasks`
-                  : `All ${queueItems.length} tasks`}
+                  ? `Showing ${queueItems.length} of ${queueTimeframeItems.length} tasks`
+                  : `${queueItems.length} ${queueTimeframe === 'today' ? 'Due / Overdue' : queueTimeframe === 'upcoming' ? 'Upcoming' : 'Scheduled'}`}
               </span>
             </div>
           </div>
+        )}
+      </div>
 
+      {/* VIEW 1: ACTIVITY QUEUE */}
+      {subTab === 'queue' && (
+        <div className="space-y-3">
           <div className="space-y-3">
             {queueItems.map((item) => {
               const isOverdue = isTaskOverdue(item.date);
@@ -3282,371 +3825,7 @@ export default function CallLogManager({
 
       {/* VIEW 2: FULL CALL LOG HISTORY & SEARCH */}
       {subTab === 'log' && (
-        <div className="space-y-4">
-          {/* Top-Level Scope View Toggle: Sales Outreach vs Internal Ops */}
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white border border-slate-200/80 p-2.5 rounded-2xl shadow-xs">
-            <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-xl">
-              <button
-                type="button"
-                onClick={() => {
-                  setHistoryActivityType('sales');
-                  setCurrentPage(1);
-                }}
-                className={`flex-1 sm:flex-initial px-4 py-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer ${
-                  historyActivityType === 'sales'
-                    ? 'bg-blue-600 text-white shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                <PhoneCall className="w-3.5 h-3.5" />
-                <span>📞 Sales Outreach ({salesHistoryCount})</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setHistoryActivityType('internal');
-                  setCurrentPage(1);
-                }}
-                className={`flex-1 sm:flex-initial px-4 py-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer ${
-                  historyActivityType === 'internal'
-                    ? 'bg-indigo-600 text-white shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                <Briefcase className="w-3.5 h-3.5" />
-                <span>⚙️ Internal Ops ({opsHistoryCount})</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Faceted Search & Multi-Filter Control Bar */}
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl p-4 sm:p-5 shadow-sm space-y-3.5">
-            {/* Top Row: Title, Active Filter Badge, 1-Click Reset, and View Mode Toggle */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-slate-100 dark:border-slate-800/60">
-              <div className="flex items-center flex-wrap gap-2 text-xs">
-                <div className="flex items-center space-x-1.5 font-bold text-slate-700 dark:text-slate-200">
-                  <Filter className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                  <span className="font-mono uppercase tracking-wider text-[11px]">Activity Filters</span>
-                </div>
-                {activeFiltersCount > 0 && (
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
-                    {activeFiltersCount} {activeFiltersCount === 1 ? 'Filter' : 'Filters'} Active
-                  </span>
-                )}
-                {activeFiltersCount > 0 && (
-                  <button
-                    type="button"
-                    onClick={handleResetFilters}
-                    className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-lg text-rose-600 hover:text-rose-700 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-950/40 border border-rose-200 dark:border-rose-900/50 transition cursor-pointer"
-                    title="1-Click Reset all active filters to default"
-                  >
-                    <RotateCcw className="w-3.5 h-3.5" />
-                    <span>Reset Filters</span>
-                  </button>
-                )}
-              </div>
-
-              {/* Right Controls: Select Rows Toggle + View Mode Toggle (Cards vs Table) */}
-              <div className="flex items-center gap-2 self-start sm:self-auto">
-                <button
-                  type="button"
-                  onClick={() => {
-                    const next = !isMarkingMode;
-                    setIsMarkingMode(next);
-                    if (!next) setSelectedLogIds([]);
-                  }}
-                  className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition border cursor-pointer ${
-                    isMarkingMode
-                      ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
-                      : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800'
-                  }`}
-                  title="Toggle row selection checkboxes for bulk actions"
-                >
-                  <CheckSquare className="w-3.5 h-3.5" />
-                  <span>{isMarkingMode ? 'Done Selecting' : 'Select Rows'}</span>
-                  {isMarkingMode && selectedLogIds.length > 0 && (
-                    <span className="ml-1 px-1.5 py-0.5 rounded-full bg-white text-blue-700 text-[10px] font-mono leading-none">
-                      {selectedLogIds.length}
-                    </span>
-                  )}
-                </button>
-
-                <div className="flex items-center space-x-1 bg-slate-100 dark:bg-slate-800/80 p-1 rounded-lg">
-                  <button
-                    type="button"
-                    onClick={() => { setViewMode('card'); localStorage.setItem('callLogViewMode', 'card'); }}
-                    className={`px-3 py-1.5 text-xs font-semibold rounded-md flex items-center space-x-1.5 transition cursor-pointer ${
-                      viewMode === 'card'
-                        ? 'bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-100 shadow-sm'
-                        : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
-                    }`}
-                  >
-                    <LayoutGrid className="w-3.5 h-3.5" />
-                    <span>Cards</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => { setViewMode('table'); localStorage.setItem('callLogViewMode', 'table'); }}
-                    className={`px-3 py-1.5 text-xs font-semibold rounded-md flex items-center space-x-1.5 transition cursor-pointer ${
-                      viewMode === 'table'
-                        ? 'bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-100 shadow-sm'
-                        : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
-                    }`}
-                  >
-                    <List className="w-3.5 h-3.5" />
-                    <span>Table</span>
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* Quick Channel Filter Pills */}
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-              <span className="text-xs font-semibold text-slate-400 mr-1 flex items-center gap-1 shrink-0">
-                <ListFilter className="w-3.5 h-3.5" />
-                <span>Channel:</span>
-              </span>
-              {[
-                { id: 'all', label: 'All Channels' },
-                { id: 'Phone Call', label: 'Phone Call', icon: Phone },
-                { id: 'WhatsApp / Message', label: 'WhatsApp', icon: MessageSquare },
-                { id: 'Email', label: 'Email', icon: Mail },
-                { id: 'Site Visit', label: 'Site Visit', icon: Building },
-                { id: 'Meeting', label: 'Meeting', icon: Users },
-                { id: 'Internal Task', label: 'Internal Task', icon: CheckSquare }
-              ].map((ch) => {
-                const isSelected = channelFilter === ch.id;
-                const IconComponent = ch.icon;
-                return (
-                  <button
-                    key={ch.id}
-                    type="button"
-                    onClick={() => setChannelFilter(ch.id)}
-                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition cursor-pointer border ${
-                      isSelected
-                        ? 'bg-blue-600 text-white border-blue-600 shadow-xs font-semibold'
-                        : 'bg-slate-50 dark:bg-slate-800/60 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-750'
-                    }`}
-                  >
-                    {IconComponent && <IconComponent className="w-3 h-3" />}
-                    <span>{ch.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Primary Filter Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2.5">
-              {/* 1. Fast Search Input */}
-              <div className="relative lg:col-span-2">
-                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                <input
-                  type="text"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  placeholder="Search company, contact, phone, notes..."
-                  className="w-full h-10 pl-9 pr-8 rounded-xl bg-slate-50/70 focus:bg-white border border-slate-200 text-xs font-medium text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
-                />
-                {searchTerm && (
-                  <button
-                    type="button"
-                    onClick={() => setSearchTerm('')}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
-                    title="Clear search"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                )}
-              </div>
-
-              {/* 2. Status Dropdown (Normalized Statuses) */}
-              <div>
-                <select
-                  value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value)}
-                  className="w-full h-10 px-2.5 rounded-xl bg-slate-50/70 focus:bg-white border border-slate-200 text-xs font-medium text-slate-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
-                >
-                  <option value="all">All Statuses</option>
-                  <option value="Connected">Connected</option>
-                  <option value="Scheduled / Planned">Scheduled / Planned</option>
-                  <option value="No Answer / Busy">No Answer / Busy</option>
-                  <option value="Call Dropped">Call Dropped</option>
-                  <option value="Sent">Sent</option>
-                  <option value="Invalid Number">Invalid Number</option>
-                  {activeStatuses
-                    .filter((s) => {
-                      const norm = s.toLowerCase();
-                      return ![
-                        'connected',
-                        'scheduled / planned',
-                        'scheduled',
-                        'no answer / busy',
-                        'no answer',
-                        'busy',
-                        'voicemail',
-                        'call dropped',
-                        'dropped',
-                        'sent',
-                        'invalid number',
-                        'invalid / wrong number'
-                      ].includes(norm);
-                    })
-                    .map((st) => (
-                      <option key={st} value={st}>
-                        {st}
-                      </option>
-                    ))}
-                </select>
-              </div>
-
-              {/* 4. Outcome Dropdown */}
-              <div>
-                <select
-                  value={outcomeFilter}
-                  onChange={(e) => setOutcomeFilter(e.target.value)}
-                  className="w-full h-10 px-2.5 rounded-xl bg-slate-50/70 focus:bg-white border border-slate-200 text-xs font-medium text-slate-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
-                >
-                  <option value="all">All Outcomes</option>
-                  {activeOutcomes.map((oc) => (
-                    <option key={oc} value={oc}>
-                      {oc}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* 5. Date Preset Dropdown */}
-              <div>
-                <select
-                  value={datePresetFilter}
-                  onChange={(e) => setDatePresetFilter(e.target.value)}
-                  className="w-full h-10 px-2.5 rounded-xl bg-slate-50/70 focus:bg-white border border-slate-200 text-xs font-medium text-slate-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
-                >
-                  <option value="all">All Time</option>
-                  <option value="today">Today</option>
-                  <option value="yesterday">Yesterday</option>
-                  <option value="this_week">This Week</option>
-                  <option value="this_month">This Month</option>
-                  <option value="custom">📅 Custom Range...</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Custom Date Range Row (when "Custom Range..." is selected) */}
-            {datePresetFilter === 'custom' && (
-              <div className="flex flex-wrap items-center gap-2.5 p-2.5 bg-blue-50/60 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900/50 rounded-xl text-xs">
-                <span className="font-semibold text-blue-900 dark:text-blue-300 flex items-center gap-1.5">
-                  <Calendar className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-                  <span>Custom Date Range:</span>
-                </span>
-                <div className="flex items-center gap-1.5">
-                  <label htmlFor="custom-date-start" className="text-slate-500 dark:text-slate-400 font-medium">From:</label>
-                  <input
-                    id="custom-date-start"
-                    type="date"
-                    value={customDateStart}
-                    onChange={(e) => setCustomDateStart(e.target.value)}
-                    className="px-2.5 py-1 text-xs border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 focus:ring-1 focus:ring-blue-500 dark:[color-scheme:dark]"
-                  />
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <label htmlFor="custom-date-end" className="text-slate-500 dark:text-slate-400 font-medium">To:</label>
-                  <input
-                    id="custom-date-end"
-                    type="date"
-                    value={customDateEnd}
-                    onChange={(e) => setCustomDateEnd(e.target.value)}
-                    className="px-2.5 py-1 text-xs border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 focus:ring-1 focus:ring-blue-500 dark:[color-scheme:dark]"
-                  />
-                </div>
-                {(customDateStart || customDateEnd) && (
-                  <button
-                    type="button"
-                    onClick={() => { setCustomDateStart(''); setCustomDateEnd(''); }}
-                    className="text-xs text-blue-600 dark:text-blue-400 hover:underline font-medium ml-1 cursor-pointer"
-                  >
-                    Clear dates
-                  </button>
-                )}
-              </div>
-            )}
-
-            {/* Secondary Controls: Agent, Industry, Geography, and Sort Order */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2.5 pt-1 border-t border-slate-100">
-              {/* 6. Agent / User Filter */}
-              <div>
-                <select
-                  value={agentFilter}
-                  onChange={(e) => setAgentFilter(e.target.value)}
-                  className="w-full h-10 px-2.5 rounded-xl bg-slate-50/70 focus:bg-white border border-slate-200 text-xs font-medium text-slate-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
-                >
-                  <option value="all">All Agents / Operators</option>
-                  {availableAgents.map((ag, idx) => (
-                    <option key={`agent-${ag || idx}`} value={ag}>
-                      👤 {ag}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* 7. Industry Filter */}
-              <div>
-                <select
-                  value={industryFilter}
-                  onChange={(e) => setIndustryFilter(e.target.value)}
-                  className="w-full h-10 px-2.5 rounded-xl bg-slate-50/70 focus:bg-white border border-slate-200 text-xs font-medium text-slate-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
-                >
-                  <option value="all">All Industries</option>
-                  {PARENT_INDUSTRIES.map((pi) => (
-                    <option key={pi.id} value={pi.id}>
-                      {pi.icon} {pi.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* 8. Geography / Location Filter */}
-              <div>
-                <select
-                  value={geographyFilter}
-                  onChange={(e) => setGeographyFilter(e.target.value)}
-                  className="w-full h-10 px-2.5 rounded-xl bg-slate-50/70 focus:bg-white border border-slate-200 text-xs font-medium text-slate-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
-                >
-                  <option value="all">All Locations</option>
-                  {(activeWorkspace.geography_options || []).map((g) => (
-                    <option key={g} value={g}>
-                      📍 {g}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* 9. Sort Order */}
-              <div>
-                <select
-                  value={historySortOrder}
-                  onChange={(e) => setHistorySortOrder(e.target.value as 'newest' | 'oldest')}
-                  className="w-full h-10 px-2.5 rounded-xl bg-slate-50/70 focus:bg-white border border-slate-200 text-xs font-medium text-slate-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
-                >
-                  <option value="newest">🕒 Newest First</option>
-                  <option value="oldest">🕒 Oldest First</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Standard Search Result Counter & Filter Status Banner */}
-            <SearchResultCounter
-              totalCount={historyActivityType === 'internal' ? opsHistoryCount : salesHistoryCount}
-              filteredCount={filteredHistoryLogs.length}
-              searchQuery={searchTerm}
-              entityLabel={historyActivityType === 'internal' ? 'Internal Ops Tasks' : 'Outreach Logs'}
-              singularEntityLabel={historyActivityType === 'internal' ? 'Internal Task' : 'Outreach Log'}
-              onClear={handleResetFilters}
-              activeFiltersCount={activeFiltersCount}
-              activeFilterLabels={activeFilterLabels}
-            />
-          </div>
-
+        <div className="space-y-3">
           <div className="space-y-3">
             {/* Conditional Bulk Actions Bar (Only visible when Marking Mode is active) */}
             {isMarkingMode && (
@@ -4429,32 +4608,72 @@ export default function CallLogManager({
                   })}
                 </div>
 
-                {/* DESKTOP ACTIVITY TABLE (>= 640px) */}
-                <div className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xs overflow-x-auto lg:overflow-x-visible scrollbar-thin">
-                  <div className="hidden sm:block">
-                    <table className="w-full min-w-[760px] lg:min-w-0 table-fixed text-left border-collapse text-xs font-sans text-slate-600 dark:text-slate-400">
+                {/* DESKTOP ACTIVITY TABLE (>= 640px, aligned to Enquiries & Quotes baseline) */}
+                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-xl shadow-2xs overflow-hidden">
+                  <div className="hidden sm:block w-full overflow-x-auto scrollbar-thin relative border-b border-slate-200 dark:border-slate-800">
+                    <table className="w-full min-w-[920px] lg:min-w-0 lg:table-fixed text-left border-collapse text-xs font-sans text-slate-600 dark:text-slate-400">
                       <thead className="sticky top-0 z-10 bg-slate-50/95 dark:bg-slate-800/95 backdrop-blur-xs border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
                     {historyActivityType === 'internal' ? (
                       <tr>
-                        {isMarkingMode && <th className="py-3 px-2 w-9 text-center bg-slate-50 dark:bg-slate-900"></th>}
-                        <th className="py-3 px-3.5 w-[15%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Date</th>
-                        <th className="py-3 px-3.5 w-[26%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Task Title &amp; Notes</th>
-                        <th className="py-3 px-3 w-[13%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Category</th>
-                        <th className="py-3 px-3 w-[13%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Requester</th>
-                        <th className="py-3 px-2.5 w-[9%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Effort</th>
-                        <th className="py-3 px-3 w-[14%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Deliverable</th>
-                        <th className="py-3 px-2.5 w-[7%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Agent</th>
-                        <th className="py-3 px-3.5 w-[112px] text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">Actions</th>
+                        <th className={`py-2 px-3 ${isMarkingMode ? 'w-[144px]' : 'w-[128px]'} whitespace-nowrap bg-slate-50 dark:bg-slate-900`}>
+                          <div className="inline-flex items-center gap-2">
+                            {isMarkingMode && (
+                              <input
+                                type="checkbox"
+                                checked={paginatedLogs.length > 0 && paginatedLogs.every((l) => l.id && selectedLogIds.includes(l.id))}
+                                onChange={(e) => {
+                                  const pageIds = paginatedLogs.map((l) => l.id!).filter(Boolean);
+                                  if (e.target.checked) {
+                                    setSelectedLogIds((prev) => Array.from(new Set([...prev, ...pageIds])));
+                                  } else {
+                                    setSelectedLogIds((prev) => prev.filter((id) => !pageIds.includes(id)));
+                                  }
+                                }}
+                                className="rounded border-slate-300 dark:border-slate-700 text-indigo-600 focus:ring-indigo-500 cursor-pointer shrink-0"
+                                title="Select all on current page"
+                                aria-label="Select all on current page"
+                              />
+                            )}
+                            <span>Date</span>
+                          </div>
+                        </th>
+                        <th className="py-2 px-3 w-auto min-w-[200px] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Task Title &amp; Notes</th>
+                        <th className="py-2 px-2.5 w-[120px] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Category</th>
+                        <th className="py-2 px-2.5 w-[120px] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Requester</th>
+                        <th className="py-2 px-2 w-[76px] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Effort</th>
+                        <th className="py-2 px-2.5 w-[132px] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Deliverable</th>
+                        <th className="py-2 px-2 w-[68px] text-center whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Agent</th>
+                        <th className="py-2 pl-2 pr-5 w-[152px] text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">Actions</th>
                       </tr>
                     ) : (
                       <tr>
-                        {isMarkingMode && <th className="py-3 px-2 w-9 text-center bg-slate-50 dark:bg-slate-900"></th>}
-                        <th className="py-3 px-3.5 w-[15%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Date</th>
-                        <th className="py-3 px-3.5 w-[32%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Client</th>
-                        <th className="py-3 px-3.5 w-[20%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Contact</th>
-                        <th className="py-3 px-3 w-[17%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Status / Outcome</th>
-                        <th className="py-3 px-2.5 w-[7%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Agent</th>
-                        <th className="py-3 px-3.5 w-[112px] text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">Actions</th>
+                        <th className={`py-2 px-3 ${isMarkingMode ? 'w-[144px]' : 'w-[128px]'} whitespace-nowrap bg-slate-50 dark:bg-slate-900`}>
+                          <div className="inline-flex items-center gap-2">
+                            {isMarkingMode && (
+                              <input
+                                type="checkbox"
+                                checked={paginatedLogs.length > 0 && paginatedLogs.every((l) => l.id && selectedLogIds.includes(l.id))}
+                                onChange={(e) => {
+                                  const pageIds = paginatedLogs.map((l) => l.id!).filter(Boolean);
+                                  if (e.target.checked) {
+                                    setSelectedLogIds((prev) => Array.from(new Set([...prev, ...pageIds])));
+                                  } else {
+                                    setSelectedLogIds((prev) => prev.filter((id) => !pageIds.includes(id)));
+                                  }
+                                }}
+                                className="rounded border-slate-300 dark:border-slate-700 text-blue-600 focus:ring-blue-500 cursor-pointer shrink-0"
+                                title="Select all on current page"
+                                aria-label="Select all on current page"
+                              />
+                            )}
+                            <span>Date</span>
+                          </div>
+                        </th>
+                        <th className="py-2 px-3 w-auto min-w-[210px] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Client</th>
+                        <th className="py-2 px-3 w-[180px] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Contact</th>
+                        <th className="py-2 px-3 w-[172px] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Status / Outcome</th>
+                        <th className="py-2 px-2 w-[68px] text-center whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Agent</th>
+                        <th className="py-2 pl-2 pr-5 w-[152px] text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">Actions</th>
                       </tr>
                     )}
                   </thead>
@@ -4473,67 +4692,78 @@ export default function CallLogManager({
                       return (
                         <React.Fragment key={log.id || `tr-log-${index}`}>
                           {isFirstInGroup && (
-                            <tr key={`divider-row-${currentDateKey}-${index}`} className="bg-slate-50/80 dark:bg-slate-950/60 border-y border-slate-200 dark:border-slate-800">
-                              <td colSpan={historyActivityType === 'internal' ? (isMarkingMode ? 9 : 8) : (isMarkingMode ? 7 : 6)} className="px-3.5 py-2">
+                            <tr key={`divider-row-${currentDateKey}-${index}`} className="bg-slate-50/80 dark:bg-slate-950/60 border-y border-slate-200/80 dark:border-slate-800">
+                              <td colSpan={historyActivityType === 'internal' ? 8 : 6} className="px-3 py-1.5">
                                 <div className="flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-200 select-none">
                                   <Calendar className="w-3.5 h-3.5 text-blue-500 shrink-0" />
                                   <span>{formatDateDivider(log.date || log.createdAt)}</span>
-                                  <span className="text-[11px] text-slate-400 font-normal font-mono">
+                                  <span className="text-[11px] text-slate-400 font-normal font-mono tabular-nums">
                                     ({count} {count === 1 ? 'Log' : 'Logs'})
                                   </span>
                                 </div>
                               </td>
                             </tr>
                           )}
-                          <tr key={log.id} className={`group border-l-2 border-l-transparent hover:border-l-blue-500 hover:bg-slate-50/90 dark:hover:bg-slate-800/50 transition-colors ${isSelected && isMarkingMode ? (log.isInternalOps ? 'bg-indigo-50 dark:bg-indigo-900/20 border-l-indigo-600' : 'bg-blue-50 dark:bg-blue-900/20 border-l-blue-600') : ''}`}>
+                          <tr
+                            key={log.id}
+                            className={`group transition-colors hover:bg-slate-50/80 dark:hover:bg-slate-800/60 ${
+                              isSelected && isMarkingMode
+                                ? log.isInternalOps
+                                  ? 'bg-indigo-50/60 dark:bg-indigo-950/30'
+                                  : 'bg-blue-50/60 dark:bg-blue-950/30'
+                                : ''
+                            }`}
+                          >
                           {log.isInternalOps ? (
                             <>
-                              {isMarkingMode && (
-                                <td className="py-2.5 px-2 text-center align-middle">
-                                  <input
-                                    type="checkbox"
-                                    checked={isSelected}
-                                    onChange={(chk) => {
-                                      if (!log.id) return;
-                                      if (chk.target.checked) setSelectedLogIds(prev => [...prev, log.id!]);
-                                      else setSelectedLogIds(prev => prev.filter(id => id !== log.id));
-                                    }}
-                                    className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
-                                  />
-                                </td>
-                              )}
-                              <td className="py-2.5 px-3.5 align-middle overflow-hidden">
-                                {(() => {
-                                  const { datePart, timePart } = formatActivityDateParts(log.date || log.createdAt);
-                                  const isCancelled = log.status === 'CANCELLED' || (log.status || '').toLowerCase() === 'cancelled' || (log.status || '').toLowerCase() === 'canceled' || (log.interaction_type || '').toLowerCase().includes('cancel');
-                                  return (
-                                    <div className="flex flex-col min-w-0">
-                                      <span className="text-xs font-medium text-slate-700 dark:text-slate-200 whitespace-nowrap truncate">
-                                        {datePart}
-                                      </span>
-                                      <div className="flex items-center gap-1.5 mt-0.5 min-w-0">
-                                        <span className="text-[11px] font-mono text-slate-400 dark:text-slate-500 whitespace-nowrap truncate">
-                                          {timePart || '—'}
+                              <td className="py-2.5 px-3 align-middle overflow-hidden">
+                                <div className="flex items-center gap-2 min-w-0">
+                                  {isMarkingMode && (
+                                    <input
+                                      type="checkbox"
+                                      checked={isSelected}
+                                      onChange={(chk) => {
+                                        if (!log.id) return;
+                                        if (chk.target.checked) setSelectedLogIds((prev) => [...prev, log.id!]);
+                                        else setSelectedLogIds((prev) => prev.filter((id) => id !== log.id));
+                                      }}
+                                      className="rounded border-slate-300 dark:border-slate-700 text-indigo-600 focus:ring-indigo-500 cursor-pointer shrink-0"
+                                      aria-label={`Select internal task ${log.title || ''}`}
+                                    />
+                                  )}
+                                  {(() => {
+                                    const { datePart, timePart } = formatActivityDateParts(log.date || log.createdAt);
+                                    const isCancelled = log.status === 'CANCELLED' || (log.status || '').toLowerCase() === 'cancelled' || (log.status || '').toLowerCase() === 'canceled' || (log.interaction_type || '').toLowerCase().includes('cancel');
+                                    return (
+                                      <div className="flex flex-col min-w-0">
+                                        <span className="text-xs font-medium text-slate-700 dark:text-slate-200 whitespace-nowrap truncate tabular-nums">
+                                          {datePart}
                                         </span>
-                                        {isCancelled && (
-                                          <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[10px] font-bold bg-rose-50/80 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900/60 font-sans shrink-0">
-                                            Cancelled
+                                        <div className="flex items-center gap-1.5 mt-0.5 min-w-0">
+                                          <span className="text-[11px] font-mono tabular-nums text-slate-400 dark:text-slate-500 whitespace-nowrap truncate">
+                                            {timePart || '—'}
                                           </span>
-                                        )}
+                                          {isCancelled && (
+                                            <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[10px] font-bold bg-rose-50/80 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900/60 font-sans shrink-0">
+                                              Cancelled
+                                            </span>
+                                          )}
+                                        </div>
                                       </div>
-                                    </div>
-                                  );
-                                })()}
-                              </td>
-                              <td className="py-2.5 px-3.5 align-middle overflow-hidden">
-                                <div className="font-semibold text-slate-900 dark:text-slate-100 truncate text-xs" title={log.title || 'Untitled Internal Task'}>
-                                  {log.title || 'Untitled Internal Task'}
+                                    );
+                                  })()}
                                 </div>
+                              </td>
+                              <td className="py-2.5 px-3 align-middle overflow-hidden">
+                                <HoverScrollText
+                                  text={log.title || 'Untitled Internal Task'}
+                                  className="font-semibold text-slate-900 dark:text-slate-100 text-[13px]"
+                                />
                                 <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5" title={log.requirement_notes || log.notes || ''}>
                                   {log.requirement_notes || log.notes || '—'}
                                 </div>
                               </td>
-                              <td className="py-2.5 px-3 align-middle overflow-hidden">
+                              <td className="py-2.5 px-2.5 align-middle overflow-hidden">
                                 {log.internalCategory ? (
                                   <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10.5px] font-semibold border truncate max-w-full ${getCategoryBadgeStyle(log.internalCategory)}`}>
                                     {log.internalCategory}
@@ -4542,7 +4772,7 @@ export default function CallLogManager({
                                   <span className="text-slate-400 text-xs">—</span>
                                 )}
                               </td>
-                              <td className="py-2.5 px-3 align-middle overflow-hidden">
+                              <td className="py-2.5 px-2.5 align-middle overflow-hidden">
                                 {log.requester ? (
                                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10.5px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 truncate max-w-full">
                                     <User className="w-2.5 h-2.5 text-slate-400 shrink-0" />
@@ -4552,9 +4782,9 @@ export default function CallLogManager({
                                   <span className="text-slate-400 text-xs">—</span>
                                 )}
                               </td>
-                              <td className="py-2.5 px-2.5 whitespace-nowrap align-middle overflow-hidden">
+                              <td className="py-2.5 px-2 whitespace-nowrap align-middle overflow-hidden">
                                 {typeof log.durationMinutes === 'number' && log.durationMinutes > 0 ? (
-                                  <span className="inline-flex items-center gap-1 text-xs font-mono font-medium text-slate-700 dark:text-slate-300 truncate">
+                                  <span className="inline-flex items-center gap-1 text-xs font-mono tabular-nums font-medium text-slate-700 dark:text-slate-300 truncate">
                                     <Clock className="w-3 h-3 text-indigo-500 shrink-0" />
                                     <span>{log.durationMinutes >= 60 ? `${Math.floor(log.durationMinutes / 60)}h ${log.durationMinutes % 60 ? `${log.durationMinutes % 60}m` : ''}` : `${log.durationMinutes}m`}</span>
                                   </span>
@@ -4562,7 +4792,7 @@ export default function CallLogManager({
                                   <span className="text-slate-400 text-xs">—</span>
                                 )}
                               </td>
-                              <td className="py-2.5 px-3 align-middle overflow-hidden">
+                              <td className="py-2.5 px-2.5 align-middle overflow-hidden">
                                 {log.deliverableUrl ? (
                                   <a
                                     href={log.deliverableUrl.startsWith('http') ? log.deliverableUrl : `https://${log.deliverableUrl}`}
@@ -4578,21 +4808,23 @@ export default function CallLogManager({
                                   <span className="text-slate-400 text-xs">—</span>
                                 )}
                               </td>
-                              <td className="py-2.5 px-2.5 whitespace-nowrap align-middle overflow-hidden">
-                                <span className="inline-flex items-center px-2 py-0.5 rounded text-[10.5px] font-mono font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
+                              <td className="py-2.5 px-2 text-center whitespace-nowrap align-middle overflow-hidden">
+                                <span className="inline-flex items-center justify-center min-w-[28px] px-1.5 py-0.5 rounded-md text-[11px] font-mono font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200/70 dark:border-slate-700">
                                   {handledBy}
                                 </span>
                               </td>
-                              <td className="py-2.5 px-3.5 w-[112px] text-right whitespace-nowrap align-middle">
+                              <td className="py-2.5 pl-2 pr-5 w-[152px] text-right whitespace-nowrap align-middle">
                                 <div className="inline-flex items-center justify-end gap-1">
                                   <button
+                                    type="button"
                                     onClick={() => setSelectedDetailEntry(log)}
-                                    title="View Details"
-                                    className="w-7 h-7 text-slate-500 hover:text-indigo-600 transition bg-slate-50 dark:bg-slate-800/80 hover:bg-indigo-50 border border-slate-200/80 dark:border-slate-700 rounded-lg inline-flex items-center justify-center cursor-pointer"
+                                    title="Open internal task details"
+                                    className="h-7 px-2.5 rounded-lg text-xs font-semibold bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 shadow-2xs transition inline-flex items-center justify-center cursor-pointer shrink-0"
                                   >
-                                    <Eye className="w-3.5 h-3.5" />
+                                    Open
                                   </button>
                                   <button
+                                    type="button"
                                     onClick={() => {
                                       setEditingLog(log);
                                       setDrawerMode('edit');
@@ -4608,253 +4840,273 @@ export default function CallLogManager({
                                         setIsActivityDrawerOpen(true);
                                       }
                                     }}
-                                    title="Edit Internal Task"
-                                    className="w-7 h-7 text-slate-500 hover:text-indigo-600 transition bg-slate-50 dark:bg-slate-800/80 hover:bg-indigo-50 border border-slate-200/80 dark:border-slate-700 rounded-lg inline-flex items-center justify-center cursor-pointer"
+                                    title="Edit internal task"
+                                    aria-label="Edit internal task"
+                                    className="w-7 h-7 rounded-lg inline-flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 border border-transparent hover:border-indigo-200/80 dark:hover:border-indigo-800/60 transition cursor-pointer shrink-0"
                                   >
                                     <Pencil className="w-3.5 h-3.5" />
                                   </button>
                                   {canEditOrDeleteRecord(user, log, activeWorkspace?.id) && (
-                                    <button
-                                      onClick={() => {
-                                        handleDeleteLog(log, {
-                                          confirmTitle: 'Delete Internal Task',
-                                          confirmMessage: 'Are you sure you want to delete this internal task? It will be moved to the Trash Bin.'
-                                        });
-                                      }}
-                                      title="Delete"
-                                      className="w-7 h-7 text-slate-400 hover:text-rose-600 transition hover:bg-rose-50 border border-transparent hover:border-rose-200 rounded-lg inline-flex items-center justify-center cursor-pointer"
-                                    >
-                                      <Trash2 className="w-3.5 h-3.5" />
-                                    </button>
+                                    <span className="inline-flex items-center border-l border-slate-200 dark:border-slate-700/80 pl-2 ml-1 shrink-0">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          handleDeleteLog(log, {
+                                            confirmTitle: 'Delete Internal Task',
+                                            confirmMessage: 'Are you sure you want to delete this internal task? It will be moved to the Trash Bin.'
+                                          });
+                                        }}
+                                        title="Delete internal task"
+                                        aria-label="Delete internal task"
+                                        className="w-7 h-7 rounded-lg inline-flex items-center justify-center text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 border border-transparent hover:border-rose-200 dark:hover:border-rose-800/60 transition cursor-pointer shrink-0"
+                                      >
+                                        <Trash className="w-3.5 h-3.5" />
+                                      </button>
+                                    </span>
                                   )}
                                 </div>
                               </td>
                             </>
                           ) : (
                             <>
-                          {isMarkingMode && (
-                            <td className="py-2.5 px-2 text-center align-middle">
-                              <input
-                                type="checkbox"
-                                checked={isSelected}
-                                onChange={(chk) => {
-                                  if (!log.id) return;
-                                  if (chk.target.checked) setSelectedLogIds(prev => [...prev, log.id!]);
-                                  else setSelectedLogIds(prev => prev.filter(id => id !== log.id));
-                                }}
-                                className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                              />
-                            </td>
-                          )}
-                          <td className="py-2.5 px-3.5 align-middle overflow-hidden">
-                            {(() => {
-                              const { datePart, timePart } = formatActivityDateParts(log.date || log.createdAt);
-                              const isCancelled = log.status === 'CANCELLED' || (log.status || '').toLowerCase() === 'cancelled' || (log.status || '').toLowerCase() === 'canceled' || (log.interaction_type || '').toLowerCase().includes('cancel');
-                              return (
-                                <div className="flex flex-col min-w-0">
-                                  <span className="text-xs font-medium text-slate-700 dark:text-slate-200 whitespace-nowrap truncate">
-                                    {datePart}
-                                  </span>
-                                  <div className="flex items-center gap-1.5 mt-0.5 min-w-0">
-                                    <span className="text-[11px] font-mono text-slate-400 dark:text-slate-500 whitespace-nowrap truncate">
-                                      {timePart || '—'}
-                                    </span>
-                                    {isCancelled && (
-                                      <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[10px] font-bold bg-rose-50/80 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900/60 font-sans shrink-0">
-                                        Cancelled
+                              <td className="py-2.5 px-3 align-middle overflow-hidden">
+                                <div className="flex items-center gap-2 min-w-0">
+                                  {isMarkingMode && (
+                                    <input
+                                      type="checkbox"
+                                      checked={isSelected}
+                                      onChange={(chk) => {
+                                        if (!log.id) return;
+                                        if (chk.target.checked) setSelectedLogIds((prev) => [...prev, log.id!]);
+                                        else setSelectedLogIds((prev) => prev.filter((id) => id !== log.id));
+                                      }}
+                                      className="rounded border-slate-300 dark:border-slate-700 text-blue-600 focus:ring-blue-500 cursor-pointer shrink-0"
+                                      aria-label={`Select log for ${getResolvedCompanyName(log) || 'client'}`}
+                                    />
+                                  )}
+                                  {(() => {
+                                    const { datePart, timePart } = formatActivityDateParts(log.date || log.createdAt);
+                                    const isCancelled = log.status === 'CANCELLED' || (log.status || '').toLowerCase() === 'cancelled' || (log.status || '').toLowerCase() === 'canceled' || (log.interaction_type || '').toLowerCase().includes('cancel');
+                                    return (
+                                      <div className="flex flex-col min-w-0">
+                                        <span className="text-xs font-medium text-slate-700 dark:text-slate-200 whitespace-nowrap truncate tabular-nums">
+                                          {datePart}
+                                        </span>
+                                        <div className="flex items-center gap-1.5 mt-0.5 min-w-0">
+                                          <span className="text-[11px] font-mono tabular-nums text-slate-400 dark:text-slate-500 whitespace-nowrap truncate">
+                                            {timePart || '—'}
+                                          </span>
+                                          {isCancelled && (
+                                            <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[10px] font-bold bg-rose-50/80 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900/60 font-sans shrink-0">
+                                              Cancelled
+                                            </span>
+                                          )}
+                                        </div>
+                                      </div>
+                                    );
+                                  })()}
+                                </div>
+                              </td>
+                              <td
+                                className={`py-2.5 px-3 align-middle overflow-hidden cursor-pointer ${log.company_name || log.company_id ? 'text-slate-900 dark:text-slate-100' : 'text-slate-500'}`}
+                                onClick={() => handleOpenCompany360ForLog(log)}
+                                title={`View 360° details for ${getResolvedCompanyName(log)}`}
+                              >
+                                <div className="flex items-center gap-1.5 min-w-0">
+                                  <HoverScrollText
+                                    text={getResolvedCompanyName(log) || 'Unlinked'}
+                                    containerClassName="flex-1 min-w-0"
+                                    className="font-semibold text-[13.5px] text-slate-900 dark:text-slate-100 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition"
+                                  />
+                                  {(() => {
+                                    const rel = (company?.relationship || '').toLowerCase();
+                                    const isVend = rel.includes('vendor') || rel.includes('supplier') || rel.includes('both');
+                                    return isVend ? (
+                                      <span className="px-1.5 py-0.2 rounded text-[9.5px] font-bold bg-amber-50 text-amber-700 border border-amber-200 uppercase tracking-wider shrink-0">
+                                        Vendor
+                                      </span>
+                                    ) : null;
+                                  })()}
+                                  {getResolvedCompanyName(log) && getResolvedCompanyName(log) !== 'Unlinked' && (
+                                    <div className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(evt) => evt.stopPropagation()}>
+                                      <GoogleSearchButton
+                                        companyName={getResolvedCompanyName(log)}
+                                        location={log.company_id ? companyMap.get(log.company_id)?.city : undefined}
+                                        size="xs"
+                                      />
+                                    </div>
+                                  )}
+                                </div>
+                                {(() => {
+                                  const effectiveDnc = Boolean(company?.is_dnc || (company as any)?.dnc || company?.temperature === 'DNC');
+                                  const rawTemp = effectiveDnc ? 'DNC' : (company?.temperature || 'Cold');
+                                  const tempNorm = rawTemp.toLowerCase() === 'dnc'
+                                    ? 'DNC'
+                                    : rawTemp.toLowerCase() === 'hot'
+                                    ? 'Hot'
+                                    : rawTemp.toLowerCase() === 'warm'
+                                    ? 'Warm'
+                                    : 'Cold';
+                                  const tempDotClass = tempNorm === 'DNC'
+                                    ? 'bg-rose-600'
+                                    : tempNorm === 'Hot'
+                                    ? 'bg-rose-500'
+                                    : tempNorm === 'Warm'
+                                    ? 'bg-amber-500'
+                                    : 'bg-sky-400';
+
+                                  const rawIndustry = (company?.business_type_raw || company?.industry || company?.industry_type || '').trim();
+                                  const cleanIndustry = rawIndustry && !/^none$/i.test(rawIndustry) && !/to be added later/i.test(rawIndustry) && !/^unspecified$/i.test(rawIndustry)
+                                    ? rawIndustry
+                                    : '';
+                                  const channelFallback = log.channel || log.interaction_type || 'Phone Outreach';
+                                  const secondaryLabel = cleanIndustry || channelFallback;
+
+                                  return (
+                                    <div className="text-[11.5px] text-slate-500 dark:text-slate-400 truncate mt-0.5 flex items-center gap-1.5 min-w-0">
+                                      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${tempDotClass}`} />
+                                      <span className="font-medium text-slate-600 dark:text-slate-300 shrink-0">{tempNorm}</span>
+                                      <span className="text-slate-300 dark:text-slate-600 shrink-0">&middot;</span>
+                                      <span className="truncate">{secondaryLabel}</span>
+                                    </div>
+                                  );
+                                })()}
+                              </td>
+                              <td className={`py-2.5 px-3 align-middle overflow-hidden ${log.status === 'Invalid Number' ? 'line-through text-red-400' : ''}`}>
+                                {(() => {
+                                  const channelLower = (log.channel || log.interaction_type || '').toLowerCase();
+                                  const isEmail = channelLower.includes('email') || channelLower === 'mail' || Boolean(log.contact_phone && log.contact_phone.includes('@'));
+                                  const rawEmail = (log as any).email_address || (log.contact_phone && log.contact_phone.includes('@') ? log.contact_phone : '');
+                                  const rawPhone = log.contact_phone && !log.contact_phone.includes('@') ? log.contact_phone : '';
+
+                                  const rawContact = (log.contact_name || (log as any).contactPerson || '').trim();
+                                  const isMainline = !rawContact ||
+                                    rawContact.toLowerCase() === 'no contact person' ||
+                                    rawContact.toLowerCase() === 'company mainline' ||
+                                    rawContact.toLowerCase() === 'mainline' ||
+                                    rawContact.toLowerCase() === 'unassigned';
+
+                                  const primaryContactLabel = !isMainline ? rawContact : 'Company Mainline';
+                                  const secondaryDetail = isEmail
+                                    ? rawEmail || 'Email Outreach'
+                                    : rawPhone || '—';
+
+                                  return (
+                                    <div className="flex flex-col min-w-0">
+                                      <HoverScrollText
+                                        text={primaryContactLabel}
+                                        className="font-semibold text-xs text-slate-800 dark:text-slate-200"
+                                      />
+                                      <HoverScrollText
+                                        text={secondaryDetail}
+                                        containerClassName="mt-0.5"
+                                        className="font-mono tabular-nums text-[11px] text-slate-500 dark:text-slate-400"
+                                      />
+                                    </div>
+                                  );
+                                })()}
+                              </td>
+                              <td className="py-2.5 px-3 align-middle overflow-hidden">
+                                <div className="flex flex-col items-start gap-1 min-w-0">
+                                  {(() => {
+                                    const normStatus = normalizeStatusBadgeLabel(log.status, log.channel || log.interaction_type || 'Phone Call');
+                                    const isCancelled = log.status === 'CANCELLED' || normStatus === 'Cancelled' || normStatus === 'Canceled' || (log.status || '').toLowerCase() === 'cancelled';
+                                    if (isCancelled) {
+                                      return (
+                                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10.5px] font-semibold border bg-rose-50/80 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-900/60 truncate max-w-full">
+                                          Cancelled
+                                        </span>
+                                      );
+                                    }
+                                    const isConnected = normStatus === 'Connected' || normStatus === 'Sent' || isSuccessStatus(log.status) || isSuccessStatus(normStatus);
+                                    const isFailed = normStatus === 'Invalid Number' || normStatus === 'Failed';
+                                    const isDroppedOrBusy = normStatus === 'Call Dropped' || normStatus === 'No Answer' || normStatus === 'Busy';
+
+                                    let pillStyle = 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700';
+                                    if (isConnected) {
+                                      pillStyle = 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800';
+                                    } else if (isFailed) {
+                                      pillStyle = 'bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800';
+                                    } else if (isDroppedOrBusy) {
+                                      pillStyle = 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800';
+                                    }
+
+                                    return (
+                                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10.5px] font-semibold border truncate max-w-full leading-tight ${pillStyle}`}>
+                                        {normStatus}
+                                      </span>
+                                    );
+                                  })()}
+                                  <HoverScrollText
+                                    text={log.outcome || '—'}
+                                    className="text-[11px] text-slate-500 dark:text-slate-400"
+                                  />
+                                </div>
+                              </td>
+                              <td className="py-2.5 px-2 text-center whitespace-nowrap align-middle overflow-hidden">
+                                <span className="inline-flex items-center justify-center min-w-[28px] px-1.5 py-0.5 rounded-md text-[11px] font-mono font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200/70 dark:border-slate-700">
+                                  {handledBy}
+                                </span>
+                              </td>
+                              <td className="py-2.5 pl-2 pr-5 w-[152px] text-right whitespace-nowrap align-middle">
+                                {canUserClickRecord(user, log, salespersons, activeWorkspace?.id) ? (
+                                  <div className="inline-flex items-center justify-end gap-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setSelectedDetailEntry(log);
+                                      }}
+                                      title="Open activity details"
+                                      className="h-7 px-2.5 rounded-lg text-xs font-semibold bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 shadow-2xs transition inline-flex items-center justify-center cursor-pointer shrink-0"
+                                    >
+                                      Open
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setEditingLog(log);
+                                        setDrawerMode('edit');
+                                        if (onOpenActivityDrawer) {
+                                          onOpenActivityDrawer({
+                                            channel: log.channel || 'Call',
+                                            drawerMode: 'edit',
+                                            existingLog: log,
+                                            logToEdit: log,
+                                            companyId: log.company_id
+                                          });
+                                        } else {
+                                          setIsActivityDrawerOpen(true);
+                                        }
+                                      }}
+                                      title="Edit activity log"
+                                      aria-label="Edit activity log"
+                                      className="w-7 h-7 rounded-lg inline-flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 border border-transparent hover:border-blue-200/80 dark:hover:border-blue-800/60 transition cursor-pointer shrink-0"
+                                    >
+                                      <Pencil className="w-3.5 h-3.5" />
+                                    </button>
+                                    {canEditOrDeleteRecord(user, log, activeWorkspace?.id) && (
+                                      <span className="inline-flex items-center border-l border-slate-200 dark:border-slate-700/80 pl-2 ml-1 shrink-0">
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            handleDeleteLog(log, {
+                                              confirmTitle: 'Delete Interaction Log',
+                                              confirmMessage: 'Are you sure you want to delete this interaction log? It will be moved to the Trash Bin.'
+                                            });
+                                          }}
+                                          title="Delete activity log"
+                                          aria-label="Delete activity log"
+                                          className="w-7 h-7 rounded-lg inline-flex items-center justify-center text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 border border-transparent hover:border-rose-200 dark:hover:border-rose-800/60 transition cursor-pointer shrink-0"
+                                        >
+                                          <Trash className="w-3.5 h-3.5" />
+                                        </button>
                                       </span>
                                     )}
                                   </div>
-                                </div>
-                              );
-                            })()}
-                          </td>
-                          <td
-                            className={`py-2.5 px-3.5 align-middle overflow-hidden cursor-pointer ${log.company_name || log.company_id ? 'text-slate-900 dark:text-slate-100' : 'text-slate-500'}`}
-                            onClick={() => handleOpenCompany360ForLog(log)}
-                            title={`View 360° details for ${getResolvedCompanyName(log)}`}
-                          >
-                            <div className="flex items-center gap-1.5 min-w-0">
-                              <span className="font-semibold text-sm text-slate-900 dark:text-slate-100 hover:text-blue-600 transition truncate">
-                                {getResolvedCompanyName(log) || 'Unlinked'}
-                              </span>
-                              {(() => {
-                                const rel = (company?.relationship || '').toLowerCase();
-                                const isVend = rel.includes('vendor') || rel.includes('supplier') || rel.includes('both');
-                                return isVend ? (
-                                  <span className="px-1.5 py-0.2 rounded text-[9.5px] font-bold bg-amber-50 text-amber-700 border border-amber-200 uppercase tracking-wider shrink-0">
-                                    Vendor
-                                  </span>
-                                ) : null;
-                              })()}
-                              {getResolvedCompanyName(log) && getResolvedCompanyName(log) !== 'Unlinked' && (
-                                <GoogleSearchButton
-                                  companyName={getResolvedCompanyName(log)}
-                                  location={log.company_id ? companyMap.get(log.company_id)?.city : undefined}
-                                  size="xs"
-                                  className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
-                                />
-                              )}
-                            </div>
-                            {(() => {
-                              const effectiveDnc = Boolean(company?.is_dnc || (company as any)?.dnc || company?.temperature === 'DNC');
-                              const rawTemp = effectiveDnc ? 'DNC' : (company?.temperature || 'Cold');
-                              const tempNorm = rawTemp.toLowerCase() === 'dnc'
-                                ? 'DNC'
-                                : rawTemp.toLowerCase() === 'hot'
-                                ? 'Hot'
-                                : rawTemp.toLowerCase() === 'warm'
-                                ? 'Warm'
-                                : 'Cold';
-                              const tempDotClass = tempNorm === 'DNC'
-                                ? 'bg-rose-600'
-                                : tempNorm === 'Hot'
-                                ? 'bg-rose-500'
-                                : tempNorm === 'Warm'
-                                ? 'bg-amber-500'
-                                : 'bg-sky-400';
-
-                              const rawIndustry = (company?.business_type_raw || company?.industry || company?.industry_type || '').trim();
-                              const cleanIndustry = rawIndustry && !/^none$/i.test(rawIndustry) && !/to be added later/i.test(rawIndustry) && !/^unspecified$/i.test(rawIndustry)
-                                ? rawIndustry
-                                : '';
-                              const channelFallback = log.channel || log.interaction_type || 'Phone Outreach';
-                              const secondaryLabel = cleanIndustry || channelFallback;
-
-                              return (
-                                <div className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5 flex items-center gap-1.5 min-w-0">
-                                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${tempDotClass}`} />
-                                  <span className="font-medium text-slate-600 dark:text-slate-300 shrink-0">{tempNorm}</span>
-                                  <span className="text-slate-300 dark:text-slate-600 shrink-0">&middot;</span>
-                                  <span className="truncate">{secondaryLabel}</span>
-                                </div>
-                              );
-                            })()}
-                          </td>
-                          <td className={`py-2.5 px-3.5 align-middle overflow-hidden ${log.status === 'Invalid Number' ? 'line-through text-red-400' : ''}`}>
-                            {(() => {
-                              const channelLower = (log.channel || log.interaction_type || '').toLowerCase();
-                              const isEmail = channelLower.includes('email') || channelLower === 'mail' || Boolean(log.contact_phone && log.contact_phone.includes('@'));
-                              const rawEmail = (log as any).email_address || (log.contact_phone && log.contact_phone.includes('@') ? log.contact_phone : '');
-                              const rawPhone = log.contact_phone && !log.contact_phone.includes('@') ? log.contact_phone : '';
-
-                              const rawContact = (log.contact_name || (log as any).contactPerson || '').trim();
-                              const isMainline = !rawContact ||
-                                rawContact.toLowerCase() === 'no contact person' ||
-                                rawContact.toLowerCase() === 'company mainline' ||
-                                rawContact.toLowerCase() === 'mainline' ||
-                                rawContact.toLowerCase() === 'unassigned';
-
-                              const primaryContactLabel = !isMainline ? rawContact : 'Company Mainline';
-                              const secondaryDetail = isEmail
-                                ? rawEmail || 'Email Outreach'
-                                : rawPhone || '—';
-
-                              return (
-                                <div className="flex flex-col min-w-0">
-                                  <span className="font-semibold text-xs text-slate-800 dark:text-slate-200 truncate" title={primaryContactLabel}>
-                                    {primaryContactLabel}
-                                  </span>
-                                  <span className="font-mono text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5" title={secondaryDetail}>
-                                    {secondaryDetail}
-                                  </span>
-                                </div>
-                              );
-                            })()}
-                          </td>
-                          <td className="py-2.5 px-3 align-middle overflow-hidden">
-                            <div className="flex flex-col items-start gap-1 min-w-0">
-                              {(() => {
-                                const normStatus = normalizeStatusBadgeLabel(log.status, log.channel || log.interaction_type || 'Phone Call');
-                                const isCancelled = log.status === 'CANCELLED' || normStatus === 'Cancelled' || normStatus === 'Canceled' || (log.status || '').toLowerCase() === 'cancelled';
-                                if (isCancelled) {
-                                  return (
-                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10.5px] font-semibold border bg-rose-50/80 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-900/60 truncate max-w-full">
-                                      Cancelled
-                                    </span>
-                                  );
-                                }
-                                const isConnected = normStatus === 'Connected' || normStatus === 'Sent' || isSuccessStatus(log.status) || isSuccessStatus(normStatus);
-                                const isFailed = normStatus === 'Invalid Number' || normStatus === 'Failed';
-                                const isDroppedOrBusy = normStatus === 'Call Dropped' || normStatus === 'No Answer' || normStatus === 'Busy';
-
-                                let pillStyle = 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700';
-                                if (isConnected) {
-                                  pillStyle = 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800';
-                                } else if (isFailed) {
-                                  pillStyle = 'bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800';
-                                } else if (isDroppedOrBusy) {
-                                  pillStyle = 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800';
-                                }
-
-                                return (
-                                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10.5px] font-semibold border truncate max-w-full leading-tight ${pillStyle}`}>
-                                    {normStatus}
-                                  </span>
-                                );
-                              })()}
-                              <span className="text-[11px] text-slate-500 dark:text-slate-400 truncate max-w-full" title={log.outcome || ''}>
-                                {log.outcome || '—'}
-                              </span>
-                            </div>
-                          </td>
-                          <td className="py-2.5 px-2.5 whitespace-nowrap align-middle overflow-hidden">
-                            <span className="inline-flex items-center px-2 py-0.5 rounded text-[10.5px] font-mono font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
-                              {handledBy}
-                            </span>
-                          </td>
-                          <td className="py-2.5 px-3.5 w-[112px] text-right whitespace-nowrap align-middle">
-                          {canUserClickRecord(user, log, salespersons, activeWorkspace?.id) ? (
-                              <div className="inline-flex items-center justify-end gap-1">
-                                <button
-                                  onClick={() => {
-                                    setSelectedDetailEntry(log);
-                                  }}
-                                  title="View Details"
-                                  className="w-7 h-7 text-slate-500 hover:text-blue-600 transition bg-slate-50 dark:bg-slate-800 hover:bg-blue-50 border border-slate-200/80 dark:border-slate-700 rounded-lg inline-flex items-center justify-center cursor-pointer"
-                                >
-                                  <Eye className="w-3.5 h-3.5" />
-                                </button>
-                                <button
-                                  onClick={() => {
-                                    setEditingLog(log);
-                                    setDrawerMode('edit');
-                                    if (onOpenActivityDrawer) {
-                                      onOpenActivityDrawer({
-                                        channel: log.channel || 'Call',
-                                        drawerMode: 'edit',
-                                        existingLog: log,
-                                        logToEdit: log,
-                                        companyId: log.company_id
-                                      });
-                                    } else {
-                                      setIsActivityDrawerOpen(true);
-                                    }
-                                  }}
-                                  title="Edit"
-                                  className="w-7 h-7 text-slate-500 hover:text-blue-600 transition bg-slate-50 dark:bg-slate-800 hover:bg-blue-50 border border-slate-200/80 dark:border-slate-700 rounded-lg inline-flex items-center justify-center cursor-pointer"
-                                >
-                                  <Edit3 className="w-3.5 h-3.5" />
-                                </button>
-                                {canEditOrDeleteRecord(user, log, activeWorkspace?.id) && (
-                                  <button
-                                    onClick={() => {
-                                      handleDeleteLog(log, {
-                                        confirmTitle: 'Delete Interaction Log',
-                                        confirmMessage: 'Are you sure you want to delete this interaction log? It will be moved to the Trash Bin.'
-                                      });
-                                    }}
-                                    title="Delete"
-                                    className="w-7 h-7 text-slate-400 hover:text-rose-600 transition hover:bg-rose-50 border border-transparent hover:border-rose-200 rounded-lg inline-flex items-center justify-center cursor-pointer"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
+                                ) : (
+                                  <span className="text-[11px] text-slate-400 font-semibold">Restricted</span>
                                 )}
-                              </div>
-                            ) : (
-                              <span className="text-[11px] text-slate-400 font-semibold">Restricted</span>
-                            )}
-                          </td>
+                              </td>
                             </>
                           )}
                         </tr>
