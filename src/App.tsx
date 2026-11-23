@@ -145,8 +145,32 @@ export default function App() {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
 
-  // Tab State
-  const [currentTab, setCurrentTab] = useState('call_log');
+  // Tab State (defaults to Dashboard on initial load & browser refresh)
+  const [currentTab, setCurrentTab] = useState<string>(() => {
+    try {
+      const validTabs = new Set([
+        'dashboard',
+        'enquiries',
+        'call_log',
+        'projects',
+        'procurement',
+        'companies',
+        'salespersons',
+        'products',
+        'settings',
+        'invites',
+        'docs-hub'
+      ]);
+      const params = new URLSearchParams(window.location.search);
+      const queryTab = (params.get('tab') || '').trim().toLowerCase();
+      if (queryTab && validTabs.has(queryTab)) return queryTab;
+      const hashTab = window.location.hash.replace(/^#\/?/, '').trim().toLowerCase();
+      if (hashTab && validTabs.has(hashTab)) return hashTab;
+    } catch {
+      // ignore URL parsing errors
+    }
+    return 'dashboard';
+  });
 
   // Workspaces State
   const [workspaces, setWorkspaces] = useState<Workspace[]>(() =>

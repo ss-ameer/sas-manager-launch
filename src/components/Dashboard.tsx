@@ -71,8 +71,9 @@ import {
   ArrowUpRight,
   PhoneCall
 } from 'lucide-react';
-import { PageHeader, PageBody, CardPanel, KpiStatCard } from './layout/UiContainer';
+import { PageHeader, PageBody } from './layout/UiContainer';
 import { getWhatsAppUrl } from '../utils/defaults';
+import HoverScrollText from './HoverScrollText';
 
 interface DashboardProps {
   key?: any;
@@ -368,7 +369,13 @@ export default function Dashboard(props: DashboardProps) {
       .sort((a, b) => a.followup_date.localeCompare(b.followup_date));
   }, [followUpItems, today]);
 
-  const [activeRadarTab, setActiveRadarTab] = useState<'overdue' | 'today' | 'upcoming'>('overdue');
+  const [activeRadarTab, setActiveRadarTab] = useState<'overdue' | 'today' | 'upcoming' | 'awaiting'>('overdue');
+
+  const overdueFollowups = useMemo(() => {
+    return validEnquiries
+      .filter((e) => ACTIVE_STATUSES.has(e.status) && e.next_followup_date && e.next_followup_date < today)
+      .sort((a, b) => (a.next_followup_date || '').localeCompare(b.next_followup_date || ''));
+  }, [validEnquiries, today]);
 
   useEffect(() => {
     if (overdueList.length > 0) {
@@ -377,8 +384,10 @@ export default function Dashboard(props: DashboardProps) {
       setActiveRadarTab('today');
     } else if (upcomingList.length > 0) {
       setActiveRadarTab('upcoming');
+    } else if (overdueFollowups.length > 0) {
+      setActiveRadarTab('awaiting');
     }
-  }, [overdueList.length, todayList.length, upcomingList.length]);
+  }, [overdueList.length, todayList.length, upcomingList.length, overdueFollowups.length]);
 
   const activeTabItems = activeRadarTab === 'overdue' ? overdueList : activeRadarTab === 'today' ? todayList : upcomingList;
   const displayedRadarTasks = activeTabItems.slice(0, 3);
@@ -409,24 +418,20 @@ export default function Dashboard(props: DashboardProps) {
     }
   };
 
-  const overdueFollowups = validEnquiries.filter(
-    (e) => ACTIVE_STATUSES.has(e.status) && e.next_followup_date && e.next_followup_date < today
-  );
-
-  // 4. Chart 1: Pipeline value by Status
+  // 4. Chart 1: Pipeline value by Status (distinct palette between Active & Sent / Pending Client)
   const statusColors: { [key: string]: string } = {
-    Active: '#3b82f6', // blue
-    'Sent / Pending Client': '#0284c7',
-    'Revision Requested': '#8b5cf6',
-    'Won / Approved': '#10b981',
-    'Order Received': '#10b981', // green
-    'Lost / Cancelled': '#ef4444',
+    Active: '#2563eb', // royal blue
+    'Sent / Pending Client': '#06b6d4', // cyan (clearly distinct from Active blue)
+    'Revision Requested': '#8b5cf6', // violet
+    'Won / Approved': '#10b981', // emerald
+    'Order Received': '#059669', // deep emerald
+    'Lost / Cancelled': '#ef4444', // red
     Lost: '#ef4444', // red
     Dead: '#6b7280', // gray
-    Hold: '#f59e0b', // orange
-    Delayed: '#8b5cf6', // purple
+    Hold: '#f59e0b', // amber
+    Delayed: '#d97706', // dark amber
     'Cancelled PO': '#ec4899', // pink
-    Draft: '#94a3b8',
+    Draft: '#94a3b8', // slate
     'Gap / Reserved': '#f59e0b'
   };
 
@@ -621,7 +626,14 @@ export default function Dashboard(props: DashboardProps) {
     const holdCount = validEnquiries.filter((e) => STALLED_STATUSES.has(e.status)).length;
     const holdVal = validEnquiries.filter((e) => STALLED_STATUSES.has(e.status)).reduce((sum, e) => sum + (e.value_aed || 0), 0);
 
-    const conversionRate = totalCount > 0 ? Math.round((wonCount / totalCount) * 100) : 0;
+    const conversionRateRaw = totalCount > 0 ? (wonCount / totalCount) * 100 : 0;
+    const conversionRate = Math.round(conversionRateRaw);
+    const conversionRateLabel =
+      conversionRateRaw === 0
+        ? '0%'
+        : conversionRateRaw < 10 && !Number.isInteger(conversionRateRaw)
+        ? `${conversionRateRaw.toFixed(1)}%`
+        : `${Math.round(conversionRateRaw)}%`;
 
     return {
       totalCount,
@@ -634,7 +646,8 @@ export default function Dashboard(props: DashboardProps) {
       lostVal,
       holdCount,
       holdVal,
-      conversionRate
+      conversionRate,
+      conversionRateLabel
     };
   }, [validEnquiries]);
 
@@ -715,7 +728,8 @@ export default function Dashboard(props: DashboardProps) {
       const stock = Number(p.stock_quantity) || 0;
       const minLvl = Number(p.min_stock_level) || 0;
       totalStockOnHand += stock;
-      if (stock <= 0 || (minLvl > 0 && stock <= minLvl)) {
+      // Only flag Low Stock when an explicit reorder threshold (min_stock_level > 0) is configured
+      if (minLvl > 0 && stock <= minLvl) {
         lowStockProducts.push(p);
       }
       const groupKey = (p.variant_group_id || '').trim();
@@ -759,10 +773,35 @@ export default function Dashboard(props: DashboardProps) {
 
   // Dual Live Feed Left Panel: Commercial & Pipeline Items
   const commercialFeedItems = useMemo(() => {
-    const getEnqDateMs = (e: Enquiry) => new Date(e.enquiry_date || e.date || 0).getTime();
+    const getEnqDateMs = (e: Enquiry) => {
+      const raw = e.enquiry_date || e.date || '';
+      if (!raw) return 0;
+      const clean = String(raw).includes('T') ? String(raw).split('T')[0] : String(raw);
+      const ms = new Date(clean).getTime();
+      return isNaN(ms) ? 0 : ms;
+    };
+    const getEnqSerial = (e: Enquiry) => {
+      const raw = (e as any).serial_number ?? e.sn ?? (e as any).enquiry_number ?? (e as any).enquiry_no ?? 0;
+      const parsed = Number(String(raw).replace(/[^0-9.-]/g, ''));
+      return isNaN(parsed) ? 0 : parsed;
+    };
+    const getEnqCreatedMs = (e: Enquiry) => {
+      const val: any = (e as any).created_at || (e as any).createdAt || (e as any).updated_at || 0;
+      if (!val) return 0;
+      if (val?.seconds) return val.seconds * 1000;
+      const ms = new Date(val).getTime();
+      return isNaN(ms) ? 0 : ms;
+    };
     const getEnqVal = (e: Enquiry) => Number(e.value_aed ?? e.amount_aed ?? 0);
 
-    const sortedRecent = [...validEnquiries].sort((a, b) => getEnqDateMs(b) - getEnqDateMs(a));
+    // Sort Recent by date desc, then serial_number desc, then created_at desc
+    const sortedRecent = [...validEnquiries].sort((a, b) => {
+      const dateDiff = getEnqDateMs(b) - getEnqDateMs(a);
+      if (dateDiff !== 0) return dateDiff;
+      const snDiff = getEnqSerial(b) - getEnqSerial(a);
+      if (snDiff !== 0) return snDiff;
+      return getEnqCreatedMs(b) - getEnqCreatedMs(a);
+    });
     const highValue = [...validEnquiries]
       .filter((e) => ACTIVE_STATUSES.has(e.status))
       .sort((a, b) => getEnqVal(b) - getEnqVal(a));
@@ -805,10 +844,10 @@ export default function Dashboard(props: DashboardProps) {
       </PageHeader>
 
       <PageBody className="!py-4 sm:!py-5 !space-y-3.5">
-        {/* TOP QUICK ACTIONS TOOLBAR & DOMAIN FILTER TABS */}
-        <div className="bg-white border border-slate-200/90 rounded-2xl px-3.5 py-2.5 shadow-2xs flex flex-col xl:flex-row xl:items-center justify-between gap-2.5">
-          {/* Domain Filter Tabs */}
-          <div className="flex flex-wrap items-center gap-1.5">
+        {/* TOP QUICK ACTIONS TOOLBAR & DOMAIN FILTER TABS (Clean 2-Row Command Bar) */}
+        <div className="bg-white border border-slate-200/90 rounded-2xl px-3.5 py-2.5 shadow-2xs">
+          {/* Row 1: Domain Filter Switcher */}
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
             {[
               { id: 'all', label: 'All Domains', icon: Layers },
               { id: 'sales', label: 'Commercial Sales', icon: Briefcase },
@@ -836,8 +875,8 @@ export default function Dashboard(props: DashboardProps) {
             })}
           </div>
 
-          {/* 1-Click Quick Actions Bar (Strictly obeying Guardrail #2: Zero Duplicate Icons) */}
-          <div className="flex flex-wrap items-center gap-1.5">
+          {/* Row 2: 1-Click Quick Launch Strip */}
+          <div className="flex items-center gap-1.5 overflow-x-auto border-t border-slate-100 pt-2.5 mt-2">
             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mr-1 hidden sm:inline whitespace-nowrap shrink-0">
               Quick Launch:
             </span>
@@ -918,8 +957,15 @@ export default function Dashboard(props: DashboardProps) {
                     <Briefcase className="w-3 h-3 shrink-0" />
                     <span className="truncate">Commercial</span>
                   </span>
-                  <span className="text-[10.5px] font-mono font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full whitespace-nowrap shrink-0">
-                    {winRate}% Win Ratio
+                  <span
+                    title="Won / (Won + Lost)"
+                    className={`text-[10.5px] font-mono font-bold px-2 py-0.5 rounded-full border whitespace-nowrap shrink-0 ${
+                      closedCount > 0
+                        ? 'text-emerald-700 bg-emerald-50 border-emerald-200'
+                        : 'text-slate-500 bg-slate-100 border-slate-200'
+                    }`}
+                  >
+                    {closedCount > 0 ? `${winRate}% Close Rate` : '—'}
                   </span>
                 </div>
                 <div className="text-2xl font-extrabold font-mono text-slate-900 tracking-tight">
@@ -1018,7 +1064,7 @@ export default function Dashboard(props: DashboardProps) {
                     className={`text-[10.5px] font-mono font-bold px-2 py-0.5 rounded-full border whitespace-nowrap shrink-0 ${
                       inventoryStats.lowStockCount > 0
                         ? 'bg-rose-50 text-rose-700 border-rose-200'
-                        : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                        : 'bg-slate-100 text-slate-600 border-slate-200'
                     }`}
                   >
                     {inventoryStats.lowStockCount} Low Stock
@@ -1036,7 +1082,7 @@ export default function Dashboard(props: DashboardProps) {
                   <div className="text-[10px] font-bold uppercase text-slate-400">Low Stock Alerts</div>
                   <div
                     className={`font-mono font-bold ${
-                      inventoryStats.lowStockCount > 0 ? 'text-rose-600' : 'text-emerald-700'
+                      inventoryStats.lowStockCount > 0 ? 'text-rose-600' : 'text-slate-600'
                     }`}
                   >
                     {inventoryStats.lowStockCount} SKUs
@@ -1144,9 +1190,9 @@ export default function Dashboard(props: DashboardProps) {
         </div>
 
         {/* DUAL LIVE FEED PANELS: LEFT (COMMERCIAL & PIPELINE) + RIGHT (PROCUREMENT, INVENTORY & OPS) */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-stretch">
           {/* LEFT PANEL: COMMERCIAL & PIPELINE LIVE FEED */}
-          <div className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-2xs flex flex-col justify-between space-y-4">
+          <div className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-2xs h-full flex flex-col justify-between space-y-4">
             <div className="space-y-3">
               <div className="flex flex-col gap-2.5 border-b border-slate-100 pb-3">
                 <div className="min-w-0">
@@ -1199,8 +1245,8 @@ export default function Dashboard(props: DashboardProps) {
                         className="py-2.5 px-2 rounded-xl hover:bg-slate-50 transition flex items-center justify-between gap-3 cursor-pointer group"
                       >
                         <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono text-xs font-bold text-blue-600 group-hover:underline">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="font-mono text-xs font-bold text-blue-600 group-hover:underline shrink-0">
                               #{enqRef}
                             </span>
                             {enq.company_id && onOpenCompany360 ? (
@@ -1210,19 +1256,24 @@ export default function Dashboard(props: DashboardProps) {
                                   e.stopPropagation();
                                   onOpenCompany360(enq.company_id!);
                                 }}
-                                className="text-xs font-bold text-slate-900 hover:text-blue-600 hover:underline truncate cursor-pointer"
+                                className="min-w-0 flex-1 text-left text-xs font-bold text-slate-900 hover:text-blue-600 hover:underline cursor-pointer"
                               >
-                                {compName}
+                                <HoverScrollText text={compName} />
                               </button>
                             ) : (
-                              <span className="text-xs font-bold text-slate-900 truncate">
-                                {compName}
-                              </span>
+                              <HoverScrollText
+                                text={compName}
+                                className="text-xs font-bold text-slate-900 min-w-0 flex-1"
+                              />
                             )}
                           </div>
-                          <div className="text-[11px] text-slate-500 truncate mt-0.5">
-                            {enqTitle} {enqDate ? `• ` : ''}
-                            <span className="font-mono">{enqDate}</span>
+                          <div className="flex items-center gap-1.5 text-[11px] text-slate-500 mt-0.5 min-w-0">
+                            <HoverScrollText text={enqTitle} className="min-w-0 flex-1" />
+                            {enqDate && (
+                              <span className="font-mono shrink-0 whitespace-nowrap text-slate-400">
+                                • {enqDate}
+                              </span>
+                            )}
                           </div>
                         </div>
                         <div className="text-right shrink-0 flex items-center gap-2.5">
@@ -1230,11 +1281,11 @@ export default function Dashboard(props: DashboardProps) {
                             <div className="font-mono text-xs font-bold text-slate-900">
                               {formatCurrency(dealVal)}
                             </div>
-                            <span className="inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
+                            <span className="inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200 whitespace-nowrap">
                               {enq.status}
                             </span>
                           </div>
-                          <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-blue-600" />
+                          <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-blue-600 shrink-0" />
                         </div>
                       </div>
                     );
@@ -1289,7 +1340,7 @@ export default function Dashboard(props: DashboardProps) {
           </div>
 
           {/* RIGHT PANEL: PROCUREMENT, INVENTORY & OPERATIONS ACTIONABLE ALERTS */}
-          <div className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-2xs flex flex-col justify-between space-y-4">
+          <div className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-2xs h-full flex flex-col justify-between space-y-4">
             <div className="space-y-3">
               <div className="flex flex-col gap-2.5 border-b border-slate-100 pb-3">
                 <div className="min-w-0">
@@ -1469,7 +1520,7 @@ export default function Dashboard(props: DashboardProps) {
                           <span className="px-2 py-0.5 rounded bg-rose-50 text-rose-700 border border-rose-200 font-mono text-[10px] font-bold shrink-0">
                             LOW STOCK
                           </span>
-                          <span className="text-xs font-bold text-slate-900 truncate min-w-0">{prod.name}</span>
+                          <HoverScrollText text={prod.name} className="text-xs font-bold text-slate-900 min-w-0 flex-1" />
                         </div>
                         <div className="text-[11px] text-slate-500 mt-0.5 font-mono truncate">
                           Part #: {prod.part_no || 'N/A'} • On Hand: {Number(prod.stock_quantity) || 0}{' '}
@@ -1508,8 +1559,8 @@ export default function Dashboard(props: DashboardProps) {
                         : opsQueueFilter === 'bills'
                         ? 'No unpaid supplier bills awaiting settlement.'
                         : opsQueueFilter === 'stock'
-                        ? 'All catalog items are above minimum stock levels.'
-                        : 'All supplier POs, vendor bills, and stock levels are healthy.'}
+                        ? 'No reorder alerts — configure min stock levels in Products Catalog to enable alerts.'
+                        : 'All supplier POs, vendor bills, and reorder thresholds are healthy.'}
                     </p>
                     <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
                       {opsQueueFilter !== 'all' &&
@@ -1573,37 +1624,38 @@ export default function Dashboard(props: DashboardProps) {
           </div>
         </div>
 
-      {/* Follow-Up Radar Command Center Widget */}
-      <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs text-slate-900 space-y-5">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
-          <div className="flex items-center space-x-3">
-            <div className="p-2.5 bg-blue-50 border border-blue-200 rounded-xl text-blue-600 shadow-2xs">
-              <Radar className="w-5 h-5 animate-pulse" />
+      {/* Follow-Up Radar Command Center Widget (Unified Call Tasks + Awaiting Response Enquiries) */}
+      <div className="bg-white border border-slate-200/80 rounded-2xl p-4 sm:p-5 shadow-xs text-slate-900 space-y-4">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-slate-100 pb-3.5">
+          <div className="flex items-center space-x-3 min-w-0">
+            <div className="p-2 bg-blue-50 border border-blue-200 rounded-xl text-blue-600 shadow-2xs shrink-0">
+              <Radar className="w-5 h-5" />
             </div>
-            <div>
-              <h2 className="text-lg font-bold text-slate-900 font-sans flex items-center gap-2">
+            <div className="min-w-0">
+              <h2 className="text-base font-bold text-slate-900 font-sans flex items-center gap-2 flex-wrap">
                 <span>Follow-Up Radar</span>
-                <span className="text-[10px] font-mono bg-slate-100 border border-slate-200 text-slate-600 px-2 py-0.5 rounded-full font-bold uppercase">
-                  {followUpItems.length} Total Active
+                <span className="text-[10px] font-mono bg-slate-100 border border-slate-200 text-slate-600 px-2 py-0.5 rounded-full font-bold uppercase whitespace-nowrap">
+                  {followUpItems.length + overdueFollowups.length} Total Active
                 </span>
               </h2>
               <p className="text-xs text-slate-500 font-sans">
-                Scheduled client touchpoints, call backs, and engagement reminders.
+                Scheduled client touchpoints, call backs, and overdue enquiries awaiting response.
               </p>
             </div>
           </div>
 
           {/* Pill Navigation Tabs */}
-          <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0">
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 lg:pb-0">
             <button
+              type="button"
               onClick={() => setActiveRadarTab('overdue')}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-2 border cursor-pointer ${
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition inline-flex items-center gap-1.5 border whitespace-nowrap shrink-0 cursor-pointer ${
                 activeRadarTab === 'overdue'
                   ? 'bg-rose-600 text-white border-rose-600 shadow-xs'
                   : 'bg-rose-50 text-rose-800 border-rose-200 hover:bg-rose-100'
               }`}
             >
-              <AlertTriangle className="w-3.5 h-3.5" />
+              <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
               <span>Overdue</span>
               <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-mono ${activeRadarTab === 'overdue' ? 'bg-rose-700 text-white' : 'bg-rose-200 text-rose-900'}`}>
                 {overdueList.length}
@@ -1611,14 +1663,15 @@ export default function Dashboard(props: DashboardProps) {
             </button>
 
             <button
+              type="button"
               onClick={() => setActiveRadarTab('today')}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-2 border cursor-pointer ${
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition inline-flex items-center gap-1.5 border whitespace-nowrap shrink-0 cursor-pointer ${
                 activeRadarTab === 'today'
                   ? 'bg-amber-600 text-white border-amber-600 shadow-xs'
                   : 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100'
               }`}
             >
-              <Clock className="w-3.5 h-3.5" />
+              <Clock className="w-3.5 h-3.5 shrink-0" />
               <span>Due Today</span>
               <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-mono ${activeRadarTab === 'today' ? 'bg-amber-700 text-white' : 'bg-amber-200 text-amber-900'}`}>
                 {todayList.length}
@@ -1626,24 +1679,110 @@ export default function Dashboard(props: DashboardProps) {
             </button>
 
             <button
+              type="button"
               onClick={() => setActiveRadarTab('upcoming')}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-2 border cursor-pointer ${
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition inline-flex items-center gap-1.5 border whitespace-nowrap shrink-0 cursor-pointer ${
                 activeRadarTab === 'upcoming'
                   ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
                   : 'bg-blue-50 text-blue-800 border-blue-200 hover:bg-blue-100'
               }`}
             >
-              <Calendar className="w-3.5 h-3.5" />
+              <Calendar className="w-3.5 h-3.5 shrink-0" />
               <span>Upcoming</span>
               <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-mono ${activeRadarTab === 'upcoming' ? 'bg-blue-700 text-white' : 'bg-blue-200 text-blue-900'}`}>
                 {upcomingList.length}
               </span>
             </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveRadarTab('awaiting')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition inline-flex items-center gap-1.5 border whitespace-nowrap shrink-0 cursor-pointer ${
+                activeRadarTab === 'awaiting'
+                  ? 'bg-purple-600 text-white border-purple-600 shadow-xs'
+                  : 'bg-purple-50 text-purple-800 border-purple-200 hover:bg-purple-100'
+              }`}
+            >
+              <FileText className="w-3.5 h-3.5 shrink-0" />
+              <span>Awaiting Response</span>
+              <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-mono ${activeRadarTab === 'awaiting' ? 'bg-purple-700 text-white' : 'bg-purple-200 text-purple-900'}`}>
+                {overdueFollowups.length}
+              </span>
+            </button>
           </div>
         </div>
 
-        {/* Tab Items Cards */}
-        {activeTabItems.length > 0 ? (
+        {/* Tab Items Content */}
+        {activeRadarTab === 'awaiting' ? (
+          overdueFollowups.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead className="bg-slate-50/80 border-b border-slate-200/80 text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500">
+                  <tr>
+                    <th className="py-2.5 px-3">S/N</th>
+                    <th className="py-2.5 px-3">Company Name</th>
+                    <th className="py-2.5 px-3">Quote Ref</th>
+                    <th className="py-2.5 px-3">Salesperson</th>
+                    <th className="py-2.5 px-3">Next Follow-up</th>
+                    <th className="py-2.5 px-3 text-right">Value</th>
+                    <th className="py-2.5 pl-3 pr-4 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200/80">
+                  {overdueFollowups.slice(0, 5).map((e) => (
+                    <tr
+                      key={e.id}
+                      onClick={() => e.id && onSelectEnquiry(e.id)}
+                      className="hover:bg-slate-50/80 transition-colors cursor-pointer"
+                    >
+                      <td className="py-2.5 px-3 font-mono text-xs font-bold text-blue-600">#{e.sn}</td>
+                      <td className="py-2.5 px-3 font-sans text-xs font-semibold text-slate-800 max-w-[240px]">
+                        <HoverScrollText text={companyMap.get(e.company_id) || e.company_name || 'Unknown Company'} />
+                      </td>
+                      <td className="py-2.5 px-3 font-mono text-xs text-slate-600">{e.quote_ref_no || `ENQ-${e.sn}`}</td>
+                      <td className="py-2.5 px-3 font-sans text-xs text-slate-500">{e.sales_person || '—'}</td>
+                      <td className="py-2.5 px-3 font-mono text-xs text-rose-600 font-semibold">{e.next_followup_date}</td>
+                      <td className="py-2.5 px-3 font-mono text-xs text-slate-800 text-right font-bold tabular-nums">
+                        {formatCurrency(e.value_aed || 0)}
+                      </td>
+                      <td className="py-2.5 pl-3 pr-4 text-right">
+                        <button
+                          type="button"
+                          onClick={(ev) => {
+                            ev.stopPropagation();
+                            if (e.id) onSelectEnquiry(e.id);
+                          }}
+                          className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 shadow-2xs transition inline-flex items-center gap-1 cursor-pointer"
+                        >
+                          Inspect
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="py-3 px-4 bg-slate-50/70 rounded-xl border border-dashed border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                <span className="text-xs font-semibold text-slate-700 truncate">
+                  No enquiries awaiting overdue response in this queue.
+                </span>
+              </div>
+              {onNavigate && (
+                <button
+                  type="button"
+                  onClick={() => onNavigate('enquiries')}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 text-xs font-bold whitespace-nowrap shrink-0 transition cursor-pointer shadow-2xs"
+                >
+                  <Briefcase className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                  <span>Open Enquiries Pipeline</span>
+                </button>
+              )}
+            </div>
+          )
+        ) : activeTabItems.length > 0 ? (
           <div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {displayedRadarTasks.map((item) => {
@@ -1803,81 +1942,50 @@ export default function Dashboard(props: DashboardProps) {
             )}
           </div>
         ) : (
-          <div className="py-8 px-4 text-center text-slate-400 font-sans text-xs bg-slate-50/50 rounded-xl border border-dashed border-slate-200 space-y-2">
-            <CheckCircle2 className="w-8 h-8 text-emerald-500 mx-auto mb-1 opacity-80" />
-            <p className="font-semibold text-slate-700">No {activeRadarTab} follow-ups in this queue.</p>
-            <p className="text-slate-400 text-[11px]">All client touchpoints for this view are up to date.</p>
+          <div className="py-3 px-4 bg-slate-50/70 rounded-xl border border-dashed border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+              <span className="text-xs font-semibold text-slate-700 truncate">
+                No {activeRadarTab === 'today' ? 'due-today' : activeRadarTab} follow-ups in this queue.
+              </span>
+            </div>
             {onNavigate && (
-              <div className="pt-1">
-                <button
-                  type="button"
-                  onClick={() => onNavigate('call_center')}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 text-[11px] font-bold transition cursor-pointer shadow-2xs"
-                >
-                  <PhoneCall className="w-3.5 h-3.5 text-blue-600" />
-                  <span>Open Call Center & Schedule Follow-Up</span>
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={() => onNavigate('call_center')}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 text-xs font-bold whitespace-nowrap shrink-0 transition cursor-pointer shadow-2xs"
+              >
+                <PhoneCall className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                <span>Open Call Center &amp; Schedule Follow-Up</span>
+              </button>
             )}
           </div>
         )}
       </div>
 
-      {/* 4 Core Summary Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <KpiStatCard
-          label="Active Pipeline"
-          value={formatCurrency(totalPipelineActive)}
-          subtext={`${funnelStats.activeCount} open enquiries in progress`}
-          icon={<Briefcase className="w-5 h-5" />}
-          tone="blue"
-        />
-        <KpiStatCard
-          label="Won Proposals"
-          value={formatCurrency(totalWon)}
-          subtext={`${funnelStats.wonCount} converted orders`}
-          icon={<CheckCircle className="w-5 h-5" />}
-          tone="emerald"
-        />
-        <KpiStatCard
-          label="Win Ratio"
-          value={`${winRate}%`}
-          subtext={`${funnelStats.wonCount} of ${funnelStats.totalCount} proposals won`}
-          icon={<Award className="w-5 h-5" />}
-          tone="purple"
-        />
-        <KpiStatCard
-          label="Overdue Follow-ups"
-          value={overdueFollowups.length}
-          subtext={overdueFollowups.length > 0 ? 'Requires immediate follow-up' : 'All follow-ups on schedule'}
-          icon={<AlertTriangle className="w-5 h-5" />}
-          tone={overdueFollowups.length > 0 ? 'rose' : 'slate'}
-        />
-      </div>
-
       {/* Performance Analytics & Velocity Section */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-stretch">
         {/* Card 1: Activity Velocity & Leaderboard */}
-        <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs text-slate-900 space-y-5 flex flex-col justify-between">
+        <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs text-slate-900 h-full flex flex-col justify-between space-y-4">
           <div className="space-y-4">
-            {/* Header with Date Filter Pills */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
-              <div className="flex items-center space-x-2.5">
-                <div className="p-2 bg-blue-50 border border-blue-200 rounded-xl text-blue-600">
-                  <Activity className="w-5 h-5" />
+            {/* Stacked Header matching Live Feed pattern */}
+            <div className="flex flex-col gap-2.5 border-b border-slate-100 pb-3.5">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="p-2 bg-blue-50 border border-blue-200 rounded-xl text-blue-600 shrink-0">
+                  <Activity className="w-4 h-4" />
                 </div>
-                <div>
-                  <h2 className="text-base font-bold text-slate-900 font-sans flex items-center gap-2">
-                    <span>Activity Velocity & Leaderboard</span>
+                <div className="min-w-0">
+                  <h2 className="text-base font-bold text-slate-900 font-sans truncate">
+                    Activity Velocity &amp; Leaderboard
                   </h2>
-                  <p className="text-xs text-slate-500 font-sans">
-                    Touchpoint distribution, compliance score & sales rep rankings.
+                  <p className="text-xs text-slate-500 font-sans truncate">
+                    Touchpoint distribution, compliance score &amp; sales rep rankings.
                   </p>
                 </div>
               </div>
 
               {/* Date Filter Pills */}
-              <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200/80 shrink-0">
+              <div className="inline-flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200/80 self-start max-w-full overflow-x-auto">
                 {[
                   { id: 'this_week', label: 'This Week' },
                   { id: 'this_month', label: 'This Month' },
@@ -1888,10 +1996,10 @@ export default function Dashboard(props: DashboardProps) {
                     key={filter.id}
                     type="button"
                     onClick={() => setActivityTimeFilter(filter.id as any)}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                    className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold leading-none whitespace-nowrap shrink-0 transition cursor-pointer ${
                       activityTimeFilter === filter.id
-                        ? 'bg-white text-blue-600 shadow-xs border border-slate-200 font-bold'
-                        : 'text-slate-500 hover:text-slate-800'
+                        ? 'bg-white text-blue-600 shadow-2xs border border-slate-200/80'
+                        : 'text-slate-600 hover:text-slate-900'
                     }`}
                   >
                     {filter.label}
@@ -2016,26 +2124,29 @@ export default function Dashboard(props: DashboardProps) {
         </div>
 
         {/* Card 2: Pipeline Conversion Funnel */}
-        <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs text-slate-900 space-y-5 flex flex-col justify-between">
+        <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs text-slate-900 h-full flex flex-col justify-between space-y-4">
           <div className="space-y-4">
             {/* Header */}
-            <div className="flex items-center justify-between border-b border-slate-100 pb-4">
-              <div className="flex items-center space-x-2.5">
-                <div className="p-2 bg-purple-50 border border-purple-200 rounded-xl text-purple-600">
-                  <Filter className="w-5 h-5" />
+            <div className="flex items-center justify-between gap-3 border-b border-slate-100 pb-3.5">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="p-2 bg-purple-50 border border-purple-200 rounded-xl text-purple-600 shrink-0">
+                  <Filter className="w-4 h-4" />
                 </div>
-                <div>
-                  <h2 className="text-base font-bold text-slate-900 font-sans flex items-center gap-2">
-                    <span>Pipeline Conversion Funnel</span>
+                <div className="min-w-0">
+                  <h2 className="text-base font-bold text-slate-900 font-sans truncate">
+                    Pipeline Conversion Funnel
                   </h2>
-                  <p className="text-xs text-slate-500 font-sans">
-                    Stage counts, conversion percentages & proposal throughput.
+                  <p className="text-xs text-slate-500 font-sans truncate">
+                    Stage counts, conversion percentages &amp; proposal throughput.
                   </p>
                 </div>
               </div>
 
-              <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-purple-50 text-purple-700 border border-purple-200">
-                {funnelStats.conversionRate}% Win Rate
+              <span
+                title="Overall Conversion: Won / Total Proposals"
+                className="px-2.5 py-1 rounded-full text-xs font-bold bg-purple-50 text-purple-700 border border-purple-200 whitespace-nowrap shrink-0"
+              >
+                {funnelStats.conversionRateLabel} Conv.
               </span>
             </div>
 
@@ -2121,67 +2232,81 @@ export default function Dashboard(props: DashboardProps) {
                 </div>
               </div>
             </div>
+          </div>
 
-            {/* Conversion Efficiency Summary Bar */}
-            <div className="bg-slate-900 text-white p-3.5 rounded-xl flex items-center justify-between text-xs">
-              <div className="flex items-center space-x-2">
-                <Sparkles className="w-4 h-4 text-purple-400" />
-                <span className="font-sans font-medium text-slate-200">
-                  Overall Win Conversion: <strong className="text-emerald-400">{funnelStats.conversionRate}%</strong>
-                </span>
-              </div>
-              <span className="text-[11px] font-mono text-slate-400">
-                {funnelStats.wonCount} of {funnelStats.totalCount} Closed
+          {/* Pinned Conversion Efficiency Summary Bar */}
+          <div className="bg-slate-900 text-white p-3.5 rounded-xl flex items-center justify-between gap-2 text-xs">
+            <div className="flex items-center space-x-2 min-w-0">
+              <Sparkles className="w-4 h-4 text-purple-400 shrink-0" />
+              <span className="font-sans font-medium text-slate-200 truncate">
+                Overall Conversion: <strong className="text-emerald-400">{funnelStats.conversionRateLabel}</strong>
               </span>
             </div>
+            <span className="text-[11px] font-mono text-slate-300 whitespace-nowrap shrink-0">
+              {funnelStats.wonCount} Won{funnelStats.lostCount > 0 ? ` · ${funnelStats.lostCount} Lost` : ''} · {funnelStats.activeCount} Open
+            </span>
           </div>
         </div>
       </div>
 
       {/* Chart Section - Recharts Visualizations */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-stretch">
         {/* Chart A: Status breakdown */}
         <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs text-slate-900 flex flex-col lg:col-span-1">
-          <h2 className="text-lg font-bold text-slate-900 mb-4 font-sans flex items-center space-x-2">
-            <TrendingUp className="w-4 h-4 text-blue-600" />
+          <h2 className="text-base font-bold text-slate-900 mb-3 font-sans flex items-center space-x-2">
+            <TrendingUp className="w-4 h-4 text-blue-600 shrink-0" />
             <span className="text-slate-900">Pipeline by Status</span>
           </h2>
-          <div className="flex-1 min-h-[250px] flex items-center justify-center">
+          <div className="relative flex-1 min-h-[240px] flex items-center justify-center">
             {statusChartData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={250}>
-                <PieChart>
-                  <Pie
-                    data={statusChartData}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={60}
-                    outerRadius={85}
-                    paddingAngle={3}
-                    dataKey="value"
-                  >
-                    {statusChartData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.color} />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    formatter={(val: number) => formatCurrency(val)}
-                    contentStyle={{ backgroundColor: '#ffffff', borderColor: '#e2e8f0', borderRadius: '8px' }}
-                    itemStyle={{ color: '#1e293b' }}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
+              <>
+                <ResponsiveContainer width="100%" height={240}>
+                  <PieChart>
+                    <Pie
+                      data={statusChartData}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={62}
+                      outerRadius={88}
+                      paddingAngle={3}
+                      dataKey="value"
+                    >
+                      {statusChartData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <Tooltip
+                      formatter={(val: number) => formatCurrency(val)}
+                      wrapperStyle={{ zIndex: 20 }}
+                      contentStyle={{ backgroundColor: '#ffffff', borderColor: '#e2e8f0', borderRadius: '8px', fontSize: '12px' }}
+                      itemStyle={{ color: '#1e293b' }}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center px-3">
+                  <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400">
+                    Total Pipeline
+                  </span>
+                  <span className="text-sm font-extrabold font-mono text-slate-900 leading-tight mt-0.5 tabular-nums">
+                    {formatCurrency(totalAll)}
+                  </span>
+                  <span className="text-[10.5px] font-mono text-slate-500 mt-0.5">
+                    {validEnquiries.length} {validEnquiries.length === 1 ? 'enquiry' : 'enquiries'}
+                  </span>
+                </div>
+              </>
             ) : (
               <div className="text-xs text-slate-400 font-mono">No status data seeded.</div>
             )}
           </div>
-          <div className="mt-4 space-y-2">
+          <div className="mt-3 pt-3 border-t border-slate-100 space-y-2">
             {statusChartData.map((d) => (
-              <div key={d.name} className="flex items-center justify-between text-xs">
-                <div className="flex items-center space-x-2">
-                  <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: d.color }} />
-                  <span className="text-slate-600 font-sans">{d.name}</span>
+              <div key={d.name} className="flex items-center justify-between gap-2 text-xs">
+                <div className="flex items-center space-x-2 min-w-0">
+                  <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: d.color }} />
+                  <span className="text-slate-600 font-sans truncate">{d.name}</span>
                 </div>
-                <span className="font-mono text-slate-800 font-semibold tabular-nums">{formatCurrency(d.value)}</span>
+                <span className="font-mono text-slate-800 font-semibold tabular-nums shrink-0">{formatCurrency(d.value)}</span>
               </div>
             ))}
           </div>
@@ -2189,22 +2314,22 @@ export default function Dashboard(props: DashboardProps) {
 
         {/* Chart B: Salesperson Breakdown */}
         <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs text-slate-900 flex flex-col lg:col-span-1">
-          <h2 className="text-lg font-bold text-slate-900 mb-4 font-sans flex items-center space-x-2">
-            <DollarSign className="w-4 h-4 text-blue-600" />
+          <h2 className="text-base font-bold text-slate-900 mb-3 font-sans flex items-center space-x-2">
+            <DollarSign className="w-4 h-4 text-blue-600 shrink-0" />
             <span className="text-slate-900">Value by Salesperson</span>
           </h2>
-          <div className="flex-1 min-h-[250px] flex items-center justify-center">
+          <div className="flex-1 min-h-[240px] flex items-center justify-center">
             {salespersonChartData.some((s) => s.value > 0) ? (
-              <ResponsiveContainer width="100%" height={250}>
-                <BarChart data={salespersonChartData.filter((s) => s.value > 0)} margin={{ top: 10, right: 10, left: -20, bottom: 5 }}>
+              <ResponsiveContainer width="100%" height={240}>
+                <BarChart data={salespersonChartData.filter((s) => s.value > 0)} margin={{ top: 10, right: 10, left: -16, bottom: 5 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                   <XAxis dataKey="initials" stroke="#94a3b8" tick={{ fill: '#64748b', fontSize: 11 }} />
                   <YAxis stroke="#94a3b8" tickFormatter={formatYAxis} tick={{ fill: '#64748b', fontSize: 10 }} />
                   <Tooltip
                     formatter={(val: number) => formatCurrency(val)}
-                    contentStyle={{ backgroundColor: '#ffffff', borderColor: '#e2e8f0', borderRadius: '8px' }}
+                    contentStyle={{ backgroundColor: '#ffffff', borderColor: '#e2e8f0', borderRadius: '8px', fontSize: '12px' }}
                     itemStyle={{ color: '#1e293b' }}
-                    labelStyle={{ color: '#475569' }}
+                    labelStyle={{ color: '#475569', fontWeight: 600 }}
                   />
                   <Bar dataKey="value" fill="#3b82f6" radius={[4, 4, 0, 0]} />
                 </BarChart>
@@ -2213,13 +2338,13 @@ export default function Dashboard(props: DashboardProps) {
               <div className="text-xs text-slate-400 font-mono">No active sales value found.</div>
             )}
           </div>
-          <div className="mt-4 space-y-2 max-h-[120px] overflow-y-auto">
+          <div className="mt-3 pt-3 border-t border-slate-100 space-y-2 max-h-[120px] overflow-y-auto">
             {salespersonChartData.slice(0, 4).map((s, idx) => (
-              <div key={s.id || `${s.initials}-${s.name}-${idx}`} className="flex items-center justify-between text-xs">
-                <span className="text-slate-600 truncate max-w-[150px] font-sans">
+              <div key={s.id || `${s.initials}-${s.name}-${idx}`} className="flex items-center justify-between gap-2 text-xs">
+                <span className="text-slate-600 truncate font-sans">
                   {s.initials} - {s.name}
                 </span>
-                <span className="font-mono text-slate-800 font-semibold tabular-nums">{formatCurrency(s.value)}</span>
+                <span className="font-mono text-slate-800 font-semibold tabular-nums shrink-0">{formatCurrency(s.value)}</span>
               </div>
             ))}
           </div>
@@ -2227,20 +2352,33 @@ export default function Dashboard(props: DashboardProps) {
 
         {/* Chart C: Product line volume distribution */}
         <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs text-slate-900 flex flex-col lg:col-span-1">
-          <h2 className="text-lg font-bold text-slate-900 mb-4 font-sans flex items-center space-x-2">
-            <CheckCircle className="w-4 h-4 text-emerald-600" />
+          <h2 className="text-base font-bold text-slate-900 mb-3 font-sans flex items-center space-x-2">
+            <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
             <span className="text-slate-900">Volume by Product Type</span>
           </h2>
-          <div className="flex-1 min-h-[250px] flex items-center justify-center">
+          <div className="flex-1 min-h-[240px] flex items-center justify-center">
             {productTypeChartData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={250}>
-                <BarChart data={productTypeChartData} layout="vertical" margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
+              <ResponsiveContainer width="100%" height={240}>
+                <BarChart data={productTypeChartData} layout="vertical" margin={{ top: 5, right: 14, left: 4, bottom: 5 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                   <XAxis type="number" stroke="#94a3b8" tick={{ fill: '#64748b', fontSize: 10 }} />
-                  <YAxis dataKey="name" type="category" stroke="#94a3b8" tick={{ fill: '#64748b', fontSize: 10 }} width={80} />
+                  <YAxis
+                    dataKey="name"
+                    type="category"
+                    stroke="#94a3b8"
+                    width={116}
+                    interval={0}
+                    tick={{ fill: '#475569', fontSize: 10.5 }}
+                    tickFormatter={(val: string) =>
+                      typeof val === 'string' && val.length > 16 ? `${val.slice(0, 15)}…` : val
+                    }
+                  />
                   <Tooltip
-                    contentStyle={{ backgroundColor: '#ffffff', borderColor: '#e2e8f0', borderRadius: '8px' }}
+                    labelFormatter={(label) => String(label)}
+                    formatter={(val: number) => [`${val} units`, 'Volume']}
+                    contentStyle={{ backgroundColor: '#ffffff', borderColor: '#e2e8f0', borderRadius: '8px', fontSize: '12px' }}
                     itemStyle={{ color: '#1e293b' }}
+                    labelStyle={{ color: '#0f172a', fontWeight: 600 }}
                   />
                   <Bar dataKey="count" fill="#10b981" radius={[0, 4, 4, 0]} />
                 </BarChart>
@@ -2250,69 +2388,6 @@ export default function Dashboard(props: DashboardProps) {
             )}
           </div>
         </div>
-      </div>
-
-      {/* Lower Dashboard Row: Overdue followups List */}
-      <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs text-slate-900">
-        <div className="flex items-center justify-between border-b border-slate-100 pb-4 mb-4">
-          <h2 className="text-lg font-bold text-slate-900 flex items-center space-x-2 font-sans">
-            <AlertTriangle className="w-5 h-5 text-rose-500" />
-            <span>Active Follow-up Tasks (Awaiting Response)</span>
-          </h2>
-          <span className="text-[10px] bg-slate-50 border border-slate-200 text-slate-500 px-2.5 py-1 rounded-full font-mono uppercase font-bold">
-            Total Overdue: {overdueFollowups.length}
-          </span>
-        </div>
-
-        {overdueFollowups.length > 0 ? (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead className="bg-slate-50/80 border-b border-slate-200/80 text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500">
-                <tr>
-                  <th className="py-3 px-4">S/N</th>
-                  <th className="py-3 px-4">Company Name</th>
-                  <th className="py-3 px-4">Quote Ref</th>
-                  <th className="py-3 px-4">Salesperson</th>
-                  <th className="py-3 px-4">Next Follow-up</th>
-                  <th className="py-3 px-4 text-right">Value</th>
-                  <th className="py-3 px-4 text-center">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200">
-                {overdueFollowups.slice(0, 5).map((e) => (
-                  <tr
-                    key={e.id}
-                    className="border-l-2 border-l-transparent hover:border-l-blue-500 hover:bg-slate-50/80 transition-colors group"
-                  >
-                    <td className="py-3 px-4 font-mono text-xs text-slate-500">#{e.sn}</td>
-                    <td className="py-3 px-4 font-sans text-sm font-semibold text-slate-800">
-                      {companyMap.get(e.company_id) || 'Unknown Company'}
-                    </td>
-                    <td className="py-3 px-4 font-mono text-xs text-slate-600">{e.quote_ref_no}</td>
-                    <td className="py-3 px-4 font-sans text-xs text-slate-500">{e.sales_person}</td>
-                    <td className="py-3 px-4 font-mono text-xs text-rose-600 font-semibold">{e.next_followup_date}</td>
-                    <td className="py-3 px-4 font-mono text-xs text-slate-700 text-right font-bold tabular-nums">
-                      {formatCurrency(e.value_aed)}
-                    </td>
-                    <td className="py-3 px-4 text-center">
-                      <button
-                        type="button"
-                        onClick={() => e.id && onSelectEnquiry(e.id)}
-                        className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 shadow-2xs transition inline-flex items-center gap-1 cursor-pointer"
-                      >
-                        Inspect
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <div className="py-12 text-center text-slate-400 font-sans text-sm">
-            🎉 Clean slate! There are no overdue follow-up tasks waiting.
-          </div>
-        )}
       </div>
 
       {/* Live Execution Center Direct Modal */}
