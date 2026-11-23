@@ -19,7 +19,8 @@ import {
 } from '../types';
 import { getReferenceId } from '../utils/refId';
 import GoogleSearchButton from './common/GoogleSearchButton';
-import { PhoneCall, Building2, Edit, Trash2, Search, RotateCcw, Users2, Plus, Phone, MessageSquare, Eye, FilePlus2 } from 'lucide-react';
+import { PhoneCall, Building2, Pencil, Trash2, Search, RotateCcw, Users2, Plus, Phone, MessageSquare, Eye, FilePlus2, MapPin } from 'lucide-react';
+import { HoverScrollText } from './HoverScrollText';
 import { sanitizeWhatsAppNumber, getWhatsAppUrl } from '../utils/defaults';
 import {
   formatRelativeOutreachDate,
@@ -305,11 +306,15 @@ export interface CompaniesDirectoryTableProps {
   paginationFooter?: React.ReactNode;
   handleInitiate?: (payload: any) => void;
   onCreateEnquiryForCompany?: (company: Company) => void;
+  isEditable?: boolean;
+  canDelete?: boolean;
+  onEditCompany?: (company: Company) => void;
+  onDeleteCompany?: (companyId: string) => void;
 }
 
 /**
- * Standardized 2-line B2B SaaS Companies Directory Table with sticky opaque header, table-fixed layout,
- * and adaptive mobile summary cards (< 640px).
+ * Standardized 2-line B2B SaaS Companies Directory Table with sticky opaque header, explicit colgroup layout,
+ * HoverScrollText, and adaptive mobile summary cards (< 640px).
  */
 export const CompaniesDirectoryTable: React.FC<CompaniesDirectoryTableProps> = ({
   paginatedCompanies,
@@ -324,7 +329,11 @@ export const CompaniesDirectoryTable: React.FC<CompaniesDirectoryTableProps> = (
   companyOutreachMap,
   paginationFooter,
   handleInitiate,
-  onCreateEnquiryForCompany
+  onCreateEnquiryForCompany,
+  isEditable = false,
+  canDelete = false,
+  onEditCompany,
+  onDeleteCompany
 }) => {
   return (
     <div className="w-full space-y-3">
@@ -432,7 +441,7 @@ export const CompaniesDirectoryTable: React.FC<CompaniesDirectoryTableProps> = (
                   className="px-2 py-1.5 rounded-lg text-[11px] font-semibold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 flex items-center justify-center gap-1 transition cursor-pointer"
                 >
                   <Eye className="w-3.5 h-3.5 shrink-0" />
-                  <span>Inspect</span>
+                  <span>Open</span>
                 </button>
 
                 <button
@@ -513,21 +522,30 @@ export const CompaniesDirectoryTable: React.FC<CompaniesDirectoryTableProps> = (
         )}
       </div>
 
-      {/* DESKTOP TABLE (>= 640px) */}
+      {/* DESKTOP TABLE (>= 640px) — Exact 7-Column Parity, Zero Hidden Columns */}
       <div className="hidden sm:block w-full overflow-x-auto lg:overflow-x-visible scrollbar-thin relative bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl shadow-xs">
-        <table className="w-full min-w-[760px] lg:min-w-0 table-fixed text-left text-xs border-collapse font-sans">
-          <thead className="sticky top-0 z-10 bg-slate-50/95 dark:bg-slate-800/95 backdrop-blur-xs border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
+        <table className="w-full min-w-[960px] lg:min-w-0 lg:table-fixed text-left text-xs border-collapse font-sans">
+          <colgroup>
+            <col className="w-[92px]" />
+            <col className="w-auto" />
+            <col className="w-[152px]" />
+            <col className="w-[116px]" />
+            <col className="w-[168px]" />
+            <col className="w-[148px]" />
+            <col className="w-[140px]" />
+          </colgroup>
+          <thead className="sticky top-0 z-10 bg-slate-50/95 dark:bg-slate-800/95 backdrop-blur-xs border-b border-slate-200 dark:border-slate-800 text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
             <tr>
-              <th className="py-3 px-3.5 w-[8%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Ref ID</th>
-              <th className="py-3 px-3.5 w-[31%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Company & Location</th>
-              <th className="py-3 px-3.5 w-[15%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Industry / Type</th>
-              <th className="py-3 px-3.5 w-[12%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Relationship</th>
-              <th className="py-3 px-3.5 w-[15%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Contact Details</th>
-              <th className="py-3 px-3.5 w-[10%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Activity</th>
-              <th className="py-3 px-3.5 w-[95px] text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">Action</th>
+              <th className="py-2.5 pl-4 pr-3 whitespace-nowrap">Ref ID</th>
+              <th className="py-2.5 px-3 whitespace-nowrap">Company &amp; Location</th>
+              <th className="py-2.5 px-3 whitespace-nowrap">Industry / Type</th>
+              <th className="py-2.5 px-3 whitespace-nowrap">Relationship</th>
+              <th className="py-2.5 px-3 whitespace-nowrap">Contact Details</th>
+              <th className="py-2.5 px-3 whitespace-nowrap">Activity</th>
+              <th className="py-2.5 pl-3 pr-4 text-right whitespace-nowrap">Actions</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-200 dark:divide-slate-800 bg-white dark:bg-slate-900">
+          <tbody className="divide-y divide-slate-200/80 dark:divide-slate-800 bg-white dark:bg-slate-900">
             {paginatedCompanies.map((c) => {
               const isSelected = selectedCompanyId === c.id;
               const linkCount = enquiries.filter((e) => e.company_id === c.id).length;
@@ -591,30 +609,30 @@ export const CompaniesDirectoryTable: React.FC<CompaniesDirectoryTableProps> = (
                   ? 'bg-amber-500'
                   : 'bg-sky-400';
 
+              const locationLine = `${c.city || 'Unknown City'}, ${c.country || 'UAE'}`;
+
               return (
                 <tr
                   key={c.id}
                   onClick={() => setSelectedCompanyId(c.id!)}
-                  className={`cursor-pointer border-l-2 transition-colors group ${
+                  className={`cursor-pointer transition-colors group ${
                     isSelected
-                      ? 'border-l-blue-600 bg-blue-50/50 dark:bg-blue-950/30'
-                      : 'border-l-transparent hover:border-l-blue-500 hover:bg-slate-50/80 dark:hover:bg-slate-800/50'
+                      ? 'bg-blue-50/60 dark:bg-blue-950/30'
+                      : 'hover:bg-slate-50/80 dark:hover:bg-slate-800/60'
                   }`}
                 >
                   {/* 1. REF ID */}
-                  <td className="py-2.5 px-3.5 font-mono text-xs font-semibold text-blue-600 dark:text-blue-400 whitespace-nowrap truncate align-middle">
+                  <td className="py-2.5 pl-4 pr-3 font-mono text-xs font-semibold text-blue-600 dark:text-blue-400 whitespace-nowrap truncate align-middle">
                     {getReferenceId('CMP', c, companies)}
                   </td>
 
-                  {/* 2. COMPANY & LOCATION (Max 2 Lines) */}
-                  <td className="py-2.5 px-3.5 align-middle overflow-hidden">
+                  {/* 2. COMPANY & LOCATION (Flexible primary column) */}
+                  <td className="py-2.5 px-3 align-middle overflow-hidden">
                     <div className="flex items-center gap-1.5 min-w-0">
-                      <span
-                        className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate"
-                        title={c.display_name}
-                      >
-                        {c.display_name}
-                      </span>
+                      <HoverScrollText
+                        text={c.display_name}
+                        className="text-sm font-semibold text-slate-900 dark:text-slate-100"
+                      />
                       {c.company_code && (
                         <span className="px-1.5 py-0.5 rounded font-mono text-[10px] font-bold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 uppercase shrink-0 leading-none">
                           {c.company_code}
@@ -632,22 +650,21 @@ export const CompaniesDirectoryTable: React.FC<CompaniesDirectoryTableProps> = (
                         className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
                       />
                     </div>
-                    <div className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5 flex items-center gap-1.5 min-w-0">
-                      <span className="truncate">
-                        📍 {c.city || 'Unknown City'}, {c.country || 'UAE'}
-                      </span>
+                    <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 flex items-center gap-1.5 min-w-0">
+                      <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
+                      <HoverScrollText text={locationLine} className="text-xs text-slate-500 dark:text-slate-400" />
                       {matchHint && (
                         <span className="text-[10px] font-medium text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/50 px-1.5 py-0.2 rounded truncate shrink-0">
                           {matchHint.type === 'contact'
-                            ? `👤 ${matchHint.label}`
-                            : '📝 Notes'}
+                            ? `Contact: ${matchHint.label}`
+                            : 'Notes'}
                         </span>
                       )}
                     </div>
                   </td>
 
                   {/* 3. INDUSTRY / TYPE */}
-                  <td className="py-2.5 px-3.5 align-middle overflow-hidden">
+                  <td className="py-2.5 px-3 align-middle overflow-hidden">
                     {hasIndustry ? (
                       <div className="truncate max-w-full">
                         <IndustryBadge
@@ -665,8 +682,8 @@ export const CompaniesDirectoryTable: React.FC<CompaniesDirectoryTableProps> = (
                     )}
                   </td>
 
-                  {/* 4. RELATIONSHIP (Max 2 Lines: Pill + Quiet 6px Dot Temp) */}
-                  <td className="py-2.5 px-3.5 align-middle overflow-hidden">
+                  {/* 4. RELATIONSHIP (Pill + Quiet 6px Dot Temp) */}
+                  <td className="py-2.5 px-3 align-middle overflow-hidden">
                     <div className="flex flex-col items-start gap-1 min-w-0">
                       <span
                         className={`px-2 py-0.5 rounded-full text-[11px] font-medium border truncate max-w-full leading-tight ${relToneClass}`}
@@ -700,8 +717,8 @@ export const CompaniesDirectoryTable: React.FC<CompaniesDirectoryTableProps> = (
                     </div>
                   </td>
 
-                  {/* 5. CONTACT DETAILS (Max 2 Lines or Single Quiet Fallback) */}
-                  <td className="py-2.5 px-3.5 align-middle overflow-hidden">
+                  {/* 5. CONTACT DETAILS */}
+                  <td className="py-2.5 px-3 align-middle overflow-hidden">
                     {phones.length === 0 && emails.length === 0 ? (
                       <div className="text-xs text-slate-400 dark:text-slate-500 italic truncate">
                         No contact info
@@ -709,32 +726,28 @@ export const CompaniesDirectoryTable: React.FC<CompaniesDirectoryTableProps> = (
                     ) : (
                       <div className="flex flex-col min-w-0">
                         {phones.length > 0 && (
-                          <div
-                            className="text-xs font-medium text-slate-700 dark:text-slate-300 truncate font-mono"
-                            title={phones[0].number}
-                          >
-                            {phones[0].number}
-                          </div>
+                          <HoverScrollText
+                            text={phones[0].number}
+                            className="text-xs font-medium text-slate-700 dark:text-slate-300 font-mono"
+                          />
                         )}
                         {emails.length > 0 && (
-                          <div
-                            className={`text-[11px] text-slate-500 dark:text-slate-400 truncate font-mono ${
+                          <HoverScrollText
+                            text={emails[0].email}
+                            className={`text-[11px] text-slate-500 dark:text-slate-400 font-mono ${
                               phones.length > 0 ? 'mt-0.5' : ''
                             }`}
-                            title={emails[0].email}
-                          >
-                            {emails[0].email}
-                          </div>
+                          />
                         )}
                       </div>
                     )}
                   </td>
 
-                  {/* 6. ACTIVITY (Max 2 Lines) */}
-                  <td className="py-2.5 px-3.5 align-middle overflow-hidden">
+                  {/* 6. ACTIVITY */}
+                  <td className="py-2.5 px-3 align-middle overflow-hidden">
                     <div className="flex flex-col min-w-0">
                       <div
-                        className="text-xs font-medium text-slate-600 dark:text-slate-300 truncate"
+                        className="text-xs font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap truncate"
                         title={
                           outreach.outreachCadence === 'never' ||
                           !outreach.lastContactedAt
@@ -753,24 +766,46 @@ export const CompaniesDirectoryTable: React.FC<CompaniesDirectoryTableProps> = (
                           ? 'Never Contacted'
                           : formatRelativeOutreachDate(outreach.lastContactedAt)}
                       </div>
-                      <div className="text-[11px] text-slate-400 dark:text-slate-500 truncate mt-0.5">
+                      <div className="text-[11px] text-slate-400 dark:text-slate-500 whitespace-nowrap truncate mt-0.5 tabular-nums">
                         {outreach.totalCalls} Calls · {linkCount} Enquiries
                       </div>
                     </div>
                   </td>
 
-                  {/* 7. ACTION */}
-                  <td className="py-2.5 px-3.5 w-[95px] text-right whitespace-nowrap align-middle">
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setSelectedCompanyId(c.id!);
-                      }}
-                      className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 shadow-2xs transition inline-flex items-center justify-center cursor-pointer"
-                    >
-                      {isSelected ? 'Inspecting' : 'Inspect'}
-                    </button>
+                  {/* 7. ACTIONS (Right-aligned flush to pr-4) */}
+                  <td className="py-2.5 pl-3 pr-4 text-right whitespace-nowrap align-middle">
+                    <div className="flex w-full items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedCompanyId(c.id!)}
+                        className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 shadow-2xs transition inline-flex items-center justify-center cursor-pointer"
+                      >
+                        Open
+                      </button>
+                      {isEditable && onEditCompany && (
+                        <button
+                          type="button"
+                          onClick={() => onEditCompany(c)}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition inline-flex items-center justify-center cursor-pointer"
+                          title="Edit Company"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                      {canDelete && onDeleteCompany && c.id && (
+                        <>
+                          <span className="h-4 border-l border-slate-200 dark:border-slate-700/80 mx-0.5" aria-hidden="true" />
+                          <button
+                            type="button"
+                            onClick={() => onDeleteCompany(c.id!)}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition inline-flex items-center justify-center cursor-pointer"
+                            title="Delete Company"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </td>
                 </tr>
               );
@@ -806,7 +841,8 @@ export interface ContactsDirectoryTableProps {
 }
 
 /**
- * Standardized 2-line B2B SaaS People & Contacts Sub-Tab Table with sticky opaque header and table-fixed layout.
+ * Standardized 2-line B2B SaaS People & Contacts Sub-Tab Table with sticky opaque header,
+ * explicit 6-column colgroup (inline checkbox when Select mode active), HoverScrollText, and exact colSpan=6 parity.
  */
 export const ContactsDirectoryTable: React.FC<ContactsDirectoryTableProps> = ({
   paginatedContacts,
@@ -831,80 +867,130 @@ export const ContactsDirectoryTable: React.FC<ContactsDirectoryTableProps> = ({
 }) => {
   return (
     <div className="w-full overflow-x-auto lg:overflow-x-visible scrollbar-thin relative bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl shadow-xs">
-      <table className="w-full min-w-[760px] lg:min-w-0 table-fixed text-left border-collapse text-xs font-sans">
-        <thead className="sticky top-0 z-10 bg-slate-50/95 dark:bg-slate-800/95 backdrop-blur-xs border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
+      <table className="w-full min-w-[920px] lg:min-w-0 lg:table-fixed text-left border-collapse text-xs font-sans">
+        <colgroup>
+          <col className="w-auto" />
+          <col className="w-[200px]" />
+          <col className="w-[144px]" />
+          <col className="w-[128px]" />
+          <col className="w-[188px]" />
+          <col className="w-[140px]" />
+        </colgroup>
+        <thead className="sticky top-0 z-10 bg-slate-50/95 dark:bg-slate-800/95 backdrop-blur-xs border-b border-slate-200 dark:border-slate-800 text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
           <tr>
-            {isContactMarkingMode && (
-              <th className="py-3 px-2 w-9 text-center bg-slate-50 dark:bg-slate-900">
-                <input
-                  type="checkbox"
-                  checked={filteredContacts.length > 0 && filteredContacts.every((c) => c.id && selectedContactIds.includes(c.id))}
-                  onChange={handleSelectAllContacts}
-                  className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500 cursor-pointer"
-                  title="Select/Deselect All Filtered Contacts"
-                />
-              </th>
-            )}
-            <th className="py-3 px-3.5 w-[23%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Contact &amp; Role</th>
-            <th className="py-3 px-3.5 w-[22%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Company &amp; Location</th>
-            <th className="py-3 px-3.5 w-[14%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Mobile Phone</th>
-            <th className="py-3 px-3.5 w-[12%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Landline</th>
-            <th className="py-3 px-3.5 w-[18%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Email Address</th>
-            <th className="py-3 px-3.5 w-[120px] text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">Actions</th>
+            <th className="py-2.5 pl-4 pr-3 whitespace-nowrap">
+              <div className="flex items-center gap-2">
+                {isContactMarkingMode && (
+                  <input
+                    type="checkbox"
+                    checked={filteredContacts.length > 0 && filteredContacts.every((c) => c.id && selectedContactIds.includes(c.id))}
+                    onChange={handleSelectAllContacts}
+                    className="w-3.5 h-3.5 text-blue-600 rounded border-slate-300 focus:ring-blue-500 cursor-pointer shrink-0"
+                    title="Select/Deselect All Filtered Contacts"
+                  />
+                )}
+                <span>Contact &amp; Role</span>
+              </div>
+            </th>
+            <th className="py-2.5 px-3 whitespace-nowrap">Company &amp; Location</th>
+            <th className="py-2.5 px-3 whitespace-nowrap">Mobile Phone</th>
+            <th className="py-2.5 px-3 whitespace-nowrap">Landline</th>
+            <th className="py-2.5 px-3 whitespace-nowrap">Email Address</th>
+            <th className="py-2.5 pl-3 pr-4 text-right whitespace-nowrap">Actions</th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-slate-200 dark:divide-slate-800 bg-white dark:bg-slate-900">
+        <tbody className="divide-y divide-slate-200/80 dark:divide-slate-800 bg-white dark:bg-slate-900">
           {paginatedContacts.map((ct) => {
             const isContactSelected = Boolean(isContactMarkingMode && ct.id && selectedContactIds.includes(ct.id));
             return (
               <tr
                 key={ct.id}
                 onClick={() => setSelectedContactDetail(ct)}
-                className={`border-l-2 transition-colors group cursor-pointer ${
+                className={`transition-colors group cursor-pointer ${
                   isContactSelected
-                    ? 'border-l-blue-600 bg-blue-50/50 dark:bg-blue-950/30'
-                    : 'border-l-transparent hover:border-l-blue-500 hover:bg-slate-50/80 dark:hover:bg-slate-800/50'
+                    ? 'bg-blue-50/60 dark:bg-blue-950/30'
+                    : 'hover:bg-slate-50/80 dark:hover:bg-slate-800/60'
                 }`}
               >
-                {isContactMarkingMode && (
-                  <td className="py-2.5 px-2 text-center align-middle" onClick={(e) => e.stopPropagation()}>
-                    <input
-                      type="checkbox"
-                      checked={isContactSelected}
-                      onChange={() => ct.id && handleToggleSelectContact(ct.id)}
-                      className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500 cursor-pointer"
+                {/* 1. CONTACT & ROLE (Flexible primary column with inline Select checkbox) */}
+                <td className="py-2.5 pl-4 pr-3 align-middle overflow-hidden">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    {isContactMarkingMode && (
+                      <div onClick={(e) => e.stopPropagation()} className="shrink-0 flex items-center">
+                        <input
+                          type="checkbox"
+                          checked={isContactSelected}
+                          onChange={() => ct.id && handleToggleSelectContact(ct.id)}
+                          className="w-3.5 h-3.5 text-blue-600 rounded border-slate-300 focus:ring-blue-500 cursor-pointer"
+                        />
+                      </div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <HoverScrollText
+                          text={ct.full_name}
+                          className="text-sm font-semibold text-slate-900 dark:text-slate-100"
+                        />
+                        {ct.is_primary && (
+                          <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950/50 dark:text-blue-300 dark:border-blue-800 shrink-0 leading-none">
+                            Primary
+                          </span>
+                        )}
+                        {ct.is_dnc && (
+                          <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide bg-rose-50 text-rose-700 border border-rose-200 dark:bg-rose-950/50 dark:text-rose-300 dark:border-rose-800 shrink-0 leading-none">
+                            DNC
+                          </span>
+                        )}
+                      </div>
+                      <div className="mt-0.5 min-w-0">
+                        {ct.designation ? (
+                          <HoverScrollText
+                            text={ct.designation}
+                            className="text-xs text-slate-500 dark:text-slate-400"
+                          />
+                        ) : (
+                          <span className="text-xs text-slate-400 dark:text-slate-500 select-none">—</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </td>
+
+                {/* 2. COMPANY & LOCATION */}
+                <td className="py-2.5 px-3 align-middle overflow-hidden">
+                  {ct.company_id ? (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedCompanyId(ct.company_id!);
+                        setViewMode('companies');
+                      }}
+                      className="text-left max-w-full block hover:text-blue-600 dark:hover:text-blue-400 transition cursor-pointer"
+                      title={`Open ${ct.companyName}`}
+                    >
+                      <HoverScrollText
+                        text={ct.companyName || '—'}
+                        className="font-semibold text-slate-800 dark:text-slate-200 hover:text-blue-600 dark:hover:text-blue-400 text-xs"
+                      />
+                    </button>
+                  ) : (
+                    <HoverScrollText
+                      text={ct.companyName || '—'}
+                      className="font-semibold text-slate-800 dark:text-slate-200 text-xs"
                     />
-                  </td>
-                )}
-                <td className="py-2.5 px-3.5 align-middle overflow-hidden">
-                  <div className="flex items-center gap-1.5 min-w-0">
-                    <span className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate" title={ct.full_name}>
-                      {ct.full_name}
-                    </span>
-                    {ct.is_primary && (
-                      <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950/50 dark:text-blue-300 dark:border-blue-800 shrink-0 leading-none">
-                        Primary
-                      </span>
-                    )}
-                    {ct.is_dnc && (
-                      <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide bg-rose-50 text-rose-700 border border-rose-200 dark:bg-rose-950/50 dark:text-rose-300 dark:border-rose-800 shrink-0 leading-none">
-                        DNC
-                      </span>
-                    )}
-                  </div>
-                  <div className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5">
-                    {ct.designation || '—'}
+                  )}
+                  <div className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5 flex items-center gap-1 min-w-0">
+                    <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
+                    <HoverScrollText
+                      text={ct.location || 'UAE'}
+                      className="text-[11px] text-slate-400 dark:text-slate-500"
+                    />
                   </div>
                 </td>
-                <td className="py-2.5 px-3.5 align-middle overflow-hidden">
-                  <div className="font-semibold text-slate-800 dark:text-slate-200 text-xs truncate" title={ct.companyName}>
-                    {ct.companyName}
-                  </div>
-                  <div className="text-[11px] text-slate-400 dark:text-slate-500 truncate mt-0.5">
-                    📍 {ct.location || 'UAE'}
-                  </div>
-                </td>
-                <td className="py-2.5 px-3.5 align-middle overflow-hidden">
+
+                {/* 3. MOBILE PHONE */}
+                <td className="py-2.5 px-3 align-middle overflow-hidden">
                   {ct.mobile ? (
                     <button
                       type="button"
@@ -922,26 +1008,30 @@ export const ContactsDirectoryTable: React.FC<ContactsDirectoryTableProps> = ({
                           e
                         });
                       }}
-                      className="font-mono text-xs text-blue-600 dark:text-blue-400 font-semibold hover:underline inline-flex items-center gap-1 max-w-full truncate cursor-pointer"
-                      title={ct.mobile}
+                      className="font-mono text-xs text-blue-600 dark:text-blue-400 font-semibold hover:underline inline-flex items-center gap-1 max-w-full cursor-pointer min-w-0"
                     >
                       <PhoneCall className="w-3 h-3 text-blue-500 shrink-0" />
-                      <span className="truncate">{ct.mobile}</span>
+                      <HoverScrollText text={ct.mobile} className="font-mono text-xs font-semibold text-blue-600 dark:text-blue-400" />
                     </button>
                   ) : (
                     <span className="text-slate-400 dark:text-slate-500 text-xs select-none">—</span>
                   )}
                 </td>
-                <td className="py-2.5 px-3.5 align-middle overflow-hidden">
+
+                {/* 4. LANDLINE */}
+                <td className="py-2.5 px-3 align-middle overflow-hidden">
                   {ct.landline ? (
-                    <span className="font-mono text-slate-700 dark:text-slate-300 font-medium text-xs truncate block" title={ct.landline}>
-                      {ct.landline}
-                    </span>
+                    <HoverScrollText
+                      text={ct.landline}
+                      className="font-mono text-slate-700 dark:text-slate-300 font-medium text-xs"
+                    />
                   ) : (
                     <span className="text-slate-400 dark:text-slate-500 text-xs select-none">—</span>
                   )}
                 </td>
-                <td className="py-2.5 px-3.5 align-middle overflow-hidden">
+
+                {/* 5. EMAIL ADDRESS */}
+                <td className="py-2.5 px-3 align-middle overflow-hidden">
                   {ct.email ? (
                     <button
                       type="button"
@@ -959,47 +1049,44 @@ export const ContactsDirectoryTable: React.FC<ContactsDirectoryTableProps> = ({
                           e
                         });
                       }}
-                      className="text-slate-700 dark:text-slate-300 hover:text-blue-600 hover:underline font-mono text-[11px] cursor-pointer text-left truncate block max-w-full"
-                      title={ct.email}
+                      className="text-slate-700 dark:text-slate-300 hover:text-blue-600 hover:underline font-mono text-[11px] cursor-pointer text-left block max-w-full"
                     >
-                      {ct.email}
+                      <HoverScrollText text={ct.email} className="font-mono text-[11px]" />
                     </button>
                   ) : (
                     <span className="text-slate-400 dark:text-slate-500 text-xs select-none">—</span>
                   )}
                 </td>
-                <td className="py-2.5 px-3.5 w-[120px] text-right whitespace-nowrap align-middle">
-                  <div className="inline-flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
-                    {ct.company_id && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSelectedCompanyId(ct.company_id!);
-                          setViewMode('companies');
-                        }}
-                        title="View Assigned Company"
-                        className="w-7 h-7 rounded-lg bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 shadow-2xs transition inline-flex items-center justify-center cursor-pointer"
-                      >
-                        <Building2 className="w-3.5 h-3.5" />
-                      </button>
-                    )}
+
+                {/* 6. ACTIONS (Right-aligned flush to pr-4) */}
+                <td className="py-2.5 pl-3 pr-4 text-right whitespace-nowrap align-middle">
+                  <div className="flex w-full items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedContactDetail(ct)}
+                      className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 shadow-2xs transition inline-flex items-center justify-center cursor-pointer"
+                    >
+                      Open
+                    </button>
                     {isEditable && (
                       <>
                         <button
                           type="button"
                           onClick={() => {
                             setContactToEdit(ct);
+                            setSelectedCompanyForContact(ct.company_id || '');
                             setContactModalOpen(true);
                           }}
-                          className="w-7 h-7 rounded-lg bg-blue-50/70 hover:bg-blue-100/80 text-blue-700 border border-blue-200/80 transition inline-flex items-center justify-center cursor-pointer"
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition inline-flex items-center justify-center cursor-pointer"
                           title="Edit Contact"
                         >
-                          <Edit className="w-3.5 h-3.5" />
+                          <Pencil className="w-3.5 h-3.5" />
                         </button>
+                        <span className="h-4 border-l border-slate-200 dark:border-slate-700/80 mx-0.5" aria-hidden="true" />
                         <button
                           type="button"
                           onClick={() => handleDeleteContact(ct.id!)}
-                          className="w-7 h-7 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 border border-transparent hover:border-rose-200 transition inline-flex items-center justify-center cursor-pointer"
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition inline-flex items-center justify-center cursor-pointer"
                           title="Delete Contact"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -1014,16 +1101,16 @@ export const ContactsDirectoryTable: React.FC<ContactsDirectoryTableProps> = ({
 
           {filteredContacts.length === 0 && (
             <tr>
-              <td colSpan={7} className="py-12 px-4 text-center">
+              <td colSpan={6} className="py-12 px-4 text-center">
                 {searchQuery.trim() ? (
                   <div className="max-w-md mx-auto space-y-2.5">
                     <div className="w-10 h-10 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center mx-auto">
                       <Search className="w-5 h-5" />
                     </div>
-                    <p className="text-sm font-bold text-slate-800">
+                    <p className="text-sm font-bold text-slate-800 dark:text-slate-100">
                       No contacts match &ldquo;{searchQuery.trim()}&rdquo;
                     </p>
-                    <p className="text-xs text-slate-500">
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
                       Try searching by another name, role, company, or phone number.
                     </p>
                     <div className="pt-1">
@@ -1042,10 +1129,10 @@ export const ContactsDirectoryTable: React.FC<ContactsDirectoryTableProps> = ({
                     <div className="w-11 h-11 rounded-2xl bg-indigo-50 text-indigo-600 border border-indigo-200/60 flex items-center justify-center mx-auto">
                       <Users2 className="w-5 h-5" />
                     </div>
-                    <p className="text-sm font-bold text-slate-800">
+                    <p className="text-sm font-bold text-slate-800 dark:text-slate-100">
                       No contacts registered in this workspace yet
                     </p>
-                    <p className="text-xs text-slate-500">
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
                       Add key decision makers, engineers, and procurement contacts linked to your corporate accounts.
                     </p>
                     {isEditable && (
@@ -1088,7 +1175,8 @@ export interface PhonesDirectoryTableProps {
 }
 
 /**
- * Standardized 2-line B2B SaaS Phone & Tel Directory Sub-Tab Table with sticky opaque header and table-fixed layout.
+ * Standardized 2-line B2B SaaS Phone & Tel Directory Sub-Tab Table with sticky opaque header,
+ * explicit 6-column colgroup, HoverScrollText, and exact colSpan=6 parity.
  */
 export const PhonesDirectoryTable: React.FC<PhonesDirectoryTableProps> = ({
   paginatedPhones,
@@ -1102,18 +1190,26 @@ export const PhonesDirectoryTable: React.FC<PhonesDirectoryTableProps> = ({
 }) => {
   return (
     <div className="w-full overflow-x-auto lg:overflow-x-visible scrollbar-thin relative bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl shadow-xs">
-      <table className="w-full min-w-[760px] lg:min-w-0 table-fixed text-left border-collapse text-xs font-sans">
-        <thead className="sticky top-0 z-10 bg-slate-50/95 dark:bg-slate-800/95 backdrop-blur-xs border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
+      <table className="w-full min-w-[920px] lg:min-w-0 lg:table-fixed text-left border-collapse text-xs font-sans">
+        <colgroup>
+          <col className="w-[168px]" />
+          <col className="w-[100px]" />
+          <col className="w-auto" />
+          <col className="w-[184px]" />
+          <col className="w-[136px]" />
+          <col className="w-[140px]" />
+        </colgroup>
+        <thead className="sticky top-0 z-10 bg-slate-50/95 dark:bg-slate-800/95 backdrop-blur-xs border-b border-slate-200 dark:border-slate-800 text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
           <tr>
-            <th className="py-3 px-3.5 w-[18%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Phone Number</th>
-            <th className="py-3 px-3.5 w-[12%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Type</th>
-            <th className="py-3 px-3.5 w-[26%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Associated Entity</th>
-            <th className="py-3 px-3.5 w-[20%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Role / Context</th>
-            <th className="py-3 px-3.5 w-[14%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Location</th>
-            <th className="py-3 px-3.5 w-[90px] text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">Quick Dial</th>
+            <th className="py-2.5 pl-4 pr-3 whitespace-nowrap">Phone Number</th>
+            <th className="py-2.5 px-3 whitespace-nowrap">Type</th>
+            <th className="py-2.5 px-3 whitespace-nowrap">Associated Entity</th>
+            <th className="py-2.5 px-3 whitespace-nowrap">Role / Context</th>
+            <th className="py-2.5 px-3 whitespace-nowrap">Location</th>
+            <th className="py-2.5 pl-3 pr-4 text-right whitespace-nowrap">Actions</th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-slate-200 dark:divide-slate-800 bg-white dark:bg-slate-900">
+        <tbody className="divide-y divide-slate-200/80 dark:divide-slate-800 bg-white dark:bg-slate-900">
           {paginatedPhones.map((p) => {
             const isRestricted = Boolean(p.restriction);
             const badgeText = p.restriction === 'DNC' ? 'DNC' : 'INVALID';
@@ -1127,16 +1223,21 @@ export const PhonesDirectoryTable: React.FC<PhonesDirectoryTableProps> = ({
                     setViewMode('companies');
                   }
                 }}
-                className="border-l-2 border-l-transparent hover:border-l-blue-500 hover:bg-slate-50/80 dark:hover:bg-slate-800/50 transition-colors group cursor-pointer"
+                className="hover:bg-slate-50/80 dark:hover:bg-slate-800/60 transition-colors group cursor-pointer"
               >
-                <td className="py-2.5 px-3.5 font-mono text-xs font-semibold text-slate-900 dark:text-slate-100 align-middle overflow-hidden">
+                {/* 1. PHONE NUMBER */}
+                <td className="py-2.5 pl-4 pr-3 font-mono text-xs font-semibold text-slate-900 dark:text-slate-100 align-middle overflow-hidden">
                   <div className="flex items-center gap-1.5 min-w-0">
                     {isRestricted ? (
-                      <span className="line-through text-slate-400 cursor-not-allowed truncate" title={`Restricted line (${badgeText})`}>
-                        {p.number}
-                      </span>
+                      <HoverScrollText
+                        text={p.number}
+                        className="line-through text-slate-400 font-mono text-xs"
+                      />
                     ) : (
-                      <span className="truncate" title={p.number}>{p.number}</span>
+                      <HoverScrollText
+                        text={p.number}
+                        className="font-mono text-xs font-semibold text-slate-900 dark:text-slate-100"
+                      />
                     )}
                     {isRestricted && (
                       <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide border shrink-0 leading-none ${
@@ -1149,54 +1250,97 @@ export const PhonesDirectoryTable: React.FC<PhonesDirectoryTableProps> = ({
                     )}
                   </div>
                 </td>
-                <td className="py-2.5 px-3.5 align-middle overflow-hidden">
+
+                {/* 2. TYPE */}
+                <td className="py-2.5 px-3 align-middle overflow-hidden">
                   <span
                     className={`px-2 py-0.5 rounded-full text-[11px] font-medium border inline-block truncate max-w-full ${
                       p.type === 'Mobile'
-                        ? 'bg-blue-50 text-blue-700 border-blue-200'
+                        ? 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/50 dark:text-blue-300 dark:border-blue-800'
                         : p.type === 'Landline'
-                        ? 'bg-purple-50 text-purple-700 border-purple-200'
-                        : 'bg-slate-100 text-slate-700 border-slate-200'
+                        ? 'bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/50 dark:text-purple-300 dark:border-purple-800'
+                        : 'bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700'
                     }`}
+                    title={p.type}
                   >
-                    {p.type}
+                    {p.type === 'Company Switchboard' ? 'Mainline' : p.type}
                   </span>
                 </td>
-                <td className="py-2.5 px-3.5 font-semibold text-slate-900 dark:text-slate-100 truncate align-middle" title={p.entityName}>
-                  {p.entityName}
+
+                {/* 3. ASSOCIATED ENTITY (Flexible primary column) */}
+                <td className="py-2.5 px-3 align-middle overflow-hidden">
+                  <HoverScrollText
+                    text={p.entityName || '—'}
+                    className="text-sm font-semibold text-slate-900 dark:text-slate-100"
+                  />
                 </td>
-                <td className="py-2.5 px-3.5 text-slate-600 dark:text-slate-300 truncate align-middle" title={p.subText || ''}>
-                  {p.subText || <span className="text-slate-400 select-none">—</span>}
-                </td>
-                <td className="py-2.5 px-3.5 text-slate-500 dark:text-slate-400 truncate align-middle" title={p.location || ''}>
-                  {p.location || <span className="text-slate-400 select-none">—</span>}
-                </td>
-                <td className="py-2.5 px-3.5 w-[90px] text-right whitespace-nowrap align-middle" onClick={(e) => e.stopPropagation()}>
-                  {!isRestricted ? (
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleInitiate({
-                          companyId: p.companyId,
-                          companyName: p.subText,
-                          contactId: p.contactId,
-                          contactName: p.contactId ? p.entityName : undefined,
-                          targetType: p.contactId ? 'contact' : 'company_mainline',
-                          contactPhone: p.number,
-                          channel: 'Call',
-                          externalUrl: `tel:${p.number}`,
-                          e
-                        });
-                      }}
-                      className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-lg text-xs transition shadow-2xs cursor-pointer"
-                    >
-                      <PhoneCall className="w-3 h-3" />
-                      <span>Call</span>
-                    </button>
+
+                {/* 4. ROLE / CONTEXT */}
+                <td className="py-2.5 px-3 align-middle overflow-hidden">
+                  {p.subText ? (
+                    <HoverScrollText
+                      text={p.subText}
+                      className="text-xs text-slate-600 dark:text-slate-300"
+                    />
                   ) : (
-                    <span className="text-xs text-slate-400 font-sans italic">Disabled</span>
+                    <span className="text-slate-400 dark:text-slate-500 select-none">—</span>
                   )}
+                </td>
+
+                {/* 5. LOCATION */}
+                <td className="py-2.5 px-3 align-middle overflow-hidden">
+                  {p.location ? (
+                    <HoverScrollText
+                      text={p.location}
+                      className="text-xs text-slate-500 dark:text-slate-400"
+                    />
+                  ) : (
+                    <span className="text-slate-400 dark:text-slate-500 select-none">—</span>
+                  )}
+                </td>
+
+                {/* 6. ACTIONS (Right-aligned flush to pr-4) */}
+                <td className="py-2.5 pl-3 pr-4 text-right whitespace-nowrap align-middle" onClick={(e) => e.stopPropagation()}>
+                  <div className="flex w-full items-center justify-end gap-1.5">
+                    {!isRestricted ? (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleInitiate({
+                            companyId: p.companyId,
+                            companyName: p.subText,
+                            contactId: p.contactId,
+                            contactName: p.contactId ? p.entityName : undefined,
+                            targetType: p.contactId ? 'contact' : 'company_mainline',
+                            contactPhone: p.number,
+                            channel: 'Call',
+                            externalUrl: `tel:${p.number}`,
+                            e
+                          });
+                        }}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-lg text-xs transition shadow-2xs cursor-pointer"
+                      >
+                        <PhoneCall className="w-3 h-3" />
+                        <span>Call</span>
+                      </button>
+                    ) : (
+                      <span className="text-xs text-slate-400 font-sans italic px-1">Disabled</span>
+                    )}
+                    {p.companyId && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedCompanyId(p.companyId);
+                          setViewMode('companies');
+                        }}
+                        className="px-2 py-1 rounded-lg text-xs font-semibold bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 shadow-2xs transition inline-flex items-center justify-center cursor-pointer"
+                        title="Open Account"
+                      >
+                        Open
+                      </button>
+                    )}
+                  </div>
                 </td>
               </tr>
             );
@@ -1210,10 +1354,10 @@ export const PhonesDirectoryTable: React.FC<PhonesDirectoryTableProps> = ({
                     <div className="w-10 h-10 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center mx-auto">
                       <Search className="w-5 h-5" />
                     </div>
-                    <p className="text-sm font-bold text-slate-800">
+                    <p className="text-sm font-bold text-slate-800 dark:text-slate-100">
                       No phone numbers match &ldquo;{searchQuery.trim()}&rdquo;
                     </p>
-                    <p className="text-xs text-slate-500">
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
                       Try searching by another digits sequence, person name, or company.
                     </p>
                     <div className="pt-1">
@@ -1232,10 +1376,10 @@ export const PhonesDirectoryTable: React.FC<PhonesDirectoryTableProps> = ({
                     <div className="w-11 h-11 rounded-2xl bg-purple-50 text-purple-600 border border-purple-200/60 flex items-center justify-center mx-auto">
                       <Phone className="w-5 h-5" />
                     </div>
-                    <p className="text-sm font-bold text-slate-800">
+                    <p className="text-sm font-bold text-slate-800 dark:text-slate-100">
                       No phone numbers indexed yet
                     </p>
-                    <p className="text-xs text-slate-500">
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
                       Add phone numbers to your companies or contacts to populate the quick-dial directory.
                     </p>
                   </div>

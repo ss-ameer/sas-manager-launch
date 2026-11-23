@@ -12,7 +12,6 @@ import CallLogDetailModal from './CallLogDetailModal';
 import CompanyDetailView from './CompanyDetailView';
 import TemperatureBadge from './TemperatureBadge';
 import GoogleSearchButton from './common/GoogleSearchButton';
-import SearchResultCounter from './common/SearchResultCounter';
 import { PARENT_INDUSTRIES, getDistinctRawBusinessTypes, IndustryBadge, formatSubTypeName } from '../utils/taxonomy';
 import {
   evaluateCompanySearch,
@@ -20,6 +19,8 @@ import {
   CompanySearchMatchHint,
   UnassignedIndustryPill,
   CompaniesDirectoryTable,
+  ContactsDirectoryTable,
+  PhonesDirectoryTable,
   SearchMatchHint,
   CompanySearchMatchResult
 } from './CompaniesRegistry';
@@ -79,7 +80,8 @@ import {
   Eye,
   RotateCcw,
   CheckSquare,
-  CheckCircle2
+  CheckCircle2,
+  SlidersHorizontal
 } from 'lucide-react';
 import { isRecordOwner, canUserClickRecord, getSalespersonFullName, getUserWorkspaceRole, canDeleteRecords, isAdmin } from '../utils/permissions';
 import { computeCanonicalName, generateCompanySearchTerms, sanitizeWhatsAppNumber, getWhatsAppUrl } from '../utils/defaults';
@@ -401,10 +403,17 @@ export default function CompanyModal({
         setIsExportDropdownOpen(false);
       }
     }
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setIsExportDropdownOpen(false);
+      }
+    }
     if (isExportDropdownOpen) {
       document.addEventListener('mousedown', handleClickOutside);
+      document.addEventListener('keydown', handleKeyDown);
       return () => {
         document.removeEventListener('mousedown', handleClickOutside);
+        document.removeEventListener('keydown', handleKeyDown);
       };
     }
   }, [isExportDropdownOpen]);
@@ -1891,29 +1900,6 @@ export default function CompanyModal({
     return (companies || []).filter((c) => !c.is_deleted).length;
   }, [companies]);
 
-  const activeCompanyFilterLabels = useMemo(() => {
-    const labels: string[] = [];
-    if (industryFilter !== 'ALL') {
-      const ind = liveTaxonomySectors.find((s) => s.id === industryFilter);
-      labels.push(`Industry: ${ind?.label || ind?.name || industryFilter}`);
-    }
-    if (relationshipFilter !== 'ALL') {
-      labels.push(`Relationship: ${relationshipFilter}`);
-    }
-    if (temperatureFilter !== 'ALL') {
-      labels.push(`Temp: ${temperatureFilter}`);
-    }
-    if (outreachCadenceFilter !== 'ALL') {
-      const cadenceMap: Record<string, string> = {
-        never: 'Never Contacted',
-        stale: 'Needs Follow-Up (>14d)',
-        recent: 'Recently Active (≤14d)'
-      };
-      labels.push(`Cadence: ${cadenceMap[outreachCadenceFilter] || outreachCadenceFilter}`);
-    }
-    return labels;
-  }, [industryFilter, relationshipFilter, temperatureFilter, outreachCadenceFilter, liveTaxonomySectors]);
-
   const handleClearCompanyFilters = () => {
     setSearchQuery('');
     setIndustryFilter('ALL');
@@ -1984,6 +1970,65 @@ export default function CompanyModal({
       .filter((a) => a.length > 0 && a.toLowerCase() !== canonical.toLowerCase());
   };
 
+  const hasActiveCompanyFilters = Boolean(
+    searchQuery.trim() ||
+    industryFilter !== 'ALL' ||
+    relationshipFilter !== 'ALL' ||
+    temperatureFilter !== 'ALL' ||
+    outreachCadenceFilter !== 'ALL'
+  );
+
+  const hasActiveTabFilters =
+    viewMode === 'companies'
+      ? hasActiveCompanyFilters
+      : Boolean(searchQuery.trim());
+
+  const activeCompanyChips = useMemo(() => {
+    const chips: Array<{ id: string; label: string; onRemove: () => void }> = [];
+    if (searchQuery.trim()) {
+      chips.push({
+        id: 'search',
+        label: `Search: "${searchQuery.trim()}"`,
+        onRemove: () => setSearchQuery('')
+      });
+    }
+    if (industryFilter !== 'ALL') {
+      const ind = liveTaxonomySectors.find((s) => s.id === industryFilter);
+      chips.push({
+        id: 'industry',
+        label: `Industry: ${ind?.label || ind?.name || industryFilter}`,
+        onRemove: () => setIndustryFilter('ALL')
+      });
+    }
+    if (relationshipFilter !== 'ALL') {
+      chips.push({
+        id: 'relationship',
+        label: `Relationship: ${relationshipFilter}`,
+        onRemove: () => setRelationshipFilter('ALL')
+      });
+    }
+    if (temperatureFilter !== 'ALL') {
+      chips.push({
+        id: 'temperature',
+        label: `Temp: ${temperatureFilter}`,
+        onRemove: () => setTemperatureFilter('ALL')
+      });
+    }
+    if (outreachCadenceFilter !== 'ALL') {
+      const cadenceMap: Record<string, string> = {
+        never: 'Never Contacted',
+        stale: 'Needs Follow-Up (>14d)',
+        recent: 'Recently Active (≤14d)'
+      };
+      chips.push({
+        id: 'cadence',
+        label: `Cadence: ${cadenceMap[outreachCadenceFilter] || outreachCadenceFilter}`,
+        onRemove: () => setOutreachCadenceFilter('ALL')
+      });
+    }
+    return chips;
+  }, [searchQuery, industryFilter, relationshipFilter, temperatureFilter, outreachCadenceFilter, liveTaxonomySectors]);
+
   return (
     <>
       <PageHeader
@@ -1993,354 +2038,473 @@ export default function CompanyModal({
         badge={{ text: `${companies.length} Companies`, variant: 'blue' }}
         currentUser={user}
         onOpenSidebar={onOpenMobileMenu}
-        primaryAction={{
-          label: 'Add Company',
-          icon: Plus,
-          onClick: handleOpenAddCompany
-        }}
+        secondaryActions={
+          viewMode === 'contacts'
+            ? [
+                {
+                  label: isContactMarkingMode
+                    ? selectedContactIds.length > 0
+                      ? `Done (${selectedContactIds.length})`
+                      : 'Done'
+                    : 'Select',
+                  icon: CheckSquare,
+                  active: isContactMarkingMode,
+                  title: 'Toggle row selection for bulk contact operations',
+                  onClick: () => {
+                    const next = !isContactMarkingMode;
+                    setIsContactMarkingMode(next);
+                    if (!next) setSelectedContactIds([]);
+                  }
+                }
+              ]
+            : undefined
+        }
+        beforePrimaryActions={
+          <div className="relative" ref={exportDropdownRef}>
+            <button
+              type="button"
+              onClick={() => setIsExportDropdownOpen((prev) => !prev)}
+              className={`h-9 px-3 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border font-semibold text-xs rounded-xl transition duration-150 flex items-center gap-1.5 shadow-2xs cursor-pointer ${
+                isExportDropdownOpen
+                  ? 'border-blue-400 ring-2 ring-blue-500/15'
+                  : 'border-slate-200 dark:border-slate-700'
+              }`}
+              title="Directory export and print tools"
+            >
+              <SlidersHorizontal className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
+              <span>Tools</span>
+              <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform ${isExportDropdownOpen ? 'rotate-180' : ''}`} />
+            </button>
+
+            {isExportDropdownOpen && (
+              <div className="absolute right-0 mt-1.5 w-56 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl py-1.5 z-40 animate-in fade-in zoom-in-95 duration-100">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsExportDropdownOpen(false);
+                    setShowExportModal(true);
+                  }}
+                  className="w-full px-3.5 py-2 text-left text-xs text-slate-700 dark:text-slate-200 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 flex items-center space-x-2.5 transition cursor-pointer"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                  <div>
+                    <div className="font-semibold">Export Hub</div>
+                    <div className="text-[10px] text-slate-500 dark:text-slate-400">Custom fields, PDF &amp; CSV</div>
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsExportDropdownOpen(false);
+                    handleExportDirectoryCSV();
+                  }}
+                  className="w-full px-3.5 py-2 text-left text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center space-x-2.5 transition cursor-pointer"
+                >
+                  <FileText className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                  <div>
+                    <div className="font-semibold">Quick CSV Export</div>
+                    <div className="text-[10px] text-slate-500 dark:text-slate-400">Download current directory</div>
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsExportDropdownOpen(false);
+                    handlePrintDirectoryPDF();
+                  }}
+                  className="w-full px-3.5 py-2 text-left text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center space-x-2.5 transition cursor-pointer"
+                >
+                  <Printer className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                  <div>
+                    <div className="font-semibold">Print / Save PDF</div>
+                    <div className="text-[10px] text-slate-500 dark:text-slate-400">Print-ready PDF report</div>
+                  </div>
+                </button>
+              </div>
+            )}
+          </div>
+        }
+        primaryAction={
+          viewMode === 'contacts' && isEditable
+            ? {
+                label: 'Add Contact',
+                icon: Plus,
+                onClick: () => {
+                  setContactToEdit(null);
+                  setSelectedCompanyForContact(selectedCompanyId || '');
+                  setContactModalOpen(true);
+                }
+              }
+            : {
+                label: 'Add Company',
+                icon: Plus,
+                onClick: handleOpenAddCompany
+              }
+        }
       />
 
-      <PageBody>
-      {/* Top 4-Card KPI Summary Strip */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <PageBody className="!py-4 sm:!py-5 !space-y-3.5">
+      {/* Compact 4-Card KPI Summary Strip */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <KpiStatCard
+          compact
           label="Total Companies"
           value={companies.length}
           subtext="Corporate accounts in directory"
-          icon={<Building2 className="w-5 h-5" />}
+          icon={<Building2 className="w-4 h-4" />}
           tone="blue"
           onClick={() => setViewMode('companies')}
           active={viewMode === 'companies'}
         />
 
         <KpiStatCard
+          compact
           label="Active Client Accounts"
           value={companies.filter((c) => c.relationship === 'Client' || enquiries.some((e) => e.company_id === c.id)).length}
           subtext="Accounts with active enquiries"
-          icon={<CheckCircle2 className="w-5 h-5" />}
+          icon={<CheckCircle2 className="w-4 h-4" />}
           tone="emerald"
         />
 
         <KpiStatCard
+          compact
           label="Registered Contacts"
           value={contacts.length}
           subtext="Key personnel & decision makers"
-          icon={<Users2 className="w-5 h-5" />}
+          icon={<Users2 className="w-4 h-4" />}
           tone="indigo"
           onClick={() => setViewMode('contacts')}
           active={viewMode === 'contacts'}
         />
 
         <KpiStatCard
+          compact
           label="Direct Phone Lines"
           value={allPhoneEntries.length}
           subtext="Indexed numbers across directory"
-          icon={<Phone className="w-5 h-5" />}
+          icon={<Phone className="w-4 h-4" />}
           tone="purple"
           onClick={() => setViewMode('phones')}
           active={viewMode === 'phones'}
         />
       </div>
 
-      {/* Top View Switcher & Right-Side View/Action Controls */}
-      <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-2.5 rounded-2xl border border-slate-200/80 shadow-xs">
-        <div className="flex items-center space-x-2 flex-wrap gap-y-2">
-          <button
-            type="button"
-            onClick={() => setViewMode('companies')}
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center space-x-2 cursor-pointer ${
-              viewMode === 'companies'
-                ? 'bg-slate-900 text-white shadow-xs'
-                : 'bg-slate-50 text-slate-700 hover:bg-slate-100 border border-slate-200'
-            }`}
-          >
-            <Building2 className="w-4 h-4" />
-            <span>Companies Registry ({companies.length})</span>
-          </button>
+      {/* Unified 2-Row White Toolbar Card */}
+      <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-3 shadow-2xs space-y-2.5">
+        {/* Row 1: Directory Mode Pills + Right-Aligned View Style Toggle */}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <button
+              type="button"
+              onClick={() => setViewMode('companies')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition inline-flex items-center gap-1.5 cursor-pointer ${
+                viewMode === 'companies'
+                  ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-2xs'
+                  : 'bg-slate-50 dark:bg-slate-800/70 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200/80 dark:border-slate-700/80'
+              }`}
+            >
+              <Building2 className="w-3.5 h-3.5" />
+              <span>Companies Registry</span>
+              <span className={`px-1.5 py-0.2 rounded-md text-[10px] font-mono ${
+                viewMode === 'companies'
+                  ? 'bg-white/20 text-white dark:bg-slate-900/15 dark:text-slate-900'
+                  : 'bg-slate-200/80 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
+              }`}>
+                {companies.length}
+              </span>
+            </button>
 
-          <button
-            type="button"
-            onClick={() => setViewMode('contacts')}
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center space-x-2 cursor-pointer ${
-              viewMode === 'contacts'
-                ? 'bg-slate-900 text-white shadow-xs'
-                : 'bg-slate-50 text-slate-700 hover:bg-slate-100 border border-slate-200'
-            }`}
-          >
-            <Users2 className="w-4 h-4" />
-            <span>People & Contacts ({contacts.length})</span>
-          </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('contacts')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition inline-flex items-center gap-1.5 cursor-pointer ${
+                viewMode === 'contacts'
+                  ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-2xs'
+                  : 'bg-slate-50 dark:bg-slate-800/70 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200/80 dark:border-slate-700/80'
+              }`}
+            >
+              <Users2 className="w-3.5 h-3.5" />
+              <span>People &amp; Contacts</span>
+              <span className={`px-1.5 py-0.2 rounded-md text-[10px] font-mono ${
+                viewMode === 'contacts'
+                  ? 'bg-white/20 text-white dark:bg-slate-900/15 dark:text-slate-900'
+                  : 'bg-slate-200/80 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
+              }`}>
+                {contacts.length}
+              </span>
+            </button>
 
-          <button
-            type="button"
-            onClick={() => setViewMode('phones')}
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center space-x-2 cursor-pointer ${
-              viewMode === 'phones'
-                ? 'bg-slate-900 text-white shadow-xs'
-                : 'bg-slate-50 text-slate-700 hover:bg-slate-100 border border-slate-200'
-            }`}
-          >
-            <Phone className="w-4 h-4" />
-            <span>Phone & Tel Directory ({allPhoneEntries.length})</span>
-          </button>
-        </div>
+            <button
+              type="button"
+              onClick={() => setViewMode('phones')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition inline-flex items-center gap-1.5 cursor-pointer ${
+                viewMode === 'phones'
+                  ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-2xs'
+                  : 'bg-slate-50 dark:bg-slate-800/70 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200/80 dark:border-slate-700/80'
+              }`}
+            >
+              <Phone className="w-3.5 h-3.5" />
+              <span>Phone &amp; Tel Directory</span>
+              <span className={`px-1.5 py-0.2 rounded-md text-[10px] font-mono ${
+                viewMode === 'phones'
+                  ? 'bg-white/20 text-white dark:bg-slate-900/15 dark:text-slate-900'
+                  : 'bg-slate-200/80 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
+              }`}>
+                {allPhoneEntries.length}
+              </span>
+            </button>
+          </div>
 
-        {/* Right-side view/action controls */}
-        <div className="flex items-center space-x-2 flex-wrap gap-y-2">
           {viewMode === 'companies' && (
-            <>
-              <div className="flex items-center space-x-1 bg-slate-100 p-1 rounded-xl border border-slate-200/80">
-                <button
-                  type="button"
-                  onClick={() => setCompanyViewStyle('table')}
-                  className={`px-3 py-1.5 text-xs font-semibold rounded-lg flex items-center space-x-1.5 transition cursor-pointer ${
-                    companyViewStyle === 'table'
-                      ? 'bg-white text-slate-900 shadow-xs'
-                      : 'text-slate-500 hover:text-slate-800'
-                  }`}
-                >
-                  <List className="w-3.5 h-3.5" />
-                  <span>Table</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCompanyViewStyle('cards')}
-                  className={`px-3 py-1.5 text-xs font-semibold rounded-lg flex items-center space-x-1.5 transition cursor-pointer ${
-                    companyViewStyle === 'cards'
-                      ? 'bg-white text-slate-900 shadow-xs'
-                      : 'text-slate-500 hover:text-slate-800'
-                  }`}
-                >
-                  <LayoutGrid className="w-3.5 h-3.5" />
-                  <span>Cards</span>
-                </button>
-              </div>
-
-              <div className="relative" ref={exportDropdownRef}>
-                <button
-                  type="button"
-                  onClick={() => setIsExportDropdownOpen((prev) => !prev)}
-                  className="py-2 px-3.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 font-semibold text-xs rounded-xl transition duration-150 flex items-center space-x-1.5 shadow-2xs cursor-pointer"
-                  title="Export company directory in PDF or CSV format"
-                >
-                  <Download className="w-3.5 h-3.5 text-slate-500" />
-                  <span>Export CSV</span>
-                  <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform ${isExportDropdownOpen ? 'rotate-180' : ''}`} />
-                </button>
-
-                {isExportDropdownOpen && (
-                  <div className="absolute right-0 mt-1.5 w-56 bg-white border border-slate-200 rounded-xl shadow-xl py-1.5 z-30 animate-in fade-in zoom-in-95 duration-100">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsExportDropdownOpen(false);
-                        setShowExportModal(true);
-                      }}
-                      className="w-full px-3.5 py-2 text-left text-xs text-slate-700 hover:bg-blue-50 hover:text-blue-600 flex items-center space-x-2 transition cursor-pointer"
-                    >
-                      <Sparkles className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-                      <div>
-                        <div className="font-semibold">Export Hub</div>
-                        <div className="text-[10px] text-slate-500">Custom fields, PDF & CSV</div>
-                      </div>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsExportDropdownOpen(false);
-                        handleExportDirectoryCSV();
-                      }}
-                      className="w-full px-3.5 py-2 text-left text-xs text-slate-700 hover:bg-slate-100 flex items-center space-x-2 transition cursor-pointer"
-                    >
-                      <FileText className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                      <div>
-                        <div className="font-semibold">Quick CSV Export</div>
-                        <div className="text-[10px] text-slate-500">Download current directory</div>
-                      </div>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsExportDropdownOpen(false);
-                        handlePrintDirectoryPDF();
-                      }}
-                      className="w-full px-3.5 py-2 text-left text-xs text-slate-700 hover:bg-slate-100 flex items-center space-x-2 transition cursor-pointer"
-                    >
-                      <Printer className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                      <div>
-                        <div className="font-semibold">Print / Save PDF</div>
-                        <div className="text-[10px] text-slate-500">Print-ready PDF report</div>
-                      </div>
-                    </button>
-                  </div>
-                )}
-              </div>
-            </>
+            <div className="flex items-center gap-0.5 bg-slate-100 dark:bg-slate-800 p-0.5 rounded-xl border border-slate-200/80 dark:border-slate-700">
+              <button
+                type="button"
+                onClick={() => setCompanyViewStyle('table')}
+                className={`px-2.5 py-1 text-xs font-semibold rounded-lg inline-flex items-center gap-1.5 transition cursor-pointer ${
+                  companyViewStyle === 'table'
+                    ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs'
+                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+                }`}
+              >
+                <List className="w-3.5 h-3.5" />
+                <span>Table</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setCompanyViewStyle('cards')}
+                className={`px-2.5 py-1 text-xs font-semibold rounded-lg inline-flex items-center gap-1.5 transition cursor-pointer ${
+                  companyViewStyle === 'cards'
+                    ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs'
+                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+                }`}
+              >
+                <LayoutGrid className="w-3.5 h-3.5" />
+                <span>Cards</span>
+              </button>
+            </div>
           )}
 
           {viewMode === 'contacts' && (
-            <>
-              <div className="flex items-center space-x-1 bg-slate-100 p-1 rounded-xl border border-slate-200/80">
-                <button
-                  type="button"
-                  onClick={() => setContactViewStyle('table')}
-                  title="Table View"
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center space-x-1.5 cursor-pointer ${
-                    contactViewStyle === 'table'
-                      ? 'bg-white text-slate-900 shadow-xs'
-                      : 'text-slate-500 hover:text-slate-800'
-                  }`}
-                >
-                  <Table className="w-3.5 h-3.5" />
-                  <span>Table</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setContactViewStyle('cards')}
-                  title="Card Grid View"
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center space-x-1.5 cursor-pointer ${
-                    contactViewStyle === 'cards'
-                      ? 'bg-white text-slate-900 shadow-xs'
-                      : 'text-slate-500 hover:text-slate-800'
-                  }`}
-                >
-                  <LayoutGrid className="w-3.5 h-3.5" />
-                  <span>Cards</span>
-                </button>
-              </div>
-
+            <div className="flex items-center gap-0.5 bg-slate-100 dark:bg-slate-800 p-0.5 rounded-xl border border-slate-200/80 dark:border-slate-700">
               <button
                 type="button"
-                onClick={() => {
-                  const next = !isContactMarkingMode;
-                  setIsContactMarkingMode(next);
-                  if (!next) setSelectedContactIds([]);
-                }}
-                title="Toggle marking checkboxes for bulk contact operations"
-                className={`px-3 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-1.5 border cursor-pointer ${
-                  isContactMarkingMode
-                    ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
-                    : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                onClick={() => setContactViewStyle('table')}
+                title="Table View"
+                className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition inline-flex items-center gap-1.5 cursor-pointer ${
+                  contactViewStyle === 'table'
+                    ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs'
+                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
                 }`}
               >
-                <CheckSquare className="w-3.5 h-3.5" />
-                <span>{isContactMarkingMode ? 'Done Selecting' : 'Select Rows'}</span>
-                {isContactMarkingMode && selectedContactIds.length > 0 && (
-                  <span className="ml-1 px-1.5 py-0.2 rounded-full bg-white text-blue-700 text-[10px] font-mono leading-none">
-                    {selectedContactIds.length}
-                  </span>
-                )}
+                <Table className="w-3.5 h-3.5" />
+                <span>Table</span>
               </button>
-
-              {isEditable && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setContactToEdit(null);
-                    setSelectedCompanyForContact(selectedCompanyId || '');
-                    setContactModalOpen(true);
-                  }}
-                  className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl text-xs transition shadow-2xs flex items-center space-x-1.5 shrink-0 cursor-pointer"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Add Contact</span>
-                </button>
-              )}
-            </>
+              <button
+                type="button"
+                onClick={() => setContactViewStyle('cards')}
+                title="Card Grid View"
+                className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition inline-flex items-center gap-1.5 cursor-pointer ${
+                  contactViewStyle === 'cards'
+                    ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs'
+                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+                }`}
+              >
+                <LayoutGrid className="w-3.5 h-3.5" />
+                <span>Cards</span>
+              </button>
+            </div>
           )}
         </div>
+
+        {/* Row 2: Single-Row Compact Search & Filter Bar (h-9) */}
+        {viewMode === 'companies' && (
+          <div className="flex flex-wrap lg:flex-nowrap items-center gap-2">
+            <div className="relative flex-[2] min-w-[220px]">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search companies by canonical name, city, aliases, numbers, emails..."
+                className="w-full h-9 pl-8 pr-8 rounded-xl bg-slate-50/70 focus:bg-white dark:bg-slate-800 dark:focus:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-800 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                  title="Clear search"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
+            <div className="relative flex-1 min-w-[140px] lg:w-[162px] lg:flex-none">
+              <select
+                value={industryFilter}
+                onChange={(e) => setIndustryFilter(e.target.value)}
+                className="w-full h-9 pl-3 pr-7 appearance-none rounded-xl bg-slate-50/70 focus:bg-white dark:bg-slate-800 dark:focus:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-200 cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition font-sans"
+              >
+                <option value="ALL">All Macro Industries</option>
+                {liveTaxonomySectors.map((pi) => (
+                  <option key={pi.id} value={pi.id}>
+                    {pi.icon} {pi.label || pi.name}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+            </div>
+
+            <div className="relative flex-1 min-w-[130px] lg:w-[144px] lg:flex-none">
+              <select
+                value={relationshipFilter}
+                onChange={(e) => setRelationshipFilter(e.target.value)}
+                className="w-full h-9 pl-3 pr-7 appearance-none rounded-xl bg-slate-50/70 focus:bg-white dark:bg-slate-800 dark:focus:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-200 cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition font-sans"
+              >
+                <option value="ALL">All Relationships</option>
+                {(companyRelationships || []).map((r) => (
+                  <option key={r.id} value={r.name}>{r.name}</option>
+                ))}
+              </select>
+              <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+            </div>
+
+            <div className="relative flex-1 min-w-[130px] lg:w-[144px] lg:flex-none">
+              <select
+                value={temperatureFilter}
+                onChange={(e) => setTemperatureFilter(e.target.value)}
+                className="w-full h-9 pl-3 pr-7 appearance-none rounded-xl bg-slate-50/70 focus:bg-white dark:bg-slate-800 dark:focus:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-200 cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition font-sans"
+              >
+                <option value="ALL">All Temperatures</option>
+                {(companyTemperatures || []).map((t) => (
+                  <option key={t.id} value={t.name}>{t.name}</option>
+                ))}
+              </select>
+              <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+            </div>
+
+            <div className="relative flex-1 min-w-[130px] lg:w-[144px] lg:flex-none">
+              <select
+                id="company-outreach-cadence-filter-select"
+                value={outreachCadenceFilter}
+                onChange={(e) => setOutreachCadenceFilter(e.target.value)}
+                className="w-full h-9 pl-3 pr-7 appearance-none rounded-xl bg-slate-50/70 focus:bg-white dark:bg-slate-800 dark:focus:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-200 cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition font-sans"
+                title="Filter companies by outreach cadence"
+              >
+                <option value="ALL">All Accounts</option>
+                <option value="never">Never Contacted</option>
+                <option value="stale">Needs Follow-Up (&gt;14d)</option>
+                <option value="recent">Recently Active (≤14d)</option>
+              </select>
+              <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+            </div>
+          </div>
+        )}
+
+        {viewMode === 'contacts' && (
+          <div className="relative w-full">
+            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <input
+              type="text"
+              placeholder="Filter by person name, role, company, email, phone..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full h-9 pl-8 pr-8 rounded-xl bg-slate-50/70 focus:bg-white dark:bg-slate-800 dark:focus:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-800 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                title="Clear search"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+        )}
+
+        {viewMode === 'phones' && (
+          <div className="relative w-full">
+            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <input
+              type="text"
+              placeholder="Search phone numbers, companies, people, locations..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full h-9 pl-8 pr-8 rounded-xl bg-slate-50/70 focus:bg-white dark:bg-slate-800 dark:focus:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-800 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                title="Clear search"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Active Filter Strip — Only renders when search or filters are active */}
+        {hasActiveTabFilters && (
+          <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 mr-1">
+                {viewMode === 'companies'
+                  ? `Showing ${filteredCompanies.length} of ${totalActiveCompanies} companies`
+                  : viewMode === 'contacts'
+                  ? `Showing ${filteredContacts.length} of ${allContactsWithCompany.length} contacts`
+                  : `Showing ${filteredPhones.length} of ${allPhoneEntries.length} numbers`}
+              </span>
+              {viewMode === 'companies' ? (
+                activeCompanyChips.map((chip) => (
+                  <span
+                    key={chip.id}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border border-blue-200/80 dark:border-blue-800/80 text-[11px] font-medium"
+                  >
+                    <span>{chip.label}</span>
+                    <button
+                      type="button"
+                      onClick={chip.onRemove}
+                      className="text-blue-500 hover:text-blue-800 dark:hover:text-blue-100 cursor-pointer"
+                      title={`Remove ${chip.label}`}
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                ))
+              ) : (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border border-blue-200/80 dark:border-blue-800/80 text-[11px] font-medium">
+                  <span>Search: &ldquo;{searchQuery.trim()}&rdquo;</span>
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery('')}
+                    className="text-blue-500 hover:text-blue-800 dark:hover:text-blue-100 cursor-pointer"
+                    title="Clear search"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={viewMode === 'companies' ? handleClearCompanyFilters : () => setSearchQuery('')}
+              className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 cursor-pointer"
+            >
+              <RotateCcw className="w-3 h-3" />
+              <span>Reset Filters</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* VIEW 1: COMPANIES REGISTRY */}
       {viewMode === 'companies' && (
-        <div id="companies-tab" className="flex flex-col gap-4 w-full">
-          {/* Standalone Filter Card */}
-          <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-4 shadow-xs space-y-3">
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-12 gap-3">
-              <div className="relative md:col-span-12 lg:col-span-4">
-                <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search companies by canonical name, city, aliases, numbers, emails..."
-                  className="w-full min-w-[260px] h-10 pl-9 pr-3.5 rounded-xl bg-slate-50/70 focus:bg-white dark:bg-slate-800 dark:focus:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-800 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
-                />
-              </div>
-
-              <div className="relative md:col-span-6 lg:col-span-2">
-                <select
-                  value={industryFilter}
-                  onChange={(e) => setIndustryFilter(e.target.value)}
-                  className="w-full h-10 pl-3 pr-8 appearance-none rounded-xl bg-slate-50/70 focus:bg-white border border-slate-200 text-xs font-medium text-slate-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition font-sans"
-                >
-                  <option value="ALL">All Macro Industries</option>
-                  {liveTaxonomySectors.map((pi) => (
-                    <option key={pi.id} value={pi.id}>
-                      {pi.icon} {pi.label || pi.name}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-              </div>
-              
-              <div className="relative md:col-span-6 lg:col-span-2">
-                <select
-                  value={relationshipFilter}
-                  onChange={(e) => setRelationshipFilter(e.target.value)}
-                  className="w-full h-10 pl-3 pr-8 appearance-none rounded-xl bg-slate-50/70 focus:bg-white border border-slate-200 text-xs font-medium text-slate-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition font-sans"
-                >
-                  <option value="ALL">All Relationships</option>
-                  {(companyRelationships || []).map((r) => (
-                    <option key={r.id} value={r.name}>{r.name}</option>
-                  ))}
-                </select>
-                <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-              </div>
-              
-              <div className="relative md:col-span-6 lg:col-span-2">
-                <select
-                  value={temperatureFilter}
-                  onChange={(e) => setTemperatureFilter(e.target.value)}
-                  className="w-full h-10 pl-3 pr-8 appearance-none rounded-xl bg-slate-50/70 focus:bg-white border border-slate-200 text-xs font-medium text-slate-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition font-sans"
-                >
-                  <option value="ALL">All Temperatures</option>
-                  {(companyTemperatures || []).map((t) => (
-                    <option key={t.id} value={t.name}>{t.name}</option>
-                  ))}
-                </select>
-                <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-              </div>
-
-              <div className="relative md:col-span-6 lg:col-span-2">
-                <select
-                  id="company-outreach-cadence-filter-select"
-                  value={outreachCadenceFilter}
-                  onChange={(e) => setOutreachCadenceFilter(e.target.value)}
-                  className="w-full h-10 pl-3 pr-8 appearance-none rounded-xl bg-slate-50/70 focus:bg-white border border-slate-200 text-xs font-medium text-slate-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition font-sans"
-                  title="Filter companies by outreach cadence"
-                >
-                  <option value="ALL">All Accounts</option>
-                  <option value="never">Never Contacted</option>
-                  <option value="stale">Needs Follow-Up / Stale (&gt;14 Days)</option>
-                  <option value="recent">Recently Active (≤14 Days)</option>
-                </select>
-                <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-              </div>
-            </div>
-
-            {/* Standard Search Result Counter & Filter Status Banner */}
-            <SearchResultCounter
-              totalCount={totalActiveCompanies}
-              filteredCount={filteredCompanies.length}
-              searchQuery={searchQuery}
-              entityLabel="Companies"
-              singularEntityLabel="Company"
-              onClear={handleClearCompanyFilters}
-              activeFilterLabels={activeCompanyFilterLabels}
-            />
-          </div>
-
+        <div id="companies-tab" className="flex flex-col gap-3.5 w-full">
           {filteredCompanies.length > 0 ? (
             <>
               {companyViewStyle === 'table' ? (
@@ -2356,6 +2520,10 @@ export default function CompanyModal({
                   searchEvaluationMap={searchEvaluationMap}
                   companyOutreachMap={companyOutreachMap}
                   handleInitiate={handleInitiate}
+                  isEditable={isEditable}
+                  canDelete={canDeleteCompanyRecord}
+                  onEditCompany={handleOpenEditCompany}
+                  onDeleteCompany={deleteCompany}
                   paginationFooter={
                     <DirectoryPaginationBar
                       currentPage={currentPage}
@@ -2407,16 +2575,16 @@ export default function CompanyModal({
               )}
               </>
             ) : (
-                <div className="py-12 px-4 text-center bg-white border border-slate-200/80 rounded-2xl shadow-xs font-sans">
-                  {(searchQuery || industryFilter !== 'ALL' || relationshipFilter !== 'ALL' || temperatureFilter !== 'ALL' || outreachCadenceFilter !== 'ALL') ? (
+                <div className="py-12 px-4 text-center bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl shadow-xs font-sans">
+                  {hasActiveCompanyFilters ? (
                     <div className="max-w-md mx-auto space-y-2.5">
                       <div className="w-10 h-10 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center mx-auto">
                         <Search className="w-5 h-5" />
                       </div>
-                      <p className="text-sm font-bold text-slate-800">
+                      <p className="text-sm font-bold text-slate-800 dark:text-slate-100">
                         No companies match your active search or filters
                       </p>
-                      <p className="text-xs text-slate-500">
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
                         Try broadening your search keywords or resetting the directory filters.
                       </p>
                       <div className="pt-1">
@@ -2435,10 +2603,10 @@ export default function CompanyModal({
                       <div className="w-11 h-11 rounded-2xl bg-blue-50 text-blue-600 border border-blue-200/60 flex items-center justify-center mx-auto">
                         <Building2 className="w-5 h-5" />
                       </div>
-                      <p className="text-sm font-bold text-slate-800">
+                      <p className="text-sm font-bold text-slate-800 dark:text-slate-100">
                         No companies registered in this workspace yet
                       </p>
-                      <p className="text-xs text-slate-500">
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
                         Add your first client, prospect, or supplier company to start tracking contacts, enquiries, and purchase orders.
                       </p>
                       {isEditable && (
@@ -2462,30 +2630,7 @@ export default function CompanyModal({
 
       {/* VIEW 2: PEOPLE & CONTACTS DIRECTORY */}
       {viewMode === 'contacts' && (
-        <div className="flex flex-col gap-4 w-full">
-          {/* Standalone Filter Card */}
-          <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-4 shadow-xs space-y-3">
-            <div className="relative w-full">
-              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
-              <input
-                type="text"
-                placeholder="Filter by person name, role, company, email, phone..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full min-w-[260px] h-10 pl-10 pr-4 rounded-xl bg-slate-50/70 focus:bg-white dark:bg-slate-800 dark:focus:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-800 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
-              />
-            </div>
-
-            {/* Standard Search Result Counter for Contacts */}
-            <SearchResultCounter
-              totalCount={allContactsWithCompany.length}
-              filteredCount={filteredContacts.length}
-              searchQuery={searchQuery}
-              entityLabel="Contacts"
-              singularEntityLabel="Contact"
-              onClear={() => setSearchQuery('')}
-            />
-          </div>
+        <div className="flex flex-col gap-3.5 w-full">
 
           {/* Bulk Actions Toolbar for Contacts */}
           {isContactMarkingMode && selectedContactIds.length > 0 && (
@@ -2736,259 +2881,38 @@ export default function CompanyModal({
               )}
             </div>
           ) : (
-            <div className="w-full overflow-x-auto scrollbar-thin relative bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl shadow-xs">
-              <table className="w-full min-w-[760px] sm:min-w-[820px] text-left border-collapse text-xs font-sans">
-                <thead className="sticky top-0 z-20 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
-                  <tr>
-                    {isContactMarkingMode && (
-                      <th className="py-3 px-2 w-9 text-center bg-slate-50 dark:bg-slate-900">
-                        <input
-                          type="checkbox"
-                          checked={filteredContacts.length > 0 && filteredContacts.every((c) => c.id && selectedContactIds.includes(c.id))}
-                          onChange={handleSelectAllContacts}
-                          className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500 cursor-pointer"
-                          title="Select/Deselect All Filtered Contacts"
-                        />
-                      </th>
-                    )}
-                    <th className="py-3 px-3.5 w-[23%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Contact &amp; Role</th>
-                    <th className="py-3 px-3.5 w-[22%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Company &amp; Location</th>
-                    <th className="py-3 px-3.5 w-[14%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Mobile Phone</th>
-                    <th className="py-3 px-3.5 w-[12%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Landline</th>
-                    <th className="py-3 px-3.5 w-[18%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Email Address</th>
-                    <th className="py-3 px-3.5 w-[120px] text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200 dark:divide-slate-800 bg-white dark:bg-slate-900">
-                  {paginatedContacts.map((ct) => {
-                    const isContactSelected = Boolean(isContactMarkingMode && ct.id && selectedContactIds.includes(ct.id));
-                    return (
-                      <tr
-                        key={ct.id}
-                        onClick={() => setSelectedContactDetail(ct)}
-                        className={`border-l-2 transition-colors group cursor-pointer ${
-                          isContactSelected
-                            ? 'border-l-blue-600 bg-blue-50/50 dark:bg-blue-950/30'
-                            : 'border-l-transparent hover:border-l-blue-500 hover:bg-slate-50/80 dark:hover:bg-slate-800/50'
-                        }`}
-                      >
-                        {isContactMarkingMode && (
-                          <td className="py-2.5 px-2 text-center align-middle" onClick={(e) => e.stopPropagation()}>
-                            <input
-                              type="checkbox"
-                              checked={isContactSelected}
-                              onChange={() => ct.id && handleToggleSelectContact(ct.id)}
-                              className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500 cursor-pointer"
-                            />
-                          </td>
-                        )}
-                        <td className="py-2.5 px-3.5 align-middle overflow-hidden">
-                          <div className="flex items-center gap-1.5 min-w-0">
-                            <span className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate" title={ct.full_name}>
-                              {ct.full_name}
-                            </span>
-                            {ct.is_primary && (
-                              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950/50 dark:text-blue-300 dark:border-blue-800 shrink-0 leading-none">
-                                Primary
-                              </span>
-                            )}
-                            {ct.is_dnc && (
-                              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide bg-rose-50 text-rose-700 border border-rose-200 dark:bg-rose-950/50 dark:text-rose-300 dark:border-rose-800 shrink-0 leading-none">
-                                DNC
-                              </span>
-                            )}
-                          </div>
-                          <div className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5">
-                            {ct.designation || '—'}
-                          </div>
-                        </td>
-                        <td className="py-2.5 px-3.5 align-middle overflow-hidden">
-                          <div className="font-semibold text-slate-800 dark:text-slate-200 text-xs truncate" title={ct.companyName}>
-                            {ct.companyName}
-                          </div>
-                          <div className="text-[11px] text-slate-400 dark:text-slate-500 truncate mt-0.5 flex items-center gap-1">
-                            <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
-                            <span>{ct.location || 'UAE'}</span>
-                          </div>
-                        </td>
-                        <td className="py-2.5 px-3.5 align-middle overflow-hidden">
-                          {ct.mobile ? (
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                handleInitiate({
-                                  companyId: ct.company_id,
-                                  companyName: ct.companyName,
-                                  contactId: ct.id,
-                                  contactName: ct.full_name,
-                                  contact: ct,
-                                  targetType: 'contact',
-                                  contactPhone: ct.mobile,
-                                  channel: 'Call',
-                                  externalUrl: `tel:${ct.mobile}`,
-                                  e
-                                });
-                              }}
-                              className="font-mono text-xs text-blue-600 dark:text-blue-400 font-semibold hover:underline inline-flex items-center gap-1 max-w-full truncate cursor-pointer"
-                              title={ct.mobile}
-                            >
-                              <PhoneCall className="w-3 h-3 text-blue-500 shrink-0" />
-                              <span className="truncate">{ct.mobile}</span>
-                            </button>
-                          ) : (
-                            <span className="text-slate-400 dark:text-slate-500 text-xs select-none">—</span>
-                          )}
-                        </td>
-                        <td className="py-2.5 px-3.5 align-middle overflow-hidden">
-                          {ct.landline ? (
-                            <span className="font-mono text-slate-700 dark:text-slate-300 font-medium text-xs truncate block" title={ct.landline}>
-                              {ct.landline}
-                            </span>
-                          ) : (
-                            <span className="text-slate-400 dark:text-slate-500 text-xs select-none">—</span>
-                          )}
-                        </td>
-                        <td className="py-2.5 px-3.5 align-middle overflow-hidden">
-                          {ct.email ? (
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                handleInitiate({
-                                  companyId: ct.company_id,
-                                  companyName: ct.companyName,
-                                  contactId: ct.id,
-                                  contactName: ct.full_name,
-                                  contact: ct,
-                                  targetType: 'contact',
-                                  contactEmail: ct.email,
-                                  channel: 'Email',
-                                  externalUrl: `mailto:${ct.email}`,
-                                  e
-                                });
-                              }}
-                              className="text-slate-700 dark:text-slate-300 hover:text-blue-600 hover:underline font-mono text-[11px] cursor-pointer text-left truncate block max-w-full"
-                              title={ct.email}
-                            >
-                              {ct.email}
-                            </button>
-                          ) : (
-                            <span className="text-slate-400 dark:text-slate-500 text-xs select-none">—</span>
-                          )}
-                        </td>
-                        <td className="py-2.5 px-3.5 w-[120px] text-right whitespace-nowrap align-middle">
-                          <div className="inline-flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
-                            {ct.company_id && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setSelectedCompanyId(ct.company_id!);
-                                  setViewMode('companies');
-                                }}
-                                title="View Assigned Company"
-                                className="w-7 h-7 rounded-lg bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 shadow-2xs transition inline-flex items-center justify-center cursor-pointer"
-                              >
-                                <Building2 className="w-3.5 h-3.5" />
-                              </button>
-                            )}
-                            {isEditable && (
-                              <>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setContactToEdit(ct);
-                                    setContactModalOpen(true);
-                                  }}
-                                  className="w-7 h-7 rounded-lg bg-blue-50/70 hover:bg-blue-100/80 text-blue-700 border border-blue-200/80 transition inline-flex items-center justify-center cursor-pointer"
-                                  title="Edit Contact"
-                                >
-                                  <Edit className="w-3.5 h-3.5" />
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleDeleteContact(ct.id!)}
-                                  className="w-7 h-7 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 border border-transparent hover:border-rose-200 transition inline-flex items-center justify-center cursor-pointer"
-                                  title="Delete Contact"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
-                              </>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-
-                  {filteredContacts.length === 0 && (
-                    <tr>
-                      <td colSpan={7} className="py-12 px-4 text-center">
-                        {searchQuery.trim() ? (
-                          <div className="max-w-md mx-auto space-y-2.5">
-                            <div className="w-10 h-10 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center mx-auto">
-                              <Search className="w-5 h-5" />
-                            </div>
-                            <p className="text-sm font-bold text-slate-800">
-                              No contacts match "{searchQuery.trim()}"
-                            </p>
-                            <p className="text-xs text-slate-500">
-                              Try searching by another name, role, company, or phone number.
-                            </p>
-                            <div className="pt-1">
-                              <button
-                                type="button"
-                                onClick={() => setSearchQuery('')}
-                                className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200/80 transition cursor-pointer"
-                              >
-                                <RotateCcw className="w-3.5 h-3.5" />
-                                <span>Clear Search / Reset Filters</span>
-                              </button>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="max-w-md mx-auto space-y-2.5">
-                            <div className="w-11 h-11 rounded-2xl bg-indigo-50 text-indigo-600 border border-indigo-200/60 flex items-center justify-center mx-auto">
-                              <Users2 className="w-5 h-5" />
-                            </div>
-                            <p className="text-sm font-bold text-slate-800">
-                              No contacts registered in this workspace yet
-                            </p>
-                            <p className="text-xs text-slate-500">
-                              Add key decision makers, engineers, and procurement contacts linked to your corporate accounts.
-                            </p>
-                            {isEditable && (
-                              <div className="pt-1">
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setContactToEdit(null);
-                                    setSelectedCompanyForContact(selectedCompanyId || '');
-                                    setContactModalOpen(true);
-                                  }}
-                                  className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-xl bg-blue-600 text-white hover:bg-blue-700 shadow-2xs transition cursor-pointer"
-                                >
-                                  <Plus className="w-3.5 h-3.5" />
-                                  <span>Add First Contact</span>
-                                </button>
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-              {filteredContacts.length > 0 && (
-                <DirectoryPaginationBar
-                  currentPage={currentPage}
-                  pageSize={pageSize}
-                  totalItems={filteredContacts.length}
-                  itemLabel="contacts"
-                  onPageChange={setCurrentPage}
-                  onPageSizeChange={setPageSize}
-                />
-              )}
-            </div>
+            <ContactsDirectoryTable
+              paginatedContacts={paginatedContacts}
+              filteredContacts={filteredContacts}
+              isContactMarkingMode={isContactMarkingMode}
+              selectedContactIds={selectedContactIds}
+              handleSelectAllContacts={handleSelectAllContacts}
+              handleToggleSelectContact={handleToggleSelectContact}
+              setSelectedContactDetail={setSelectedContactDetail}
+              handleInitiate={handleInitiate}
+              setSelectedCompanyId={setSelectedCompanyId}
+              setViewMode={setViewMode}
+              isEditable={isEditable}
+              setContactToEdit={setContactToEdit}
+              setSelectedCompanyForContact={setSelectedCompanyForContact}
+              setContactModalOpen={setContactModalOpen}
+              handleDeleteContact={handleDeleteContact}
+              searchQuery={searchQuery}
+              setSearchQuery={setSearchQuery}
+              selectedCompanyId={selectedCompanyId}
+              paginationFooter={
+                filteredContacts.length > 0 ? (
+                  <DirectoryPaginationBar
+                    currentPage={currentPage}
+                    pageSize={pageSize}
+                    totalItems={filteredContacts.length}
+                    itemLabel="contacts"
+                    onPageChange={setCurrentPage}
+                    onPageSizeChange={setPageSize}
+                  />
+                ) : undefined
+              }
+            />
           )}
 
           {contactViewStyle === 'cards' && filteredContacts.length > 0 && (
@@ -3008,186 +2932,28 @@ export default function CompanyModal({
 
       {/* VIEW 3: TELECOM & PHONE NUMBER DIRECTORY */}
       {viewMode === 'phones' && (
-        <div className="flex flex-col gap-4 w-full">
-          {/* Standalone Filter Card */}
-          <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-4 shadow-xs space-y-3">
-            <div className="relative w-full">
-              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
-              <input
-                type="text"
-                placeholder="Search phone numbers, companies, people, locations..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full min-w-[260px] h-10 pl-10 pr-4 rounded-xl bg-slate-50/70 focus:bg-white dark:bg-slate-800 dark:focus:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-800 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
-              />
-            </div>
-
-            {/* Standard Search Result Counter for Phones */}
-            <SearchResultCounter
-              totalCount={allPhoneEntries.length}
-              filteredCount={filteredPhones.length}
-              searchQuery={searchQuery}
-              entityLabel="Phone Numbers"
-              singularEntityLabel="Phone Number"
-              onClear={() => setSearchQuery('')}
-            />
-          </div>
-
-          <div className="w-full overflow-x-auto scrollbar-thin relative bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl shadow-xs">
-            <table className="w-full min-w-[760px] sm:min-w-[820px] text-left border-collapse text-xs font-sans">
-              <thead className="sticky top-0 z-20 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
-                <tr>
-                  <th className="py-3 px-3.5 w-[18%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Phone Number</th>
-                  <th className="py-3 px-3.5 w-[12%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Type</th>
-                  <th className="py-3 px-3.5 w-[26%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Associated Entity</th>
-                  <th className="py-3 px-3.5 w-[20%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Role / Context</th>
-                  <th className="py-3 px-3.5 w-[14%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Location</th>
-                  <th className="py-3 px-3.5 w-[90px] text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">Quick Dial</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200 dark:divide-slate-800 bg-white dark:bg-slate-900">
-                {paginatedPhones.map((p) => {
-                  const isRestricted = Boolean(p.restriction);
-                  const badgeText = p.restriction === 'DNC' ? 'DNC' : 'INVALID';
-
-                  return (
-                    <tr
-                      key={p.id}
-                      onClick={() => {
-                        if (p.companyId) {
-                          setSelectedCompanyId(p.companyId);
-                          setViewMode('companies');
-                        }
-                      }}
-                      className="border-l-2 border-l-transparent hover:border-l-blue-500 hover:bg-slate-50/80 dark:hover:bg-slate-800/50 transition-colors group cursor-pointer"
-                    >
-                      <td className="py-2.5 px-3.5 font-mono text-xs font-semibold text-slate-900 dark:text-slate-100 align-middle overflow-hidden">
-                        <div className="flex items-center gap-1.5 min-w-0">
-                          {isRestricted ? (
-                            <span className="line-through text-slate-400 cursor-not-allowed truncate" title={`Restricted line (${badgeText})`}>
-                              {p.number}
-                            </span>
-                          ) : (
-                            <span className="truncate" title={p.number}>{p.number}</span>
-                          )}
-                          {isRestricted && (
-                            <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide border shrink-0 leading-none ${
-                              p.restriction === 'Invalid'
-                                ? 'bg-amber-50 text-amber-700 border-amber-200'
-                                : 'bg-rose-50 text-rose-700 border-rose-200'
-                            }`}>
-                              {badgeText}
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="py-2.5 px-3.5 align-middle overflow-hidden">
-                        <span
-                          className={`px-2 py-0.5 rounded-full text-[11px] font-medium border inline-block truncate max-w-full ${
-                            p.type === 'Mobile'
-                              ? 'bg-blue-50 text-blue-700 border-blue-200'
-                              : p.type === 'Landline'
-                              ? 'bg-purple-50 text-purple-700 border-purple-200'
-                              : 'bg-slate-100 text-slate-700 border-slate-200'
-                          }`}
-                        >
-                          {p.type}
-                        </span>
-                      </td>
-                      <td className="py-2.5 px-3.5 font-semibold text-slate-900 dark:text-slate-100 truncate align-middle" title={p.entityName}>
-                        {p.entityName}
-                      </td>
-                      <td className="py-2.5 px-3.5 text-slate-600 dark:text-slate-300 truncate align-middle" title={p.subText || ''}>
-                        {p.subText || <span className="text-slate-400 select-none">—</span>}
-                      </td>
-                      <td className="py-2.5 px-3.5 text-slate-500 dark:text-slate-400 truncate align-middle" title={p.location || ''}>
-                        {p.location || <span className="text-slate-400 select-none">—</span>}
-                      </td>
-                      <td className="py-2.5 px-3.5 w-[90px] text-right whitespace-nowrap align-middle" onClick={(e) => e.stopPropagation()}>
-                        {!isRestricted ? (
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleInitiate({
-                                companyId: p.companyId,
-                                companyName: p.subText,
-                                contactId: p.contactId,
-                                contactName: p.contactId ? p.entityName : undefined,
-                                targetType: p.contactId ? 'contact' : 'company_mainline',
-                                contactPhone: p.number,
-                                channel: 'Call',
-                                externalUrl: `tel:${p.number}`,
-                                e
-                              });
-                            }}
-                            className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-lg text-xs transition shadow-2xs cursor-pointer"
-                          >
-                            <PhoneCall className="w-3 h-3" />
-                            <span>Call</span>
-                          </button>
-                        ) : (
-                          <span className="text-xs text-slate-400 font-sans italic">Disabled</span>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-
-                {filteredPhones.length === 0 && (
-                  <tr>
-                    <td colSpan={6} className="py-12 px-4 text-center">
-                      {searchQuery.trim() ? (
-                        <div className="max-w-md mx-auto space-y-2.5">
-                          <div className="w-10 h-10 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center mx-auto">
-                            <Search className="w-5 h-5" />
-                          </div>
-                          <p className="text-sm font-bold text-slate-800">
-                            No phone numbers match "{searchQuery.trim()}"
-                          </p>
-                          <p className="text-xs text-slate-500">
-                            Try searching by another digits sequence, person name, or company.
-                          </p>
-                          <div className="pt-1">
-                            <button
-                              type="button"
-                              onClick={() => setSearchQuery('')}
-                              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200/80 transition cursor-pointer"
-                            >
-                              <RotateCcw className="w-3.5 h-3.5" />
-                              <span>Clear Search / Reset Filters</span>
-                            </button>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="max-w-md mx-auto space-y-2.5">
-                          <div className="w-11 h-11 rounded-2xl bg-purple-50 text-purple-600 border border-purple-200/60 flex items-center justify-center mx-auto">
-                            <Phone className="w-5 h-5" />
-                          </div>
-                          <p className="text-sm font-bold text-slate-800">
-                            No phone numbers indexed yet
-                          </p>
-                          <p className="text-xs text-slate-500">
-                            Add phone numbers to your companies or contacts to populate the quick-dial directory.
-                          </p>
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-            {filteredPhones.length > 0 && (
-              <DirectoryPaginationBar
-                currentPage={currentPage}
-                pageSize={pageSize}
-                totalItems={filteredPhones.length}
-                itemLabel="phone numbers"
-                onPageChange={setCurrentPage}
-                onPageSizeChange={setPageSize}
-              />
-            )}
-          </div>
+        <div className="flex flex-col gap-3.5 w-full">
+          <PhonesDirectoryTable
+            paginatedPhones={paginatedPhones}
+            filteredPhones={filteredPhones}
+            searchQuery={searchQuery}
+            setSearchQuery={setSearchQuery}
+            setSelectedCompanyId={setSelectedCompanyId}
+            setViewMode={setViewMode}
+            handleInitiate={handleInitiate}
+            paginationFooter={
+              filteredPhones.length > 0 ? (
+                <DirectoryPaginationBar
+                  currentPage={currentPage}
+                  pageSize={pageSize}
+                  totalItems={filteredPhones.length}
+                  itemLabel="phone numbers"
+                  onPageChange={setCurrentPage}
+                  onPageSizeChange={setPageSize}
+                />
+              ) : undefined
+            }
+          />
         </div>
       )}
 
