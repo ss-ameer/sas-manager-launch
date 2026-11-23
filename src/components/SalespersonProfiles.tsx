@@ -1132,17 +1132,6 @@ export default function SalespersonProfiles({
                 </button>
               );
             })}
-
-            {canManageTeam && (
-              <button
-                type="button"
-                onClick={openAddModal}
-                className="w-full min-h-[58px] px-4 rounded-xl border border-dashed border-slate-300 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-900/50 hover:bg-blue-50/50 dark:hover:bg-blue-950/30 hover:border-blue-300 dark:hover:border-blue-700 text-slate-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 text-xs font-semibold transition flex items-center justify-center gap-2 cursor-pointer whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50"
-              >
-                <Plus className="w-4 h-4 shrink-0" />
-                <span>Add Member</span>
-              </button>
-            )}
           </div>
 
           {/* 2. Full-Width Executive Performance Surface */}
@@ -1393,14 +1382,21 @@ export default function SalespersonProfiles({
                   {paginatedEnquiries.length > 0 ? (
                     <>
                       <div className="overflow-x-auto">
-                        <table className="table-fixed w-full text-left border-collapse min-w-[680px]">
+                        <table className="table-fixed w-full text-left border-collapse min-w-[700px]">
+                          <colgroup>
+                            <col style={{ width: '124px' }} />
+                            <col className="w-auto" />
+                            <col style={{ width: '216px' }} />
+                            <col style={{ width: '164px' }} />
+                            <col style={{ width: '72px' }} />
+                          </colgroup>
                           <thead className="bg-slate-50/90 dark:bg-slate-900/90 border-b border-slate-200 dark:border-slate-800">
                             <tr className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                              <th className="w-[15%] py-2.5 pl-5 pr-3 whitespace-nowrap">SN / Date</th>
-                              <th className="w-[37%] py-2.5 px-3 whitespace-nowrap">Client &amp; Project</th>
-                              <th className="w-[22%] py-2.5 px-3 whitespace-nowrap">Quote Ref &amp; Items</th>
-                              <th className="w-[18%] py-2.5 px-3 text-right whitespace-nowrap">Value &amp; Stage</th>
-                              <th className="w-[84px] py-2.5 pl-3 pr-5 text-right whitespace-nowrap">Action</th>
+                              <th className="py-2.5 pl-5 pr-3 whitespace-nowrap">SN / Date</th>
+                              <th className="py-2.5 px-3 whitespace-nowrap">Client &amp; Project</th>
+                              <th className="py-2.5 px-3 whitespace-nowrap">Quote Ref &amp; Items</th>
+                              <th className="py-2.5 px-3 text-right whitespace-nowrap">Value &amp; Stage</th>
+                              <th className="py-2.5 pl-2 pr-4 text-right whitespace-nowrap">Action</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-200/70 dark:divide-slate-800/70 text-xs">
@@ -1476,25 +1472,30 @@ export default function SalespersonProfiles({
                                   {/* Col 2: Client & Project */}
                                   <td className="py-3 px-3 align-middle">
                                     <div className="flex items-center gap-1.5 min-w-0">
-                                      <span className="font-semibold text-slate-900 dark:text-slate-100 truncate">
-                                        {companyMap.get(e.company_id) || e.company_name || 'Client Enquiry'}
-                                      </span>
+                                      <HoverScrollText
+                                        text={companyMap.get(e.company_id) || e.company_name || 'Client Enquiry'}
+                                        className="font-semibold text-slate-900 dark:text-slate-100"
+                                      />
                                       {showSharedBadge && (
-                                        <span className="text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 shrink-0">
+                                        <span className="text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 shrink-0 whitespace-nowrap">
                                           &middot; Shared
                                         </span>
                                       )}
                                     </div>
-                                    <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
-                                      {cleanDesc}
+                                    <div className="mt-0.5 min-w-0">
+                                      <HoverScrollText
+                                        text={cleanDesc}
+                                        className="text-[11px] text-slate-500 dark:text-slate-400"
+                                      />
                                     </div>
                                   </td>
 
                                   {/* Col 3: Quote Ref & Items */}
                                   <td className="py-3 px-3 align-middle">
-                                    <div className="font-mono font-semibold text-slate-800 dark:text-slate-200 truncate">
-                                      {e.quote_ref_no || `ENQ-${e.sn}`}
-                                    </div>
+                                    <HoverScrollText
+                                      text={e.quote_ref_no || `ENQ-${e.sn}`}
+                                      className="font-mono font-semibold text-slate-800 dark:text-slate-200"
+                                    />
                                     <div className="text-[11px] font-mono tabular-nums text-slate-500 dark:text-slate-400 truncate mt-0.5">
                                       {itemCount} {itemCount === 1 ? 'line item' : 'line items'}
                                     </div>
@@ -1529,7 +1530,7 @@ export default function SalespersonProfiles({
                                   </td>
 
                                   {/* Col 5: Action */}
-                                  <td className="py-3 pl-3 pr-5 align-middle text-right">
+                                  <td className="py-3 pl-2 pr-4 align-middle text-right">
                                     <div className="flex items-center justify-end">
                                       {canOpenEnquiryRow ? (
                                         <button

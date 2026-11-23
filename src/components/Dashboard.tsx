@@ -804,11 +804,11 @@ export default function Dashboard(props: DashboardProps) {
         </div>
       </PageHeader>
 
-      <PageBody>
+      <PageBody className="!py-4 sm:!py-5 !space-y-3.5">
         {/* TOP QUICK ACTIONS TOOLBAR & DOMAIN FILTER TABS */}
-        <div className="bg-white border border-slate-200/90 rounded-2xl p-3.5 shadow-2xs flex flex-col xl:flex-row xl:items-center justify-between gap-3">
+        <div className="bg-white border border-slate-200/90 rounded-2xl px-3.5 py-2.5 shadow-2xs flex flex-col xl:flex-row xl:items-center justify-between gap-2.5">
           {/* Domain Filter Tabs */}
-          <div className="flex flex-wrap items-center gap-1.5 overflow-x-visible">
+          <div className="flex flex-wrap items-center gap-1.5">
             {[
               { id: 'all', label: 'All Domains', icon: Layers },
               { id: 'sales', label: 'Commercial Sales', icon: Briefcase },
@@ -823,7 +823,7 @@ export default function Dashboard(props: DashboardProps) {
                   key={tab.id}
                   type="button"
                   onClick={() => setActiveDomainTab(tab.id as any)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+                  className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
                     isActive
                       ? 'bg-slate-900 text-white shadow-2xs'
                       : 'bg-slate-100/80 hover:bg-slate-200/70 text-slate-700'
@@ -837,8 +837,8 @@ export default function Dashboard(props: DashboardProps) {
           </div>
 
           {/* 1-Click Quick Actions Bar (Strictly obeying Guardrail #2: Zero Duplicate Icons) */}
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mr-1 hidden sm:inline">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mr-1 hidden sm:inline whitespace-nowrap shrink-0">
               Quick Launch:
             </span>
             <button
@@ -847,9 +847,9 @@ export default function Dashboard(props: DashboardProps) {
                 if (onAddEnquiry) onAddEnquiry();
                 else onNavigate?.('enquiries');
               }}
-              className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold inline-flex items-center gap-1.5 shadow-2xs transition cursor-pointer"
+              className="px-2.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 shadow-2xs transition cursor-pointer"
             >
-              <Plus className="w-3.5 h-3.5" />
+              <Plus className="w-3.5 h-3.5 shrink-0" />
               <span>New Enquiry</span>
             </button>
             <button
@@ -858,9 +858,9 @@ export default function Dashboard(props: DashboardProps) {
                 if (onLaunchProcurement) onLaunchProcurement({ action: 'create_po' });
                 else onNavigate?.('procurement');
               }}
-              className="px-3 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-bold inline-flex items-center gap-1.5 transition cursor-pointer"
+              className="px-2.5 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-bold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 transition cursor-pointer"
             >
-              <ShoppingCart className="w-3.5 h-3.5" />
+              <ShoppingCart className="w-3.5 h-3.5 shrink-0" />
               <span>Supplier PO</span>
             </button>
             <button
@@ -869,9 +869,9 @@ export default function Dashboard(props: DashboardProps) {
                 if (onLaunchProcurement) onLaunchProcurement({ action: 'receive_grn' });
                 else onNavigate?.('procurement');
               }}
-              className="px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-xs font-bold inline-flex items-center gap-1.5 transition cursor-pointer"
+              className="px-2.5 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-xs font-bold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 transition cursor-pointer"
             >
-              <PackageCheck className="w-3.5 h-3.5" />
+              <PackageCheck className="w-3.5 h-3.5 shrink-0" />
               <span>Receive GRN</span>
             </button>
             <button
@@ -880,9 +880,9 @@ export default function Dashboard(props: DashboardProps) {
                 if (onLaunchProcurement) onLaunchProcurement({ action: 'record_bill' });
                 else onNavigate?.('procurement');
               }}
-              className="px-3 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-xs font-bold inline-flex items-center gap-1.5 transition cursor-pointer"
+              className="px-2.5 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-xs font-bold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 transition cursor-pointer"
             >
-              <Receipt className="w-3.5 h-3.5" />
+              <Receipt className="w-3.5 h-3.5 shrink-0" />
               <span>Record Bill</span>
             </button>
             <button
@@ -891,16 +891,16 @@ export default function Dashboard(props: DashboardProps) {
                 if (onOpenActivityDrawer) onOpenActivityDrawer({ channel: 'Call' });
                 else onNavigate?.('call_center');
               }}
-              className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 text-xs font-bold inline-flex items-center gap-1.5 transition cursor-pointer"
+              className="px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 text-xs font-bold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 transition cursor-pointer"
             >
-              <Phone className="w-3.5 h-3.5" />
+              <Phone className="w-3.5 h-3.5 shrink-0" />
               <span>Log Call / Task</span>
             </button>
           </div>
         </div>
 
         {/* MODULAR 4-DOMAIN KPI DECK */}
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3.5">
           {/* DOMAIN 1: COMMERCIAL SALES */}
           {(activeDomainTab === 'all' || activeDomainTab === 'sales') && (
             <div
@@ -910,12 +910,15 @@ export default function Dashboard(props: DashboardProps) {
               }`}
             >
               <div>
-                <div className="flex items-center justify-between gap-2 mb-3">
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 border border-blue-200 text-[11px] font-bold uppercase tracking-wider">
-                    <Briefcase className="w-3.5 h-3.5" />
-                    <span>Commercial Sales</span>
+                <div className="flex items-center justify-between gap-1.5 mb-2.5 min-w-0">
+                  <span
+                    title="Commercial Sales"
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-blue-50 text-blue-700 border border-blue-200 text-[10.5px] font-bold uppercase tracking-wide whitespace-nowrap shrink-0 max-w-full"
+                  >
+                    <Briefcase className="w-3 h-3 shrink-0" />
+                    <span className="truncate">Commercial</span>
                   </span>
-                  <span className="text-[11px] font-mono font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
+                  <span className="text-[10.5px] font-mono font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full whitespace-nowrap shrink-0">
                     {winRate}% Win Ratio
                   </span>
                 </div>
@@ -952,17 +955,20 @@ export default function Dashboard(props: DashboardProps) {
               }`}
             >
               <div>
-                <div className="flex items-center justify-between gap-2 mb-3">
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-200 text-[11px] font-bold uppercase tracking-wider">
-                    <ShoppingCart className="w-3.5 h-3.5" />
-                    <span>Procurement & Payables</span>
+                <div className="flex items-center justify-between gap-1.5 mb-2.5 min-w-0">
+                  <span
+                    title="Procurement & Payables"
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-200 text-[10.5px] font-bold uppercase tracking-wide whitespace-nowrap shrink-0 max-w-full"
+                  >
+                    <ShoppingCart className="w-3 h-3 shrink-0" />
+                    <span className="truncate">Procurement</span>
                   </span>
                   {procurementStats.dueThisWeekBillsCount > 0 ? (
-                    <span className="text-[10.5px] font-mono font-bold text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
+                    <span className="text-[10.5px] font-mono font-bold text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full whitespace-nowrap shrink-0">
                       {procurementStats.dueThisWeekBillsCount} Due This Week
                     </span>
                   ) : (
-                    <span className="text-[10.5px] font-mono font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
+                    <span className="text-[10.5px] font-mono font-semibold text-slate-500 bg-slate-100 border border-slate-200/80 px-2 py-0.5 rounded-full whitespace-nowrap shrink-0">
                       {procurementStats.openPOsCount} Open POs
                     </span>
                   )}
@@ -1000,13 +1006,16 @@ export default function Dashboard(props: DashboardProps) {
               }`}
             >
               <div>
-                <div className="flex items-center justify-between gap-2 mb-3">
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11px] font-bold uppercase tracking-wider">
-                    <Boxes className="w-3.5 h-3.5" />
-                    <span>Inventory Health</span>
+                <div className="flex items-center justify-between gap-1.5 mb-2.5 min-w-0">
+                  <span
+                    title="Inventory Health"
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10.5px] font-bold uppercase tracking-wide whitespace-nowrap shrink-0 max-w-full"
+                  >
+                    <Boxes className="w-3 h-3 shrink-0" />
+                    <span className="truncate">Inventory</span>
                   </span>
                   <span
-                    className={`text-[10.5px] font-mono font-bold px-2 py-0.5 rounded-full border ${
+                    className={`text-[10.5px] font-mono font-bold px-2 py-0.5 rounded-full border whitespace-nowrap shrink-0 ${
                       inventoryStats.lowStockCount > 0
                         ? 'bg-rose-50 text-rose-700 border-rose-200'
                         : 'bg-emerald-50 text-emerald-700 border-emerald-200'
@@ -1052,13 +1061,16 @@ export default function Dashboard(props: DashboardProps) {
               }`}
             >
               <div>
-                <div className="flex items-center justify-between gap-2 mb-3">
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-50 text-amber-800 border border-amber-200 text-[11px] font-bold uppercase tracking-wider">
-                    <Truck className="w-3.5 h-3.5" />
-                    <span>Operations & Execution</span>
+                <div className="flex items-center justify-between gap-1.5 mb-2.5 min-w-0">
+                  <span
+                    title="Operations & Execution"
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-50 text-amber-800 border border-amber-200 text-[10.5px] font-bold uppercase tracking-wide whitespace-nowrap shrink-0 max-w-full"
+                  >
+                    <Truck className="w-3 h-3 shrink-0" />
+                    <span className="truncate">Operations</span>
                   </span>
                   <span
-                    className={`text-[10.5px] font-mono font-bold px-2 py-0.5 rounded-full border ${
+                    className={`text-[10.5px] font-mono font-bold px-2 py-0.5 rounded-full border whitespace-nowrap shrink-0 ${
                       operationsStats.overdueAndTodayCallsCount > 0
                         ? 'bg-rose-50 text-rose-700 border-rose-200'
                         : 'bg-slate-100 text-slate-600 border-slate-200'
@@ -1132,31 +1144,32 @@ export default function Dashboard(props: DashboardProps) {
         </div>
 
         {/* DUAL LIVE FEED PANELS: LEFT (COMMERCIAL & PIPELINE) + RIGHT (PROCUREMENT, INVENTORY & OPS) */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {/* LEFT PANEL: COMMERCIAL & PIPELINE LIVE FEED */}
           <div className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-2xs flex flex-col justify-between space-y-4">
             <div className="space-y-3">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
-                <div>
+              <div className="flex flex-col gap-2.5 border-b border-slate-100 pb-3">
+                <div className="min-w-0">
                   <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
-                    <Briefcase className="w-4 h-4 text-blue-600" />
-                    <span>Commercial & Pipeline Live Feed</span>
+                    <Briefcase className="w-4 h-4 text-blue-600 shrink-0" />
+                    <span className="truncate">Commercial &amp; Pipeline Live Feed</span>
                   </h2>
-                  <p className="text-xs text-slate-500">
-                    Click any enquiry row to open its full Commercial & Quotation detail view.
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Click any enquiry row to open its full Commercial &amp; Quotation detail view.
                   </p>
                 </div>
-                <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl self-start">
+                <div className="inline-flex items-center gap-1 bg-slate-100 p-1 rounded-xl self-start max-w-full overflow-x-auto">
                   {[
-                    { id: 'recent', label: 'Recent' },
-                    { id: 'high_value', label: 'High-Value' },
-                    { id: 'expiring', label: 'Expiring / Sent' }
+                    { id: 'recent', label: 'Recent', title: 'Most recent enquiries' },
+                    { id: 'high_value', label: 'High Value', title: 'Highest value enquiries' },
+                    { id: 'expiring', label: 'Expiring', title: 'Expiring / Sent quotations' }
                   ].map((tab) => (
                     <button
                       key={tab.id}
                       type="button"
+                      title={tab.title}
                       onClick={() => setCommercialFeedFilter(tab.id as any)}
-                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer ${
+                      className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold leading-none whitespace-nowrap shrink-0 transition cursor-pointer ${
                         commercialFeedFilter === tab.id
                           ? 'bg-white text-slate-900 shadow-2xs'
                           : 'text-slate-600 hover:text-slate-900'
@@ -1278,17 +1291,17 @@ export default function Dashboard(props: DashboardProps) {
           {/* RIGHT PANEL: PROCUREMENT, INVENTORY & OPERATIONS ACTIONABLE ALERTS */}
           <div className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-2xs flex flex-col justify-between space-y-4">
             <div className="space-y-3">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
-                <div>
+              <div className="flex flex-col gap-2.5 border-b border-slate-100 pb-3">
+                <div className="min-w-0">
                   <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
-                    <ShoppingCart className="w-4 h-4 text-indigo-600" />
-                    <span>Procurement, Inventory & Ops Alerts</span>
+                    <ShoppingCart className="w-4 h-4 text-indigo-600 shrink-0" />
+                    <span className="truncate">Procurement, Inventory &amp; Ops Alerts</span>
                   </h2>
-                  <p className="text-xs text-slate-500">
+                  <p className="text-xs text-slate-500 mt-0.5">
                     Open POs awaiting GRN, supplier bills awaiting match/settlement, and low stock SKUs.
                   </p>
                 </div>
-                <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl self-start">
+                <div className="inline-flex items-center gap-1 bg-slate-100 p-1 rounded-xl self-start max-w-full overflow-x-auto">
                   {[
                     { id: 'all', label: 'All' },
                     { id: 'grn', label: `PO / GRN (${procurementStats.openPOsCount})` },
@@ -1299,7 +1312,7 @@ export default function Dashboard(props: DashboardProps) {
                       key={tab.id}
                       type="button"
                       onClick={() => setOpsQueueFilter(tab.id as any)}
-                      className={`px-2 py-1 rounded-lg text-[10.5px] font-bold transition cursor-pointer ${
+                      className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold leading-none whitespace-nowrap shrink-0 transition cursor-pointer ${
                         opsQueueFilter === tab.id
                           ? 'bg-white text-slate-900 shadow-2xs'
                           : 'text-slate-600 hover:text-slate-900'
