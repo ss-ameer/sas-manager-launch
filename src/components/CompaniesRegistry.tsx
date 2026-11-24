@@ -20,7 +20,7 @@ import {
 import { getReferenceId } from '../utils/refId';
 import GoogleSearchButton from './common/GoogleSearchButton';
 import { PhoneCall, Building2, Pencil, Trash2, Search, RotateCcw, Users2, Plus, Phone, MessageSquare, Eye, FilePlus2, MapPin } from 'lucide-react';
-import { HoverScrollText } from './HoverScrollText';
+import { HoverScrollText } from './common/HoverScrollText';
 import { sanitizeWhatsAppNumber, getWhatsAppUrl } from '../utils/defaults';
 import {
   formatRelativeOutreachDate,

@@ -74,6 +74,12 @@ import {
 import HoverScrollText from './common/HoverScrollText';
 import { PageHeader, PageBody, KpiStatCard } from './layout/UiContainer';
 import {
+  getProductStockOnHand,
+  getProductAvailableStock,
+  getProductReorderLevel,
+  isProductLowStock
+} from '../utils/inventoryMetrics';
+import {
   buildCatalogVariantAnalysisMap,
   resolveProductFamilyKey,
   resolveProductFamilyDisplayName
@@ -449,22 +455,7 @@ export default function ProductManager({
     return activeCatalogProducts.filter((p) => Boolean(p.is_inventoried));
   }, [activeCatalogProducts]);
 
-  // Shared Low-Stock predicate aligned with Dashboard (Track U7):
-  // Only flag Low Stock when an explicit reorder threshold (> 0) is configured so Min: 0 SKUs are never falsely alerted.
-  const getProductStockOnHand = (p: Product): number =>
-    Number(p.stock_on_hand ?? (p as any).stock_quantity ?? p.current_stock ?? 0) || 0;
-
-  const getProductReorderThreshold = (p: Product): number =>
-    Number(p.reorder_level ?? (p as any).min_stock_level ?? 0) || 0;
-
-  const isProductLowStock = (p: Product): boolean => {
-    const threshold = getProductReorderThreshold(p);
-    if (threshold <= 0) return false;
-    if (!p.is_inventoried && Number((p as any).min_stock_level || 0) <= 0) return false;
-    const available = getProductStockOnHand(p) - (Number(p.stock_reserved) || 0);
-    return available <= threshold;
-  };
-
+  // Shared stock metrics & Low-Stock predicate from ../utils/inventoryMetrics (100% parity with Dashboard)
   const lowStockProducts = useMemo(() => {
     return activeCatalogProducts.filter((p) => isProductLowStock(p));
   }, [activeCatalogProducts]);
@@ -3556,7 +3547,7 @@ export default function ProductManager({
                       childPositivePrices.length > 0 ? Math.max(...childPositivePrices) : 0;
 
                     const stockOnHandVal = getProductStockOnHand(p);
-                    const availableQty = stockOnHandVal - (Number(p.stock_reserved) || 0);
+                    const availableQty = getProductAvailableStock(p);
                     const isLowStock = isProductLowStock(p);
                     const sellPrice = p.unit_price || 0;
                     const costPrice = p.cost_price || 0;
@@ -3986,7 +3977,7 @@ export default function ProductManager({
                                         ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60'
                                         : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60'
                                     }`}
-                                    title={`Available: ${availableQty} ${cleanUnit} (On Hand: ${stockOnHandVal}, Reserved: ${p.stock_reserved || 0}, Min: ${getProductReorderThreshold(p)})`}
+                                    title={`Available: ${availableQty} ${cleanUnit} (On Hand: ${stockOnHandVal}, Reserved: ${p.stock_reserved || 0}, Min: ${getProductReorderLevel(p)})`}
                                   >
                                     {isLowStock && <AlertTriangle className="w-3 h-3 text-amber-600 dark:text-amber-400 shrink-0" />}
                                     <span className="truncate font-mono tabular-nums">

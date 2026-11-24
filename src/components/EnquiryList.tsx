@@ -50,7 +50,7 @@ import {
   isCreatorOnlyViewer
 } from '../utils/permissions';
 import GoogleSearchButton from './common/GoogleSearchButton';
-import HoverScrollText from './HoverScrollText';
+import HoverScrollText from './common/HoverScrollText';
 import { InitiateActivityOptions, useActivityLauncher } from '../context/ActivityLauncherContext';
 import Company360Modal from './Company360Modal';
 import { QuickClaimModal } from './QuickClaimModal';

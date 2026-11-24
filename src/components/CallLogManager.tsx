@@ -61,7 +61,7 @@ import {
   CheckSquare,
   SlidersHorizontal
 } from 'lucide-react';
-import { HoverScrollText } from './HoverScrollText';
+import { HoverScrollText } from './common/HoverScrollText';
 import PhoneDataDiagnosticModal from './PhoneDataDiagnosticModal';
 import CallLogDetailModal from './CallLogDetailModal';
 import Company360Modal from './Company360Modal';
@@ -2375,7 +2375,7 @@ export default function CallLogManager({
     setHistorySortOrder('newest');
   }, []);
 
-  // Human-readable labels for active filters in SearchResultCounter
+  // Human-readable labels for active filter chips
   const activeFilterLabels = useMemo(() => {
     const labels: string[] = [];
     if (channelFilter !== 'all') labels.push(`Channel: ${channelFilter}`);

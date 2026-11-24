@@ -2299,7 +2299,7 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
       <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
         <div className="p-6 border-b border-slate-100 flex items-center justify-between">
           <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center">
+            <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
               <Sliders className="w-5 h-5" />
             </div>
             <div>
@@ -2335,7 +2335,7 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
                 });
                 setShowAddPreset(true);
               }}
-              className="px-3 py-1.5 bg-purple-50 hover:bg-purple-100 text-purple-700 text-xs font-bold rounded-xl transition flex items-center space-x-1 cursor-pointer"
+              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl transition flex items-center space-x-1 cursor-pointer shadow-2xs"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>Create Preset</span>
@@ -2499,7 +2499,7 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
                             amount_in_words_enabled: e.target.checked
                           })
                         }
-                        className="rounded border-slate-300 text-purple-600"
+                        className="rounded border-slate-300 text-blue-600"
                       />
                       <span className="text-slate-700">Amount in Words</span>
                     </label>
@@ -2518,7 +2518,7 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
                 <button
                   type="button"
                   onClick={handleSavePreset}
-                  className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-bold cursor-pointer"
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold cursor-pointer transition"
                 >
                   Save Preset
                 </button>
@@ -2533,8 +2533,8 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
                   key={p.id}
                   className={`p-4 rounded-xl border transition flex flex-col justify-between ${
                     p.is_default
-                      ? 'border-purple-300 bg-purple-50/30 shadow-2xs'
-                      : 'border-slate-200 bg-white hover:border-purple-200'
+                      ? 'border-blue-300 bg-blue-50/30 shadow-2xs'
+                      : 'border-slate-200 bg-white hover:border-blue-200'
                   }`}
                 >
                   <div className="flex items-start justify-between">
@@ -2542,7 +2542,7 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
                       <div className="flex items-center gap-2 flex-wrap">
                         <h4 className="text-xs font-bold text-slate-900">{p.preset_name}</h4>
                         {p.is_default && (
-                          <span className="px-2 py-0.5 bg-purple-600 text-white text-[10px] font-extrabold rounded-md flex items-center gap-1">
+                          <span className="px-2 py-0.5 bg-blue-600 text-white text-[10px] font-extrabold rounded-md flex items-center gap-1">
                             <Star className="w-2.5 h-2.5 fill-current" />
                             <span>DEFAULT</span>
                           </span>
@@ -2553,7 +2553,7 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
                           </span>
                         )}
                       </div>
-                      <span className="inline-block mt-1 px-2 py-0.5 bg-purple-50 text-purple-700 text-[10px] font-bold rounded-md">
+                      <span className="inline-block mt-1 px-2 py-0.5 bg-blue-50 text-blue-700 text-[10px] font-bold rounded-md">
                         {p.default_tax_mode === 'taxes_extra'
                           ? 'Taxes Extra (5%)'
                           : p.default_tax_mode === 'tax_calculated'
@@ -2568,7 +2568,7 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
                           <button
                             type="button"
                             onClick={() => handleSetDefaultPreset(p.id!)}
-                            className="px-2 py-1 text-[10px] font-bold text-purple-700 hover:bg-purple-100 rounded-lg transition flex items-center gap-1 cursor-pointer"
+                            className="px-2 py-1 text-[10px] font-bold text-blue-700 hover:bg-blue-100 rounded-lg transition flex items-center gap-1 cursor-pointer"
                           >
                             <Star className="w-3 h-3" />
                             <span>Set Default</span>

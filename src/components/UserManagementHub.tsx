@@ -896,15 +896,22 @@ export default function UserManagementHub({
 
       {/* Unified Team & Access Table */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-x-clip shadow-2xs">
-        <div className="w-full overflow-x-clip">
-          <table className="w-full table-fixed text-left border-collapse text-xs font-sans">
+        <div className="w-full overflow-x-auto">
+          <table className="w-full lg:table-fixed text-left border-collapse text-xs font-sans">
+            <colgroup>
+              <col className="w-auto" />
+              <col className="w-[232px]" />
+              <col className="w-[196px]" />
+              <col className="w-[144px]" />
+              <col className="w-[200px]" />
+            </colgroup>
             <thead className="sticky top-0 z-10 bg-slate-50/95 dark:bg-slate-800/95 backdrop-blur-xs border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] text-[11px] font-mono font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider select-none">
               <tr>
-                <th className="py-3 px-4 w-[28%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Member Identity</th>
-                <th className="py-3 px-3.5 w-[24%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Linked Sales Rep Profile</th>
-                <th className="py-3 px-3.5 w-[20%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">3-Tier Access Role</th>
-                <th className="py-3 px-3.5 w-[13%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Active Deals</th>
-                <th className="py-3 px-4 w-[190px] text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">Actions</th>
+                <th className="py-3 pl-4 pr-3 whitespace-nowrap bg-slate-50 dark:bg-slate-900">Member Identity</th>
+                <th className="py-3 px-3.5 whitespace-nowrap bg-slate-50 dark:bg-slate-900">Linked Sales Rep Profile</th>
+                <th className="py-3 px-3.5 whitespace-nowrap bg-slate-50 dark:bg-slate-900">3-Tier Access Role</th>
+                <th className="py-3 px-3.5 whitespace-nowrap bg-slate-50 dark:bg-slate-900">Active Deals</th>
+                <th className="py-3 pl-3 pr-4 text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200/80 dark:divide-slate-800 text-xs font-sans bg-white dark:bg-slate-900">
@@ -935,24 +942,23 @@ export default function UserManagementHub({
                   return (
                     <tr
                       key={member.uid}
-                      className={`border-l-2 border-l-transparent hover:border-l-blue-500 hover:bg-slate-50/80 dark:hover:bg-slate-800/50 transition-colors ${
-                        member.isCurrentUser ? 'bg-blue-50/20 border-l-blue-500' : ''
+                      className={`hover:bg-slate-50/80 dark:hover:bg-slate-800/50 transition-colors ${
+                        member.isCurrentUser ? 'bg-blue-50/25 dark:bg-blue-950/20' : ''
                       }`}
                     >
                       {/* 1. Member Identity (Max 2 Lines) */}
-                      <td className="py-2.5 px-4 align-middle overflow-hidden">
+                      <td className="py-2.5 pl-4 pr-3 align-middle overflow-hidden">
                         <div className="flex items-center gap-3 min-w-0">
                           <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-2xs">
                             {getInitials(member.name || member.email)}
                           </div>
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-1.5 min-w-0">
-                              <span
-                                className="font-semibold text-sm text-slate-900 dark:text-slate-100 truncate"
-                                title={member.name}
-                              >
-                                {member.name}
-                              </span>
+                              <HoverScrollText
+                                text={member.name}
+                                containerClassName="flex-1 min-w-0"
+                                className="font-semibold text-sm text-slate-900 dark:text-slate-100"
+                              />
                               {member.isOwner && (
                                 <span
                                   title="Workspace Owner: Immutable permissions"
@@ -968,12 +974,10 @@ export default function UserManagementHub({
                                 </span>
                               )}
                             </div>
-                            <div
-                              className="text-[11px] text-slate-500 dark:text-slate-400 font-mono truncate mt-0.5"
-                              title={member.email}
-                            >
-                              {member.email}
-                            </div>
+                            <HoverScrollText
+                              text={member.email}
+                              className="text-[11px] text-slate-500 dark:text-slate-400 font-mono mt-0.5"
+                            />
                           </div>
                         </div>
                       </td>
@@ -1058,7 +1062,7 @@ export default function UserManagementHub({
                       </td>
 
                       {/* 5. Actions */}
-                      <td className="py-2.5 px-4 w-[190px] text-right whitespace-nowrap align-middle">
+                      <td className="py-2.5 pl-3 pr-4 text-right whitespace-nowrap align-middle">
                         <div className="inline-flex items-center justify-end gap-1.5">
                           <button
                             onClick={() => {

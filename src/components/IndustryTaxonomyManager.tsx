@@ -13,9 +13,11 @@ import { SYSTEM_INDUSTRY_TAXONOMY, isCompanyUntagged } from '../utils/defaults';
 import { normalizeSubTypeName, formatSubTypeName } from '../utils/taxonomy';
 import { useIndustryTaxonomy, notifyTaxonomySubscribers } from '../hooks/useIndustryTaxonomy';
 import GoogleSearchButton from './common/GoogleSearchButton';
+import HoverScrollText from './common/HoverScrollText';
 import Company360Modal from './Company360Modal';
 import {
   Layers,
+  SkipForward,
   FolderTree,
   AlertTriangle,
   CheckCircle2,
@@ -1863,14 +1865,21 @@ export default function IndustryTaxonomyManager({
           ) : (
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-xs">
               <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse">
+                <table className="w-full lg:table-fixed text-left border-collapse">
+                  <colgroup>
+                    <col className="w-[52px]" />
+                    <col className="w-auto" />
+                    <col className="w-[228px]" />
+                    <col className="w-[244px]" />
+                    <col className="w-[180px]" />
+                  </colgroup>
                   <thead>
-                    <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-850/70 text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                      <th className="py-3 px-4 w-12">#</th>
-                      <th className="py-3 px-4 min-w-[240px]">Company Name & Location</th>
-                      <th className="py-3 px-4 min-w-[210px]">Tier 1: Parent Sector</th>
-                      <th className="py-3 px-4 min-w-[230px]">Tier 2: Child Sub-Type</th>
-                      <th className="py-3 px-4 w-44 min-w-[170px] text-right">Action</th>
+                    <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-850/70 text-[11px] font-mono font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                      <th className="py-3 pl-4 pr-2 whitespace-nowrap">#</th>
+                      <th className="py-3 px-3.5 whitespace-nowrap">Company Name & Location</th>
+                      <th className="py-3 px-3.5 whitespace-nowrap">Tier 1: Parent Sector</th>
+                      <th className="py-3 px-3.5 whitespace-nowrap">Tier 2: Child Sub-Type</th>
+                      <th className="py-3 pl-3 pr-4 text-right whitespace-nowrap">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 text-xs">
@@ -1910,15 +1919,15 @@ export default function IndustryTaxonomyManager({
                           }`}
                         >
                           {/* Row Number */}
-                          <td className="py-3.5 px-4 font-mono text-slate-400 text-[11px]">
+                          <td className="py-3.5 pl-4 pr-2 font-mono tabular-nums text-slate-400 text-[11px] align-middle">
                             {idx + 1}
                           </td>
 
                           {/* Company Name, Location & Google Search Button */}
-                          <td className="py-3.5 px-4">
-                            <div className="flex items-center justify-between space-x-2">
+                          <td className="py-3.5 px-3.5 align-middle overflow-hidden">
+                            <div className="flex items-center justify-between gap-2 min-w-0">
                               <div className="min-w-0 flex-1">
-                                <div className="flex items-center">
+                                <div className="flex items-center min-w-0">
                                   <button
                                     type="button"
                                     onClick={(e) => {
@@ -1926,22 +1935,23 @@ export default function IndustryTaxonomyManager({
                                       e.stopPropagation();
                                       setSelected360CompanyId(company.id || null);
                                     }}
-                                    className="font-medium text-slate-900 dark:text-slate-100 hover:text-blue-600 dark:hover:text-blue-400 cursor-pointer transition-colors text-left truncate max-w-full"
+                                    className="font-medium text-slate-900 dark:text-slate-100 hover:text-blue-600 dark:hover:text-blue-400 cursor-pointer transition-colors text-left min-w-0 max-w-full flex-1"
                                     title={`Open 360° Profile for "${company.display_name || company.canonical_name}"`}
                                   >
-                                    <span className="truncate font-medium">
-                                      {company.display_name || company.canonical_name}
-                                    </span>
+                                    <HoverScrollText
+                                      text={company.display_name || company.canonical_name}
+                                      className="font-medium"
+                                    />
                                   </button>
                                 </div>
-                                <div className="flex items-center space-x-2 mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
+                                <div className="flex items-center gap-2 mt-0.5 text-[11px] text-slate-500 dark:text-slate-400 min-w-0">
                                   {company.city && (
-                                    <span className="flex items-center space-x-1 truncate">
+                                    <span className="flex items-center gap-1 min-w-0 max-w-[140px]">
                                       <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
-                                      <span>{company.city}</span>
+                                      <HoverScrollText text={company.city} containerClassName="min-w-0 flex-1" />
                                     </span>
                                   )}
-                                  <span className="inline-block px-1.5 py-0.2 rounded text-[10px] font-mono bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-900/60">
+                                  <span className="inline-block px-1.5 py-0.2 rounded text-[10px] font-mono bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-900/60 truncate">
                                     {hasNoParent ? 'Missing Sector' : `Unspecified (${formatSubTypeName(rawCurrent) || 'None'})`}
                                   </span>
                                 </div>
@@ -1994,8 +2004,8 @@ export default function IndustryTaxonomyManager({
                           </td>
 
                           {/* 1-Click Tactile Update Action + Session Skip */}
-                          <td className="py-3.5 px-4 text-right">
-                            <div onClick={(e) => e.stopPropagation()} className="flex items-center justify-end space-x-1.5">
+                          <td className="py-3.5 pl-3 pr-4 text-right align-middle whitespace-nowrap">
+                            <div onClick={(e) => e.stopPropagation()} className="inline-flex items-center justify-end gap-1.5">
                               <button
                                 type="button"
                                 onClick={(e) => {
@@ -2003,9 +2013,9 @@ export default function IndustryTaxonomyManager({
                                   handleSkipForSession(company);
                                 }}
                                 title="Skip for now (moves to end of queue) [Alt + S]"
-                                className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-xl text-xs font-medium text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent hover:border-slate-200 dark:hover:border-slate-700 transition cursor-pointer select-none"
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-medium text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent hover:border-slate-200 dark:hover:border-slate-700 transition cursor-pointer select-none"
                               >
-                                <span className="text-[11px] leading-none">⏭️</span>
+                                <SkipForward className="w-3.5 h-3.5 shrink-0" />
                                 <span>Skip</span>
                               </button>
                               <button

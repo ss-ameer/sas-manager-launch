@@ -16,7 +16,7 @@ import {
 import mammoth from 'mammoth';
 import { PdfViewer } from './PdfViewer';
 import { MarqueeLabel } from './MarqueeLabel';
-import { HoverScrollText } from './HoverScrollText';
+import { HoverScrollText } from './common/HoverScrollText';
 import { Enquiry, Company, Contact, Salesperson, LineItem, Attachment, ProductType, UnitType, EnquiryStatus, Product, ProductAttribute, CATEGORY_SUGGESTED_ATTRIBUTES, DropdownOption, Workspace, ENQUIRY_STATUS_OPTIONS, normalizeEnquiryStatus, LegalSuffix, PIPELINE_STATUS_GROUPS, WorkspaceSequenceCounters, resolveCountryCode, sanitizeCompanyCode, LineItemImageDisplayOverride, LineItemImageSizeOverride, LineItemImageAspectOverride, QuotationTaxMode, resolveSalespersonName } from '../types';
 import { db } from '../firebase';
 import { writeBatch, doc, updateDoc } from 'firebase/firestore';

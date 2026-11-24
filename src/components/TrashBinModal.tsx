@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Trash2, RefreshCw, AlertTriangle, Search, Filter, ShieldAlert, CheckCircle2, RotateCcw } from 'lucide-react';
+import { Trash2, AlertTriangle, Search, ShieldAlert, CheckCircle2, RotateCcw, X } from 'lucide-react';
+import HoverScrollText from './common/HoverScrollText';
 import { Enquiry, Company, Contact, Product, CallLogEntry, UserProfile, Workspace, Attachment, Quotation, Project, SupplierBill } from '../types';
 import { EnquiryRepository } from '../services/repositories/EnquiryRepository';
 import { CompanyRepository } from '../services/repositories/CompanyRepository';
@@ -116,6 +117,18 @@ export const TrashBinModal: React.FC<TrashBinModalProps> = ({
       refreshDeletedProjects();
     }
   }, [isOpen, activeWorkspaceId]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !itemToPurge && !showEmptyTrashConfirm && !isProcessing) {
+        e.preventDefault();
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, itemToPurge, showEmptyTrashConfirm, isProcessing, onClose]);
 
   if (!isOpen) return null;
 
@@ -487,51 +500,61 @@ export const TrashBinModal: React.FC<TrashBinModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-      <div className="bg-slate-900 border border-slate-800 rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden text-slate-100">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4 animate-in fade-in duration-200"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="recycle-bin-modal-title"
+    >
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden text-slate-900 dark:text-slate-100">
         {/* Header */}
-        <div className="flex items-center justify-between p-5 border-b border-slate-800 bg-slate-900/50">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 bg-rose-500/10 text-rose-400 rounded-lg border border-rose-500/20">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="p-2.5 bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 rounded-xl border border-rose-200/80 dark:border-rose-500/20 shrink-0">
               <Trash2 className="w-5 h-5" />
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-lg font-bold text-slate-100">Recycle Bin & Data Recovery</h2>
-                <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-rose-500/10 text-rose-400 border border-rose-500/20">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 id="recycle-bin-modal-title" className="text-base sm:text-lg font-bold text-slate-900 dark:text-slate-100">
+                  Recycle Bin & Data Recovery
+                </h2>
+                <span className="px-2 py-0.5 text-[11px] font-semibold font-mono tabular-nums rounded-full bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-500/20 whitespace-nowrap">
                   {totalDeletedCount} Items
                 </span>
               </div>
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
                 Safely inspect, restore, or permanently purge deleted workspace records.
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             {isAdmin && totalDeletedCount > 0 && (
               <button
+                type="button"
                 onClick={() => setShowEmptyTrashConfirm(true)}
                 disabled={isProcessing}
-                className="px-3 py-1.5 text-xs font-medium bg-rose-600/20 text-rose-300 border border-rose-500/30 rounded-lg hover:bg-rose-600/30 transition-colors flex items-center gap-1.5"
+                className="px-3 py-1.5 text-xs font-semibold bg-rose-50 dark:bg-rose-600/20 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-500/30 rounded-lg hover:bg-rose-100 dark:hover:bg-rose-600/30 transition-colors inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer disabled:opacity-50"
               >
-                <Trash2 className="w-3.5 h-3.5" />
-                Empty Trash Bin
+                <Trash2 className="w-3.5 h-3.5 shrink-0" />
+                <span>Empty Trash Bin</span>
               </button>
             )}
             <button
+              type="button"
               onClick={onClose}
-              className="p-2 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded-lg transition-colors"
+              aria-label="Close Recycle Bin"
+              title="Close (Esc)"
+              className="p-2 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
             >
-              <RotateCcw className="w-5 h-5" />
+              <X className="w-5 h-5" />
             </button>
           </div>
         </div>
 
-        {/* Toolbar & Category Filters */}
-        <div className="p-4 border-b border-slate-800 bg-slate-950/40 flex flex-col sm:flex-row items-center justify-between gap-3">
-          {/* Tabs */}
-          <div className="flex items-center gap-1 overflow-x-auto w-full sm:w-auto pb-1 sm:pb-0 scrollbar-none">
+        {/* Unified Toolbar & Category Filter Pills */}
+        <div className="px-5 py-3.5 border-b border-slate-200/80 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/40 space-y-2.5">
+          <div className="flex flex-wrap items-center gap-1.5">
             {[
               { id: 'all', label: 'All', count: totalDeletedCount },
               { id: 'enquiries', label: 'Enquiries', count: deletedEnquiries.length },
@@ -542,50 +565,56 @@ export const TrashBinModal: React.FC<TrashBinModalProps> = ({
               { id: 'contacts', label: 'Contacts', count: deletedContacts.length },
               { id: 'products', label: 'Products', count: deletedProducts.length },
               { id: 'call_logs', label: 'Call Logs', count: deletedCallLogs.length }
-            ].map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id as CategoryTab)}
-                className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all flex items-center gap-1.5 whitespace-nowrap ${
-                  activeTab === tab.id
-                    ? 'bg-blue-600 text-white shadow-sm'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
-                }`}
-              >
-                {tab.label}
-                {tab.count > 0 && (
-                  <span
-                    className={`px-1.5 py-0.2 rounded-full text-[10px] ${
-                      activeTab === tab.id ? 'bg-blue-700 text-blue-100' : 'bg-slate-800 text-slate-400'
-                    }`}
-                  >
-                    {tab.count}
-                  </span>
-                )}
-              </button>
-            ))}
+            ].map((tab) => {
+              const isActive = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setActiveTab(tab.id as CategoryTab)}
+                  className={`px-2.5 py-1.5 text-xs font-semibold rounded-lg transition-all inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
+                    isActive
+                      ? 'bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 border border-slate-900 dark:border-slate-100 shadow-2xs'
+                      : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white hover:border-slate-300'
+                  }`}
+                >
+                  <span>{tab.label}</span>
+                  {tab.count > 0 && (
+                    <span
+                      className={`px-1.5 py-0.5 rounded-full text-[10px] font-mono tabular-nums leading-none ${
+                        isActive
+                          ? 'bg-white/20 dark:bg-slate-900/20 text-white dark:text-slate-900'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                      }`}
+                    >
+                      {tab.count}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
           </div>
 
           {/* Search Box */}
-          <div className="relative w-full sm:w-64">
+          <div className="relative w-full sm:max-w-sm">
             <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search deleted records..."
-              className="w-full pl-8 pr-3 py-1.5 text-xs bg-slate-900 border border-slate-800 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
+              placeholder="Search deleted records by title, details, or user..."
+              className="w-full h-9 pl-8 pr-3 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:border-blue-500 transition-colors"
             />
           </div>
         </div>
 
-        {/* Content Table / List */}
-        <div className="flex-1 overflow-y-auto p-4">
+        {/* Content List */}
+        <div className="flex-1 overflow-y-auto p-4 bg-slate-50/40 dark:bg-slate-950/30">
           {filteredItems.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 text-center text-slate-500">
-              <CheckCircle2 className="w-12 h-12 text-slate-600 mb-3" />
-              <h3 className="text-sm font-semibold text-slate-300">No Soft-Deleted Records Found</h3>
-              <p className="text-xs text-slate-500 mt-1 max-w-sm">
+            <div className="flex flex-col items-center justify-center py-16 text-center text-slate-500 dark:text-slate-400">
+              <CheckCircle2 className="w-11 h-11 text-slate-300 dark:text-slate-600 mb-3" />
+              <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300">No Soft-Deleted Records Found</h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-sm">
                 {searchQuery
                   ? 'No deleted items matched your search filters.'
                   : 'Your recycle bin is clean. Items marked as deleted will appear here for recovery.'}
@@ -596,31 +625,40 @@ export const TrashBinModal: React.FC<TrashBinModalProps> = ({
               {filteredItems.map((item) => (
                 <div
                   key={`${item.type}-${item.id}`}
-                  className="p-3.5 bg-slate-900/80 border border-slate-800/80 rounded-xl hover:border-slate-700 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                  className="py-3 pl-3.5 pr-4 bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-xl hover:border-slate-300 dark:hover:border-slate-700 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-3"
                 >
-                  <div className="flex items-start gap-3">
+                  <div className="flex items-start gap-3 min-w-0 flex-1">
                     <span
-                      className={`px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded-md border mt-0.5 ${
+                      className={`px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded-md border mt-0.5 whitespace-nowrap shrink-0 ${
                         item.type === 'enquiry'
-                          ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20'
+                          ? 'bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-500/20'
                           : item.type === 'quotation'
-                          ? 'bg-sky-500/10 text-sky-400 border-sky-500/20'
+                          ? 'bg-sky-50 dark:bg-sky-500/10 text-sky-700 dark:text-sky-400 border-sky-200 dark:border-sky-500/20'
                           : item.type === 'company'
-                          ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                          ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/20'
                           : item.type === 'contact'
-                          ? 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                          ? 'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-500/20'
                           : item.type === 'product'
-                          ? 'bg-purple-500/10 text-purple-400 border-purple-500/20'
-                          : 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20'
+                          ? 'bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-400 border-indigo-200 dark:border-indigo-500/20'
+                          : 'bg-cyan-50 dark:bg-cyan-500/10 text-cyan-700 dark:text-cyan-400 border-cyan-200 dark:border-cyan-500/20'
                       }`}
                     >
                       {item.typeLabel}
                     </span>
 
-                    <div>
-                      <h4 className="text-xs font-semibold text-slate-200">{item.title}</h4>
-                      {item.subTitle && <p className="text-[11px] text-slate-400 mt-0.5 line-clamp-1">{item.subTitle}</p>}
-                      <div className="flex items-center gap-3 text-[10px] text-slate-500 mt-1">
+                    <div className="min-w-0 flex-1">
+                      <HoverScrollText
+                        text={item.title}
+                        as="h4"
+                        className="text-xs font-semibold text-slate-900 dark:text-slate-100"
+                      />
+                      {item.subTitle && (
+                        <HoverScrollText
+                          text={item.subTitle}
+                          className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5"
+                        />
+                      )}
+                      <div className="flex flex-wrap items-center gap-3 text-[10px] font-mono tabular-nums text-slate-400 dark:text-slate-500 mt-1">
                         {item.deletedAt && (
                           <span>Deleted: {new Date(item.deletedAt).toLocaleString()}</span>
                         )}
@@ -630,26 +668,31 @@ export const TrashBinModal: React.FC<TrashBinModalProps> = ({
                   </div>
 
                   {/* Actions */}
-                  <div className="flex items-center gap-2 self-end sm:self-center pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-800/60 w-full sm:w-auto justify-end">
+                  <div className="flex items-center gap-2 self-end sm:self-center pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100 dark:border-slate-800/60 w-full sm:w-auto justify-end shrink-0">
                     <button
+                      type="button"
                       onClick={() => handleRestore(item)}
                       disabled={isProcessing}
-                      className="px-2.5 py-1 text-xs font-medium bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded-lg hover:bg-blue-500/20 transition-colors flex items-center gap-1"
+                      className="px-2.5 py-1.5 text-xs font-semibold bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-500/20 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-500/20 transition-colors inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer disabled:opacity-50"
                     >
-                      <RotateCcw className="w-3 h-3" />
-                      Restore
+                      <RotateCcw className="w-3.5 h-3.5 shrink-0" />
+                      <span>Restore</span>
                     </button>
 
                     {isAdmin && (
-                      <button
-                        type="button"
-                        onClick={() => setItemToPurge(item)}
-                        disabled={isProcessing}
-                        className="px-2 py-1 text-xs text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 rounded-lg transition-colors cursor-pointer"
-                        title="Purge Permanently"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      <>
+                        <span className="h-4 w-px bg-slate-200 dark:bg-slate-700" aria-hidden="true" />
+                        <button
+                          type="button"
+                          onClick={() => setItemToPurge(item)}
+                          disabled={isProcessing}
+                          className="px-2.5 py-1.5 text-xs font-semibold text-rose-600 dark:text-rose-400 hover:text-rose-700 dark:hover:text-rose-300 bg-white dark:bg-slate-900 hover:bg-rose-50 dark:hover:bg-rose-500/10 border border-rose-200/80 dark:border-rose-500/20 rounded-lg transition-colors inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer disabled:opacity-50"
+                          title="Delete Permanently"
+                        >
+                          <Trash2 className="w-3.5 h-3.5 shrink-0" />
+                          <span>Delete Permanently</span>
+                        </button>
+                      </>
                     )}
                   </div>
                 </div>
@@ -660,17 +703,17 @@ export const TrashBinModal: React.FC<TrashBinModalProps> = ({
 
         {/* Individual Item Purge Confirmation Modal */}
         {itemToPurge && (
-          <div className="fixed inset-0 z-60 flex items-center justify-center bg-slate-950/80 p-4 animate-in fade-in duration-150">
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 max-w-md w-full shadow-2xl animate-in zoom-in-95 duration-150">
-              <div className="flex items-center gap-3 text-rose-400 mb-3">
+          <div className="fixed inset-0 z-60 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4 animate-in fade-in duration-150">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 max-w-md w-full shadow-2xl animate-in zoom-in-95 duration-150">
+              <div className="flex items-center gap-3 text-rose-600 dark:text-rose-400 mb-3">
                 <AlertTriangle className="w-6 h-6 shrink-0" />
-                <h3 className="text-sm font-bold text-slate-100">
+                <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
                   {itemToPurge.type === 'enquiry'
                     ? `Permanently Delete Enquiry #${(itemToPurge.rawItem as Enquiry).sn || ''}?`
                     : `Permanently Delete ${itemToPurge.title || itemToPurge.typeLabel}?`}
                 </h3>
               </div>
-              <p className="text-xs text-slate-400 leading-relaxed mb-4">
+              <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed mb-4">
                 {itemToPurge.type === 'enquiry'
                   ? 'This will permanently delete this enquiry record and reclaim storage by deleting all attached proposal documents from cloud storage. This action cannot be undone.'
                   : 'This will permanently delete this record from the database. This action cannot be undone.'}
@@ -680,7 +723,7 @@ export const TrashBinModal: React.FC<TrashBinModalProps> = ({
                   type="button"
                   onClick={() => setItemToPurge(null)}
                   disabled={isProcessing}
-                  className="px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
+                  className="px-3.5 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg transition-colors cursor-pointer"
                 >
                   Cancel
                 </button>
@@ -688,7 +731,7 @@ export const TrashBinModal: React.FC<TrashBinModalProps> = ({
                   type="button"
                   onClick={() => handlePurge(itemToPurge)}
                   disabled={isProcessing}
-                  className="px-3 py-1.5 text-xs font-semibold bg-rose-600 text-white rounded-lg hover:bg-rose-500 transition-colors cursor-pointer"
+                  className="px-3.5 py-1.5 text-xs font-semibold bg-rose-600 text-white rounded-lg hover:bg-rose-700 transition-colors cursor-pointer"
                 >
                   Permanently Delete
                 </button>
@@ -699,13 +742,13 @@ export const TrashBinModal: React.FC<TrashBinModalProps> = ({
 
         {/* Empty Trash Confirmation Modal */}
         {showEmptyTrashConfirm && (
-          <div className="fixed inset-0 z-60 flex items-center justify-center bg-slate-950/80 p-4 animate-in fade-in duration-150">
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 max-w-md w-full shadow-2xl animate-in zoom-in-95 duration-150">
-              <div className="flex items-center gap-3 text-rose-400 mb-3">
+          <div className="fixed inset-0 z-60 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4 animate-in fade-in duration-150">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 max-w-md w-full shadow-2xl animate-in zoom-in-95 duration-150">
+              <div className="flex items-center gap-3 text-rose-600 dark:text-rose-400 mb-3">
                 <AlertTriangle className="w-6 h-6 shrink-0" />
-                <h3 className="text-sm font-bold text-slate-100">Empty Entire Workspace Recycle Bin?</h3>
+                <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">Empty Entire Workspace Recycle Bin?</h3>
               </div>
-              <p className="text-xs text-slate-400 leading-relaxed mb-4">
+              <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed mb-4">
                 Are you sure you want to permanently delete all {totalDeletedCount} items in the recycle bin? All associated proposal attachments will be deleted from Supabase cloud storage to free quota. This cannot be undone.
               </p>
               <div className="flex justify-end gap-2">
@@ -713,7 +756,7 @@ export const TrashBinModal: React.FC<TrashBinModalProps> = ({
                   type="button"
                   onClick={() => setShowEmptyTrashConfirm(false)}
                   disabled={isProcessing}
-                  className="px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
+                  className="px-3.5 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg transition-colors cursor-pointer"
                 >
                   Cancel
                 </button>
@@ -721,7 +764,7 @@ export const TrashBinModal: React.FC<TrashBinModalProps> = ({
                   type="button"
                   onClick={handleEmptyTrash}
                   disabled={isProcessing}
-                  className="px-3 py-1.5 text-xs font-semibold bg-rose-600 text-white rounded-lg hover:bg-rose-500 transition-colors cursor-pointer"
+                  className="px-3.5 py-1.5 text-xs font-semibold bg-rose-600 text-white rounded-lg hover:bg-rose-700 transition-colors cursor-pointer"
                 >
                   Empty Bin & Free Storage
                 </button>
@@ -731,14 +774,15 @@ export const TrashBinModal: React.FC<TrashBinModalProps> = ({
         )}
 
         {/* Footer */}
-        <div className="p-4 border-t border-slate-800 bg-slate-950/60 flex items-center justify-between text-xs text-slate-400">
-          <div className="flex items-center gap-2">
-            <ShieldAlert className="w-4 h-4 text-emerald-400" />
-            <span>Soft-Delete Conflict Shield Active — Edits merge safely with queued records.</span>
+        <div className="px-5 py-3.5 border-t border-slate-200/80 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-950/60 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+          <div className="flex items-center gap-2 min-w-0">
+            <ShieldAlert className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+            <span className="truncate">Soft-Delete Conflict Shield Active — Edits merge safely with queued records.</span>
           </div>
           <button
+            type="button"
             onClick={onClose}
-            className="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg font-medium transition-colors"
+            className="px-4 py-1.5 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-lg font-semibold transition-colors cursor-pointer shrink-0"
           >
             Close
           </button>

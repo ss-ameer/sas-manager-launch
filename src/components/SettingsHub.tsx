@@ -41,6 +41,7 @@ import UserManagementHub from './UserManagementHub';
 import GeminiKeyModal from './GeminiKeyModal';
 import IndustryTaxonomyManager from './IndustryTaxonomyManager';
 import { WorkspaceDocumentProfileSettings } from './settings/WorkspaceDocumentProfileSettings';
+import HoverScrollText from './common/HoverScrollText';
 import { DEFAULT_MODEL_CASCADE, discoverLiveGeminiModels } from '../utils/aiExtractionClient';
 import { signOut, deleteUser } from 'firebase/auth';
 import { writeBatch, collection, query, where, getDocs, doc, arrayRemove, setDoc } from 'firebase/firestore';
@@ -978,10 +979,10 @@ export default function SettingsHub({
         onOpenSidebar={onOpenMobileMenu}
       />
 
-      <PageBody>
+      <PageBody className="!py-4 sm:!py-5 !space-y-3.5">
 
       {/* Navigation Sub-Tab Bar */}
-      <div className="flex flex-wrap items-center gap-1.5 pb-2 border-b border-slate-200/80">
+      <div className="bg-white border border-slate-200/80 rounded-2xl p-2 shadow-2xs flex flex-wrap items-center gap-1.5">
         {subTabs.map((tab) => {
           const Icon = tab.icon;
           const isDisabled = tab.adminOnly && !isAdmin;
@@ -993,14 +994,15 @@ export default function SettingsHub({
           return (
             <button
               key={tab.id}
+              type="button"
               onClick={() => setActiveSubTab(tab.id)}
-              className={`flex items-center space-x-2 px-3 py-2 rounded-xl text-xs font-semibold font-sans transition shrink-0 cursor-pointer ${
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold font-sans transition whitespace-nowrap shrink-0 cursor-pointer ${
                 isActive
-                  ? 'bg-slate-900 text-white shadow-sm'
-                  : 'bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900 border border-slate-200/80'
+                  ? 'bg-slate-900 text-white border border-slate-900 shadow-2xs'
+                  : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50 hover:text-slate-900 hover:border-slate-300'
               }`}
             >
-              <Icon className={`w-4 h-4 ${isActive ? 'text-blue-400' : 'text-slate-400'}`} />
+              <Icon className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-blue-400' : 'text-slate-400'}`} />
               <span>{tab.label}</span>
             </button>
           );
@@ -1008,7 +1010,7 @@ export default function SettingsHub({
       </div>
 
       {/* Main Tab View Rendering */}
-      <div className="mt-4">
+      <div>
         {activeSubTab === 'workspace' && (
           <CardPanel padding="spacious" className="space-y-6">
             <div className="border-b border-slate-100 pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -2091,7 +2093,7 @@ export default function SettingsHub({
                     const res = await backfillMissingWorkspaceIds(true);
                     triggerToast(res.message, res.success ? 'success' : 'error');
                   }}
-                  className="px-3.5 py-2 bg-purple-700 hover:bg-purple-800 text-white font-semibold text-xs rounded-xl transition shrink-0 cursor-pointer"
+                  className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded-xl transition shrink-0 cursor-pointer"
                 >
                   Run Workspace Backfill
                 </button>
@@ -2164,17 +2166,25 @@ export default function SettingsHub({
               </div>
 
               {/* Audit Logs Table */}
-              <div className="border border-slate-200 rounded-xl overflow-hidden">
-                <div className="max-h-80 overflow-y-auto">
-                  <table className="w-full text-left border-collapse text-xs font-sans">
-                    <thead className="bg-slate-50/80 border-b border-slate-200/80 text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 sticky top-0">
+              <div className="border border-slate-200 rounded-xl overflow-hidden bg-white">
+                <div className="max-h-80 overflow-y-auto overflow-x-auto">
+                  <table className="w-full lg:table-fixed text-left border-collapse text-xs font-sans">
+                    <colgroup>
+                      <col className="w-[152px]" />
+                      <col className="w-[180px]" />
+                      <col className="w-[92px]" />
+                      <col className="w-[116px]" />
+                      <col className="w-[184px]" />
+                      <col className="w-auto" />
+                    </colgroup>
+                    <thead className="bg-slate-50/95 border-b border-slate-200/80 text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 sticky top-0 z-10">
                       <tr>
-                        <th className="p-2.5 font-bold">Timestamp</th>
-                        <th className="p-2.5 font-bold">User</th>
-                        <th className="p-2.5 font-bold">Action</th>
-                        <th className="p-2.5 font-bold">Entity</th>
-                        <th className="p-2.5 font-bold">Title / Ref ID</th>
-                        <th className="p-2.5 font-bold">Details</th>
+                        <th className="py-2.5 pl-4 pr-3 font-bold whitespace-nowrap">Timestamp</th>
+                        <th className="py-2.5 px-3 font-bold whitespace-nowrap">User</th>
+                        <th className="py-2.5 px-3 font-bold whitespace-nowrap">Action</th>
+                        <th className="py-2.5 px-3 font-bold whitespace-nowrap">Entity</th>
+                        <th className="py-2.5 px-3 font-bold whitespace-nowrap">Title / Ref ID</th>
+                        <th className="py-2.5 pl-3 pr-4 font-bold whitespace-nowrap text-right">Details</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -2186,17 +2196,25 @@ export default function SettingsHub({
                         </tr>
                       ) : (
                         filteredAuditLogs.map((log, idx) => (
-                          <tr key={(log.document_id || 'log') + '_' + idx} className="hover:bg-slate-50/80 transition">
-                            <td className="p-2.5 text-slate-500 font-mono text-[10px] whitespace-nowrap">
+                          <tr key={(log.document_id || 'log') + '_' + idx} className="hover:bg-slate-50/80 transition-colors">
+                            <td className="py-2.5 pl-4 pr-3 text-slate-500 font-mono tabular-nums text-[10px] whitespace-nowrap align-middle">
                               {log.timestamp ? new Date(log.timestamp).toLocaleString() : '-'}
                             </td>
-                            <td className="p-2.5">
-                              <span className="font-bold text-slate-800 block">{log.changed_by_name || 'System'}</span>
-                              <span className="text-[10px] text-slate-400 font-mono block">{log.changed_by_email || ''}</span>
+                            <td className="py-2.5 px-3 align-middle overflow-hidden">
+                              <HoverScrollText
+                                text={log.changed_by_name || 'System'}
+                                className="font-bold text-slate-800"
+                              />
+                              {log.changed_by_email && (
+                                <HoverScrollText
+                                  text={log.changed_by_email}
+                                  className="text-[10px] text-slate-400 font-mono mt-0.5"
+                                />
+                              )}
                             </td>
-                            <td className="p-2.5">
+                            <td className="py-2.5 px-3 align-middle whitespace-nowrap">
                               <span
-                                className={`px-2 py-0.5 rounded text-[9px] font-extrabold uppercase tracking-wider ${
+                                className={`inline-block px-2 py-0.5 rounded text-[9px] font-extrabold uppercase tracking-wider ${
                                   log.action === 'create'
                                     ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
                                     : log.action === 'delete'
@@ -2207,14 +2225,14 @@ export default function SettingsHub({
                                 {log.action}
                               </span>
                             </td>
-                            <td className="p-2.5 font-mono text-[10px] text-slate-600 uppercase font-semibold">
-                              {log.entity_type}
+                            <td className="py-2.5 px-3 font-mono text-[10px] text-slate-600 uppercase font-semibold align-middle overflow-hidden">
+                              <HoverScrollText text={log.entity_type || '-'} />
                             </td>
-                            <td className="p-2.5 font-semibold text-slate-900 max-w-[160px] truncate">
-                              {log.entity_title || log.document_id || '-'}
+                            <td className="py-2.5 px-3 font-semibold text-slate-900 align-middle overflow-hidden">
+                              <HoverScrollText text={log.entity_title || log.document_id || '-'} />
                             </td>
-                            <td className="p-2.5 text-slate-600 max-w-[240px] truncate">
-                              {log.details || '-'}
+                            <td className="py-2.5 pl-3 pr-4 text-slate-600 align-middle overflow-hidden text-right">
+                              <HoverScrollText text={log.details || '-'} />
                             </td>
                           </tr>
                         ))

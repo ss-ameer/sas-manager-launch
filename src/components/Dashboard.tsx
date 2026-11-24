@@ -73,7 +73,12 @@ import {
 } from 'lucide-react';
 import { PageHeader, PageBody } from './layout/UiContainer';
 import { getWhatsAppUrl } from '../utils/defaults';
-import HoverScrollText from './HoverScrollText';
+import HoverScrollText from './common/HoverScrollText';
+import {
+  getProductStockOnHand,
+  getProductReorderLevel,
+  isProductLowStock
+} from '../utils/inventoryMetrics';
 
 interface DashboardProps {
   key?: any;
@@ -719,17 +724,14 @@ export default function Dashboard(props: DashboardProps) {
   }, [quotations, supplierBills]);
 
   const inventoryStats = useMemo(() => {
-    const activeProducts = products.filter((p) => !p.deleted);
+    const activeProducts = products.filter((p) => !p.is_deleted && !(p as any).deleted);
     let totalStockOnHand = 0;
     const lowStockProducts: Product[] = [];
     const familyGroups = new Set<string>();
 
     activeProducts.forEach((p) => {
-      const stock = Number(p.stock_quantity) || 0;
-      const minLvl = Number(p.min_stock_level) || 0;
-      totalStockOnHand += stock;
-      // Only flag Low Stock when an explicit reorder threshold (min_stock_level > 0) is configured
-      if (minLvl > 0 && stock <= minLvl) {
+      totalStockOnHand += getProductStockOnHand(p);
+      if (isProductLowStock(p)) {
         lowStockProducts.push(p);
       }
       const groupKey = (p.variant_group_id || '').trim();
@@ -1523,8 +1525,8 @@ export default function Dashboard(props: DashboardProps) {
                           <HoverScrollText text={prod.name} className="text-xs font-bold text-slate-900 min-w-0 flex-1" />
                         </div>
                         <div className="text-[11px] text-slate-500 mt-0.5 font-mono truncate">
-                          Part #: {prod.part_no || 'N/A'} • On Hand: {Number(prod.stock_quantity) || 0}{' '}
-                          {prod.unit || 'Nos'} (Min: {Number(prod.min_stock_level) || 0})
+                          Part #: {prod.part_no || 'N/A'} • On Hand: {getProductStockOnHand(prod)}{' '}
+                          {prod.unit || 'Nos'} (Min: {getProductReorderLevel(prod)})
                         </div>
                       </div>
                       <button
