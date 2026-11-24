@@ -12,7 +12,7 @@ import {
   Quotation,
   PurchaseOrderReceivingStatus
 } from '../types';
-import { safeAddDoc, safeUpdateDoc, safeGetDoc, safeGetDocs, db, isQuotaCircuitBroken } from '../firebase';
+import { safeAddDoc, safeUpdateDoc, safeGetDoc, safeGetDocs, db, auth, isQuotaCircuitBroken } from '../firebase';
 import { collection, query, where, onSnapshot, limit } from 'firebase/firestore';
 import { MetadataRepository } from './repositories/MetadataRepository';
 import { QuotationRepository } from './repositories/QuotationRepository';
@@ -935,10 +935,11 @@ export function subscribeStockMovements(
 
   const isQuotaSaver =
     typeof window !== 'undefined' &&
-    window.localStorage?.getItem('sas_quota_saver_mode') === 'true';
+    (window.localStorage?.getItem('sas_quota_saver_mode') === 'true' ||
+      window.localStorage?.getItem('omni_realtime_sync') === 'false');
 
-  if (isQuotaSaver || isStockMovementsPaused || isQuotaCircuitBroken()) {
-    if (!cached && !isStockMovementsPaused && !isQuotaCircuitBroken()) {
+  if (isQuotaSaver || isStockMovementsPaused || isQuotaCircuitBroken() || !auth.currentUser) {
+    if (!cached && !isStockMovementsPaused && !isQuotaCircuitBroken() && auth.currentUser) {
       fetchStockMovements(wsId)
         .then((list) => {
           stockMovementsCache.set(wsId, list);

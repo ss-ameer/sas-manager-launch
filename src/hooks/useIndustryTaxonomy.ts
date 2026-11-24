@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { safeGetDoc, safeSetDoc } from '../firebase';
+import { auth, safeGetDoc, safeSetDoc } from '../firebase';
 import { IndustryTaxonomySector } from '../types';
 import { SYSTEM_INDUSTRY_TAXONOMY } from '../utils/defaults';
 
@@ -52,6 +52,7 @@ function notifySubscribers(newSectors: IndustryTaxonomySector[]) {
 
 function startFirestoreListener() {
   if (hasFetchedSessionTaxonomy) return;
+  if (!auth.currentUser) return;
   hasFetchedSessionTaxonomy = true;
 
   const isQuotaSaver =

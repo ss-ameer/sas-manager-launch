@@ -1,4 +1,4 @@
-import { db, cleanUndefined, safeGetDocs, safeSetDoc, safeDeleteDoc, safeAddDoc } from '../firebase';
+import { db, auth, cleanUndefined, safeGetDocs, safeSetDoc, safeDeleteDoc, safeAddDoc, isQuotaCircuitBroken, resetQuotaCircuitBreaker } from '../firebase';
 import { doc, setDoc, updateDoc, deleteDoc, where } from 'firebase/firestore';
 import { enqueueLocalMutation, getPendingMutations, removeLocalMutation, MutationItem } from './db';
 import { sanitizeFirestorePayload } from './attachmentStorage';
@@ -23,6 +23,7 @@ class SyncEngine {
     if (typeof window !== 'undefined') {
       window.addEventListener('online', () => {
         this.isOnline = true;
+        resetQuotaCircuitBreaker();
         this.notify();
         this.processQueue();
       });
@@ -123,7 +124,7 @@ class SyncEngine {
    * Background process queue worker
    */
   public async processQueue(): Promise<void> {
-    if (!this.isOnline || this.isSyncing) return;
+    if (!this.isOnline || this.isSyncing || !auth.currentUser || isQuotaCircuitBroken()) return;
 
     const queue = await getPendingMutations();
     if (queue.length === 0) return;

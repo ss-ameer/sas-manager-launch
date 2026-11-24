@@ -1537,7 +1537,7 @@ export default function App() {
 
   // 2. Workspace Members & Workspaces Listeners (Decoupled from operational collection listeners)
   useEffect(() => {
-    if (!user?.uid || !realtimeSyncEnabled) {
+    if (!user?.uid || !auth.currentUser || !realtimeSyncEnabled) {
       if (activeUnsubscribersRef.current.workspaces) {
         activeUnsubscribersRef.current.workspaces();
         activeUnsubscribersRef.current.workspaces = null;
@@ -1712,7 +1712,7 @@ export default function App() {
     if (refs.salespersons) { refs.salespersons(); refs.salespersons = null; }
     if (refs.projects) { refs.projects(); refs.projects = null; }
 
-    if (!user?.uid || !realtimeSyncEnabled || !activeWorkspaceId) {
+    if (!user?.uid || !auth.currentUser || !realtimeSyncEnabled || !activeWorkspaceId) {
       return;
     }
 

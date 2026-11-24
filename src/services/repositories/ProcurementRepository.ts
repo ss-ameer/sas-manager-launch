@@ -6,7 +6,7 @@ import {
   Quotation,
   PaymentVoucherAllocationRow
 } from '../../types';
-import { db, safeGetDocs, safeGetDoc, safeSetDoc, safeUpdateDoc, safeDeleteDoc } from '../../firebase';
+import { db, auth, safeGetDocs, safeGetDoc, safeSetDoc, safeUpdateDoc, safeDeleteDoc, isQuotaCircuitBroken } from '../../firebase';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { QuotationRepository } from './QuotationRepository';
 import {
@@ -1058,7 +1058,7 @@ export class ProcurementRepository {
       }
     }
 
-    if (!isQuotaSaver && !this.isPaused && db && !this.activeSnapshotUnsubs.has(wsId)) {
+    if (!isQuotaSaver && !this.isPaused && db && auth.currentUser && !isQuotaCircuitBroken() && !this.activeSnapshotUnsubs.has(wsId)) {
       try {
         const q = query(
           collection(db, SUPPLIER_BILLS_COLLECTION),

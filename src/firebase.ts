@@ -3,8 +3,7 @@ import { getAuth } from 'firebase/auth';
 import { getStorage, ref, uploadBytes, getDownloadURL, uploadBytesResumable } from 'firebase/storage';
 import {
   initializeFirestore,
-  persistentLocalCache,
-  persistentMultipleTabManager,
+  memoryLocalCache,
   getFirestore,
   collection,
   doc,
@@ -27,13 +26,14 @@ const targetDatabaseId = firebaseConfig.firestoreDatabaseId || '(default)';
 
 let firestoreInstance: any;
 try {
+  // Use auto-detect long polling (tries fast streaming WebChannel first and falls back only if a
+  // buffering proxy is detected) and memoryLocalCache (app already maintains dedicated IndexedDB
+  // caching in src/services/db.ts, avoiding cross-tab IndexedDB lease stalls in embedded iframes).
   firestoreInstance = initializeFirestore(
     app,
     {
-      localCache: persistentLocalCache({
-        tabManager: persistentMultipleTabManager()
-      }),
-      experimentalForceLongPolling: true
+      localCache: memoryLocalCache(),
+      experimentalAutoDetectLongPolling: true
     },
     targetDatabaseId
   );
@@ -46,7 +46,7 @@ try {
 }
 
 export const db = firestoreInstance; /* CRITICAL: The app will break without this line */
-export const auth = getAuth();
+export const auth = getAuth(app);
 export const storage = getStorage(app);
 
 // Optional manual connection check helper (not called unconditionally on module load to save boot quota)
@@ -96,10 +96,30 @@ export function tripQuotaCircuitBreaker(durationMs = 60_000): void {
   quotaCircuitBrokenUntil = Math.max(quotaCircuitBrokenUntil, Date.now() + durationMs);
 }
 
+export function resetQuotaCircuitBreaker(): void {
+  quotaCircuitBrokenUntil = 0;
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('online', () => {
+    resetQuotaCircuitBreaker();
+  });
+}
+
+function isBrowserOffline(): boolean {
+  return typeof navigator !== 'undefined' && navigator.onLine === false;
+}
+
 export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
   const errMsg = error instanceof Error ? error.message : String(error);
   const isQuotaError = errMsg.includes('Quota limit exceeded') || errMsg.includes('quota') || errMsg.includes('resource-exhausted') || (error as any)?.code === 'resource-exhausted';
-  const isUnavailable = errMsg.includes('unavailable') || errMsg.includes('Could not reach Cloud Firestore backend') || errMsg.includes('Connection failed') || (error as any)?.code === 'unavailable';
+  const isUnavailable =
+    errMsg.includes('unavailable') ||
+    errMsg.includes('Could not reach Cloud Firestore backend') ||
+    errMsg.includes("Backend didn't respond") ||
+    errMsg.includes('client is offline') ||
+    errMsg.includes('Connection failed') ||
+    (error as any)?.code === 'unavailable';
   const isPermissionError = errMsg.includes('insufficient permissions') || errMsg.includes('permission-denied') || (error as any)?.code === 'permission-denied';
 
   if (isQuotaError || isUnavailable) {
@@ -185,7 +205,7 @@ export function invalidateReadMicroCache(collectionPath?: string): void {
 // Wrapped safe helper methods to easily ensure error reporting + 5s micro-cache & in-flight deduplication
 export async function safeGetDoc(collectionPath: string, docId: string, ...subPathSegments: string[]) {
   const path = [collectionPath, docId, ...subPathSegments].join('/');
-  if (isQuotaCircuitBroken()) {
+  if (isQuotaCircuitBroken() || isBrowserOffline() || !auth.currentUser) {
     return null;
   }
   const { isQuota, isOffline, latency } = applySimulations();
@@ -232,7 +252,7 @@ export async function safeGetDoc(collectionPath: string, docId: string, ...subPa
 }
 
 export async function safeGetDocs(collectionPath: string, ...constraints: QueryConstraint[]) {
-  if (isQuotaCircuitBroken()) {
+  if (isQuotaCircuitBroken() || isBrowserOffline() || !auth.currentUser) {
     return null;
   }
   const { isQuota, isOffline, latency } = applySimulations();
@@ -305,8 +325,10 @@ export async function safeAddDoc(collectionPath: string, data: any) {
   const localId = 'local_' + Date.now();
   const cleanedData = sanitizeFirestorePayload(cleanUndefined(data));
 
-  if (isQuota || isOffline) {
-    handleFirestoreError(new Error(`[SIMULATION] Firestore ${isQuota ? 'Quota Limit Exceeded' : 'Forced Offline'}`), OperationType.CREATE, collectionPath);
+  if (isQuota || isOffline || isBrowserOffline() || !auth.currentUser) {
+    if (isQuota || isOffline) {
+      handleFirestoreError(new Error(`[SIMULATION] Firestore ${isQuota ? 'Quota Limit Exceeded' : 'Forced Offline'}`), OperationType.CREATE, collectionPath);
+    }
     await syncEngine.enqueue(collectionPath, 'set', localId, cleanedData);
     return { id: localId } as any;
   }
@@ -353,8 +375,10 @@ export async function safeSetDoc(collectionPath: string, docId: string, data: an
 
   const cleanedData = sanitizeFirestorePayload(cleanUndefined(data));
 
-  if (isQuota || isOffline) {
-    handleFirestoreError(new Error(`[SIMULATION] Firestore ${isQuota ? 'Quota Limit Exceeded' : 'Forced Offline'}`), OperationType.WRITE, path);
+  if (isQuota || isOffline || isBrowserOffline() || !auth.currentUser) {
+    if (isQuota || isOffline) {
+      handleFirestoreError(new Error(`[SIMULATION] Firestore ${isQuota ? 'Quota Limit Exceeded' : 'Forced Offline'}`), OperationType.WRITE, path);
+    }
     await syncEngine.enqueue(collectionPath, 'set', docId, cleanedData);
     return null;
   }
@@ -406,8 +430,10 @@ export async function safeUpdateDoc(collectionPath: string, docId: string, data:
 
   const cleanedData = sanitizeFirestorePayload(cleanUndefined(data));
 
-  if (isQuota || isOffline) {
-    handleFirestoreError(new Error(`[SIMULATION] Firestore ${isQuota ? 'Quota Limit Exceeded' : 'Forced Offline'}`), OperationType.UPDATE, path);
+  if (isQuota || isOffline || isBrowserOffline() || !auth.currentUser) {
+    if (isQuota || isOffline) {
+      handleFirestoreError(new Error(`[SIMULATION] Firestore ${isQuota ? 'Quota Limit Exceeded' : 'Forced Offline'}`), OperationType.UPDATE, path);
+    }
     await syncEngine.enqueue(collectionPath, 'update', docId, cleanedData);
     return null;
   }
@@ -455,9 +481,11 @@ export async function safeDeleteDoc(collectionPath: string, docId: string): Prom
   const { isQuota, isOffline, latency } = applySimulations();
   if (latency > 0) await new Promise((r) => setTimeout(r, latency));
 
-  if (isQuota || isOffline) {
-    handleFirestoreError(new Error(`[SIMULATION] Firestore ${isQuota ? 'Quota Limit Exceeded' : 'Forced Offline'}`), OperationType.DELETE, path);
-    console.warn(`[safeDeleteDoc] Operating in offline/quota simulation mode for ${path}. Enqueued local delete.`);
+  if (isQuota || isOffline || isBrowserOffline() || !auth.currentUser) {
+    if (isQuota || isOffline) {
+      handleFirestoreError(new Error(`[SIMULATION] Firestore ${isQuota ? 'Quota Limit Exceeded' : 'Forced Offline'}`), OperationType.DELETE, path);
+      console.warn(`[safeDeleteDoc] Operating in offline/quota simulation mode for ${path}. Enqueued local delete.`);
+    }
     await syncEngine.enqueue(collectionPath, 'delete', cleanId);
     return true;
   }

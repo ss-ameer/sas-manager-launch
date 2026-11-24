@@ -14,7 +14,7 @@ import {
   QuotationPageHeaderOverride,
   CommercialDocumentType
 } from '../../types';
-import { safeGetDocs, safeGetDoc, safeSetDoc, safeAddDoc, safeUpdateDoc, safeDeleteDoc, db } from '../../firebase';
+import { safeGetDocs, safeGetDoc, safeSetDoc, safeAddDoc, safeUpdateDoc, safeDeleteDoc, db, auth, isQuotaCircuitBroken } from '../../firebase';
 import { getFromLocalStore, saveToLocalStore } from '../db';
 import { where, orderBy, doc, collection, query, onSnapshot } from 'firebase/firestore';
 import {
@@ -2975,7 +2975,7 @@ export class QuotationRepository {
       }
     }
 
-    if (!isQuotaSaver && !this.isPaused && db && !this.activeSnapshotUnsubs.has(wsId)) {
+    if (!isQuotaSaver && !this.isPaused && db && auth.currentUser && !isQuotaCircuitBroken() && !this.activeSnapshotUnsubs.has(wsId)) {
       try {
         const q = query(collection(db, 'quotations'), where('workspace_id', '==', wsId));
         const unsub = onSnapshot(
