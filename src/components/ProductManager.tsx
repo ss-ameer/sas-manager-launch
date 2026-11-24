@@ -68,9 +68,9 @@ import {
   Link2,
   Unlink,
   RefreshCw,
-  ShieldCheck
+  ShieldCheck,
+  SlidersHorizontal
 } from 'lucide-react';
-import SearchResultCounter from './common/SearchResultCounter';
 import HoverScrollText from './common/HoverScrollText';
 import { PageHeader, PageBody, KpiStatCard } from './layout/UiContainer';
 import {
@@ -168,11 +168,34 @@ export default function ProductManager({
 }: ProductManagerProps) {
   const [searchInput, setSearchInput] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('All');
+  const [brandFilter, setBrandFilter] = useState<string>('All');
   const [stockFilter, setStockFilter] = useState<'All' | 'Tracked' | 'LowStock' | 'WithDatasheet' | 'CompositeKit'>('All');
   const [groupVariantsByFamily, setGroupVariantsByFamily] = useState<boolean>(true);
+  const [isToolsDropdownOpen, setIsToolsDropdownOpen] = useState<boolean>(false);
+  const toolsDropdownRef = useRef<HTMLDivElement | null>(null);
   const [workspaceCatalogGuidelines, setWorkspaceCatalogGuidelines] = useState<string>(
     activeWorkspace?.catalog_ai_guidelines || ''
   );
+
+  useEffect(() => {
+    if (!isToolsDropdownOpen) return;
+    const handlePointerDown = (e: MouseEvent) => {
+      if (toolsDropdownRef.current && !toolsDropdownRef.current.contains(e.target as Node)) {
+        setIsToolsDropdownOpen(false);
+      }
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsToolsDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isToolsDropdownOpen]);
 
   useEffect(() => {
     if (!activeWorkspace?.id) return;
@@ -426,13 +449,54 @@ export default function ProductManager({
     return activeCatalogProducts.filter((p) => Boolean(p.is_inventoried));
   }, [activeCatalogProducts]);
 
+  // Shared Low-Stock predicate aligned with Dashboard (Track U7):
+  // Only flag Low Stock when an explicit reorder threshold (> 0) is configured so Min: 0 SKUs are never falsely alerted.
+  const getProductStockOnHand = (p: Product): number =>
+    Number(p.stock_on_hand ?? (p as any).stock_quantity ?? p.current_stock ?? 0) || 0;
+
+  const getProductReorderThreshold = (p: Product): number =>
+    Number(p.reorder_level ?? (p as any).min_stock_level ?? 0) || 0;
+
+  const isProductLowStock = (p: Product): boolean => {
+    const threshold = getProductReorderThreshold(p);
+    if (threshold <= 0) return false;
+    if (!p.is_inventoried && Number((p as any).min_stock_level || 0) <= 0) return false;
+    const available = getProductStockOnHand(p) - (Number(p.stock_reserved) || 0);
+    return available <= threshold;
+  };
+
   const lowStockProducts = useMemo(() => {
-    return inventoriedProducts.filter((p) => {
-      const available = (p.stock_on_hand || 0) - (p.stock_reserved || 0);
-      const threshold = p.reorder_level || 0;
-      return available <= threshold;
-    });
-  }, [inventoriedProducts]);
+    return activeCatalogProducts.filter((p) => isProductLowStock(p));
+  }, [activeCatalogProducts]);
+
+  const totalStockOnHand = useMemo(() => {
+    return activeCatalogProducts.reduce((acc, p) => acc + getProductStockOnHand(p), 0);
+  }, [activeCatalogProducts]);
+
+  const availableBrands = useMemo(() => {
+    const brandSet = new Set<string>();
+    for (const p of activeCatalogProducts) {
+      const b = (p.brand_make || '').trim();
+      if (b) brandSet.add(b);
+    }
+    return Array.from(brandSet).sort((a, b) => a.localeCompare(b));
+  }, [activeCatalogProducts]);
+
+  const stockTabCounts = useMemo(() => {
+    let compositeKit = 0;
+    let withDatasheet = 0;
+    for (const p of activeCatalogProducts) {
+      if (p.is_composite_set && p.sub_components && p.sub_components.length > 0) compositeKit += 1;
+      if (p.datasheet_attachment?.url) withDatasheet += 1;
+    }
+    return {
+      All: activeCatalogProducts.length,
+      CompositeKit: compositeKit,
+      Tracked: inventoriedProducts.length,
+      LowStock: lowStockProducts.length,
+      WithDatasheet: withDatasheet
+    };
+  }, [activeCatalogProducts, inventoriedProducts.length, lowStockProducts.length]);
 
   const selectedGrnProduct = useMemo(() => {
     return activeCatalogProducts.find((p) => p.id === grnProductId) || null;
@@ -1073,22 +1137,22 @@ export default function ProductManager({
         );
 
       const matchesCategory = categoryFilter === 'All' || p.product_type === categoryFilter;
+      const matchesBrand = brandFilter === 'All' || (p.brand_make || '').trim() === brandFilter;
 
       let matchesStock = true;
       if (stockFilter === 'Tracked') {
         matchesStock = Boolean(p.is_inventoried);
       } else if (stockFilter === 'LowStock') {
-        const available = (p.stock_on_hand || 0) - (p.stock_reserved || 0);
-        matchesStock = Boolean(p.is_inventoried) && available <= (p.reorder_level || 0);
+        matchesStock = isProductLowStock(p);
       } else if (stockFilter === 'WithDatasheet') {
         matchesStock = Boolean(p.datasheet_attachment?.url);
       } else if (stockFilter === 'CompositeKit') {
         matchesStock = Boolean(p.is_composite_set && p.sub_components && p.sub_components.length > 0);
       }
 
-      return matchSearch && matchesCategory && matchesStock;
+      return matchSearch && matchesCategory && matchesBrand && matchesStock;
     });
-  }, [activeCatalogProducts, searchInput, categoryFilter, stockFilter]);
+  }, [activeCatalogProducts, searchInput, categoryFilter, brandFilter, stockFilter]);
 
   // When Group Variants is active, sort products so Parent Families appear first with their Child Variants directly beneath them
   const orderedFilteredProducts = useMemo(() => {
@@ -1151,16 +1215,21 @@ export default function ProductManager({
     });
   }, [filteredProducts, activeCatalogProducts, groupVariantsByFamily]);
 
+  const hasActiveFilter = Boolean(
+    searchInput.trim() || categoryFilter !== 'All' || brandFilter !== 'All' || stockFilter !== 'All'
+  );
+
   const handleClearProductFilters = () => {
     setSearchInput('');
     setCategoryFilter('All');
+    setBrandFilter('All');
     setStockFilter('All');
     setCurrentPage(1);
   };
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchInput, categoryFilter, stockFilter, groupVariantsByFamily]);
+  }, [searchInput, categoryFilter, brandFilter, stockFilter, groupVariantsByFamily]);
 
   // Group contiguous parent + child variant families into atomic pagination units so a Parent and its Variants never split across pages
   const productFamilyUnits = useMemo<Product[][]>(() => {
@@ -2983,73 +3052,128 @@ export default function ProductManager({
     <div className="w-full">
       <PageHeader
         title="Products Catalog"
-        subtitle="Manage quotation template products, images, technical datasheets, pricing, and live inventory."
+        subtitle="Manage catalog SKUs, spec variants, datasheets, pricing, and live inventory."
         icon={Package}
-        badge={{ text: `${activeCatalogProducts.length} Products`, variant: 'blue' }}
+        badge={{ text: `${activeCatalogProducts.length} SKUs`, variant: 'blue' }}
         currentUser={user}
         onOpenSidebar={onOpenMobileMenu}
+        beforePrimaryActions={
+          <div className="relative" ref={toolsDropdownRef}>
+            <button
+              type="button"
+              onClick={() => setIsToolsDropdownOpen((prev) => !prev)}
+              className="h-9 px-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold inline-flex items-center gap-1.5 shadow-2xs transition cursor-pointer whitespace-nowrap"
+              aria-expanded={isToolsDropdownOpen}
+              aria-haspopup="menu"
+            >
+              <SlidersHorizontal className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
+              <span>Tools</span>
+              <ChevronDown
+                className={`w-3.5 h-3.5 text-slate-400 transition-transform ${
+                  isToolsDropdownOpen ? 'rotate-180' : ''
+                }`}
+              />
+            </button>
+            {isToolsDropdownOpen && (
+              <div
+                role="menu"
+                className="absolute right-0 mt-1.5 w-60 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-lg py-1.5 z-50"
+              >
+                <div className="px-3 py-1 text-[10px] font-mono font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                  Catalog &amp; Inventory Tools
+                </div>
+                {isEditable && (
+                  <>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setIsToolsDropdownOpen(false);
+                        setAiModalInitialItems(undefined);
+                        setAiModalInitialCurrency(undefined);
+                        setShowAiCatalogModal(true);
+                      }}
+                      className="w-full px-3 py-2 text-left text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2 transition cursor-pointer"
+                    >
+                      <Sparkles className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                      <span>AI Scan / Paste Products</span>
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setIsToolsDropdownOpen(false);
+                        openGrnModal();
+                      }}
+                      className="w-full px-3 py-2 text-left text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2 transition cursor-pointer"
+                    >
+                      <ArrowDownToLine className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                      <span>Receive Stock (GRN)</span>
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setIsToolsDropdownOpen(false);
+                        openAdjustModal();
+                      }}
+                      className="w-full px-3 py-2 text-left text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2 transition cursor-pointer"
+                    >
+                      <Sliders className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                      <span>Adjust Stock</span>
+                    </button>
+                    <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
+                  </>
+                )}
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setIsToolsDropdownOpen(false);
+                    setShowLedgerModal(true);
+                  }}
+                  className="w-full px-3 py-2 text-left text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2 transition cursor-pointer"
+                >
+                  <History className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                  <span>Stock Ledger</span>
+                </button>
+                {canViewConfidentialMargins && onOpenProcurement && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setIsToolsDropdownOpen(false);
+                      onOpenProcurement();
+                    }}
+                    className="w-full px-3 py-2 text-left text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2 transition cursor-pointer"
+                  >
+                    <ShoppingBag className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                    <span>Open Procurement</span>
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        }
         primaryAction={
           isEditable
             ? {
-                label: 'Create Product',
+                label: 'Add Product',
                 icon: Plus,
                 onClick: openAddModal
               }
             : undefined
         }
-        secondaryActions={[
-          ...(isEditable
-            ? [
-                {
-                  label: '✨ AI Scan / Paste Products',
-                  icon: Sparkles,
-                  onClick: () => {
-                    setAiModalInitialItems(undefined);
-                    setAiModalInitialCurrency(undefined);
-                    setShowAiCatalogModal(true);
-                  },
-                  variant: 'outline' as const
-                },
-                {
-                  label: 'Receive Stock (GRN)',
-                  icon: ArrowDownToLine,
-                  onClick: () => openGrnModal(),
-                  variant: 'outline' as const
-                },
-                {
-                  label: 'Adjust Stock',
-                  icon: Sliders,
-                  onClick: () => openAdjustModal(),
-                  variant: 'outline' as const
-                }
-              ]
-            : []),
-          {
-            label: 'Stock Ledger',
-            icon: History,
-            onClick: () => setShowLedgerModal(true),
-            variant: 'outline' as const
-          },
-          ...(canViewConfidentialMargins && onOpenProcurement
-            ? [
-                {
-                  label: 'Procurement',
-                  icon: ShoppingBag,
-                  onClick: onOpenProcurement,
-                  variant: 'outline' as const
-                }
-              ]
-            : [])
-        ]}
       />
 
-      <PageBody>
-        {/* Slimmer, Clickable KPI Strip */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+      <PageBody className="!py-4 sm:!py-5 !space-y-3.5">
+        {/* Compact 4-Card KPI Strip */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           <KpiStatCard
+            compact
             label="Catalog Items"
-            value={`${activeCatalogProducts.length} active`}
-            subtext={stockFilter === 'All' ? 'Showing all catalog items' : 'Click to show all catalog items'}
+            value={activeCatalogProducts.length.toLocaleString()}
+            subtext={stockFilter === 'All' ? 'All active catalog SKUs' : 'Click to show all SKUs'}
             icon={<Package className="w-4 h-4" />}
             tone="blue"
             onClick={() => setStockFilter('All')}
@@ -3057,9 +3181,10 @@ export default function ProductManager({
           />
 
           <KpiStatCard
+            compact
             label="Tracked Inventory"
-            value={`${inventoriedProducts.length} physical SKUs`}
-            subtext={stockFilter === 'Tracked' ? 'Showing tracked SKUs (click to reset)' : 'Click to filter tracked inventory'}
+            value={inventoriedProducts.length.toLocaleString()}
+            subtext={stockFilter === 'Tracked' ? 'Filtering tracked SKUs' : 'Physical inventoried SKUs'}
             icon={<Boxes className="w-4 h-4" />}
             tone="emerald"
             onClick={() => setStockFilter((prev) => (prev === 'Tracked' ? 'All' : 'Tracked'))}
@@ -3067,17 +3192,25 @@ export default function ProductManager({
           />
 
           <KpiStatCard
+            compact
             label="Total Stock on Hand"
-            value={`${activeCatalogProducts.reduce((acc, p) => acc + (p.stock_on_hand || 0), 0).toLocaleString()} units`}
+            value={`${totalStockOnHand.toLocaleString()} units`}
             subtext="Aggregate available inventory"
             icon={<ArrowDownToLine className="w-4 h-4" />}
             tone="indigo"
           />
 
           <KpiStatCard
+            compact
             label="Low Stock Alerts"
-            value={`${lowStockProducts.length} ${lowStockProducts.length === 1 ? 'item' : 'items'}`}
-            subtext={stockFilter === 'LowStock' ? 'Showing low stock items (click to reset)' : 'Click to filter low stock SKUs'}
+            value={lowStockProducts.length.toLocaleString()}
+            subtext={
+              lowStockProducts.length === 0
+                ? 'All reorder thresholds healthy'
+                : stockFilter === 'LowStock'
+                ? 'Filtering low stock SKUs'
+                : 'Below configured min level'
+            }
             icon={<AlertTriangle className="w-4 h-4" />}
             tone={lowStockProducts.length > 0 ? 'amber' : 'slate'}
             onClick={() => setStockFilter((prev) => (prev === 'LowStock' ? 'All' : 'LowStock'))}
@@ -3085,24 +3218,103 @@ export default function ProductManager({
           />
         </div>
 
-        {/* Single-Row Filters and Search Console */}
-        <div className="relative z-10 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl p-3.5 sm:p-4 shadow-xs space-y-2.5">
-          <div className="flex flex-wrap lg:flex-nowrap items-center gap-2.5 w-full">
-            {/* Search bar */}
-            <div className="relative flex-1 min-w-[220px] flex items-center">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 pointer-events-none" />
+        {/* Unified 2-Row White Toolbar Card */}
+        <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-3 shadow-2xs space-y-2.5">
+          {/* Row 1: Classification & Stock Tabs + Variant Family View Toggle */}
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-1.5">
+              {(
+                [
+                  { id: 'All', label: 'All Products', count: stockTabCounts.All },
+                  { id: 'CompositeKit', label: 'Kits / BOM', count: stockTabCounts.CompositeKit },
+                  { id: 'Tracked', label: 'Tracked', count: stockTabCounts.Tracked },
+                  { id: 'LowStock', label: 'Low Stock', count: stockTabCounts.LowStock },
+                  { id: 'WithDatasheet', label: 'With Datasheet', count: stockTabCounts.WithDatasheet }
+                ] as const
+              ).map((tab) => {
+                const isSelectedTab = stockFilter === tab.id;
+                const isAlertTab = tab.id === 'LowStock' && tab.count > 0;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setStockFilter(tab.id)}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition whitespace-nowrap cursor-pointer ${
+                      isSelectedTab
+                        ? 'bg-slate-900 text-white border-slate-900 dark:bg-white dark:text-slate-900 dark:border-white shadow-2xs'
+                        : 'bg-slate-50 dark:bg-slate-800/70 text-slate-600 dark:text-slate-300 border-slate-200/80 dark:border-slate-700/80 hover:bg-slate-100 dark:hover:bg-slate-800'
+                    }`}
+                  >
+                    <span>{tab.label}</span>
+                    <span
+                      className={`px-1.5 py-0.5 rounded-full text-[10px] font-mono tabular-nums leading-none ${
+                        isSelectedTab
+                          ? 'bg-white/20 text-white dark:bg-slate-900/15 dark:text-slate-900'
+                          : isAlertTab
+                          ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800'
+                          : 'bg-white dark:bg-slate-900/70 text-slate-500 dark:text-slate-400 border border-slate-200/80 dark:border-slate-700'
+                      }`}
+                    >
+                      {tab.count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Compact Segmented View Toggle: Grouped vs Flat */}
+            <div className="inline-flex items-center p-0.5 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700/80 shrink-0">
+              <button
+                type="button"
+                onClick={() => setGroupVariantsByFamily(true)}
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition cursor-pointer whitespace-nowrap ${
+                  groupVariantsByFamily
+                    ? 'bg-white dark:bg-slate-900 text-indigo-700 dark:text-indigo-300 shadow-2xs'
+                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+                }`}
+                title="Group sibling product variants under their parent Product Family"
+              >
+                <GitFork className="w-3 h-3 shrink-0" />
+                <span>Grouped</span>
+                {variantFamilyCount > 0 && (
+                  <span className="px-1.5 py-0.5 rounded-full text-[10px] font-mono tabular-nums leading-none bg-indigo-50 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300">
+                    {variantFamilyCount}
+                  </span>
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => setGroupVariantsByFamily(false)}
+                className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition cursor-pointer whitespace-nowrap ${
+                  !groupVariantsByFamily
+                    ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-2xs'
+                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+                }`}
+                title="Show all products as a flat ungrouped list"
+              >
+                <span>Flat List</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Row 2: Compact h-9 Search & Dropdown Filters */}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative flex-1 min-w-[220px]">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
                 type="text"
-                placeholder="Search by name, brand, model, SKU, or spec..."
+                placeholder="Search by product name, brand, model, SKU, or spec..."
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
-                className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 focus:border-blue-500 rounded-xl py-2 pl-10 pr-8 text-xs font-semibold text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none transition h-9.5"
+                className="w-full h-9 pl-9 pr-8 rounded-xl bg-slate-50/70 dark:bg-slate-800/80 focus:bg-white dark:focus:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs text-slate-700 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-sans transition"
               />
               {searchInput && (
                 <button
                   type="button"
                   onClick={() => setSearchInput('')}
-                  className="absolute right-2.5 p-1 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                  title="Clear search"
+                  aria-label="Clear search"
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>
@@ -3110,11 +3322,12 @@ export default function ProductManager({
             </div>
 
             {/* Category filter */}
-            <div className="relative w-full sm:w-48 shrink-0 flex items-center bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 rounded-xl shadow-2xs h-9.5 transition">
+            <div className="relative w-full sm:w-44 shrink-0 flex items-center bg-slate-50/70 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600 rounded-xl h-9 transition">
               <select
                 value={categoryFilter}
                 onChange={(e) => setCategoryFilter(e.target.value)}
-                className="appearance-none w-full bg-transparent pl-3 pr-8 text-xs font-semibold text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer h-full font-sans truncate"
+                aria-label="Filter by category"
+                className="appearance-none w-full bg-transparent pl-3 pr-8 text-xs font-semibold text-slate-700 dark:text-slate-200 focus:outline-none cursor-pointer h-full font-sans truncate"
               >
                 <option value="All">All Categories</option>
                 {productCategories.map((cat) => (
@@ -3123,923 +3336,957 @@ export default function ProductManager({
                   </option>
                 ))}
               </select>
-              <ChevronDown className="absolute right-2.5 w-4 h-4 text-slate-400 pointer-events-none" />
+              <ChevronDown className="absolute right-2.5 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
             </div>
 
-            {/* Stock & Media Filter Segmented Control */}
-            <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-xl h-9.5 shrink-0 overflow-x-auto max-w-full">
-              {(
-                [
-                  { id: 'All', label: 'All' },
-                  { id: 'CompositeKit', label: 'Kits / BOM' },
-                  { id: 'Tracked', label: 'Tracked' },
-                  { id: 'LowStock', label: `Low (${lowStockProducts.length})` },
-                  { id: 'WithDatasheet', label: 'Datasheet' }
-                ] as const
-              ).map((tab) => (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => setStockFilter(tab.id)}
-                  className={`h-full rounded-lg text-xs font-semibold transition cursor-pointer whitespace-nowrap px-2.5 ${
-                    stockFilter === tab.id
-                      ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-2xs'
-                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </div>
-
-            {/* Group Variants Toggle */}
-            <div className="flex items-center shrink-0 ml-auto lg:ml-0">
-              <button
-                type="button"
-                onClick={() => setGroupVariantsByFamily((prev) => !prev)}
-                className={`h-9.5 px-3 rounded-xl border text-xs font-semibold inline-flex items-center gap-1.5 whitespace-nowrap transition cursor-pointer shrink-0 ${
-                  groupVariantsByFamily
-                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
-                    : 'bg-white dark:bg-slate-950 hover:bg-indigo-50/60 dark:hover:bg-slate-900 text-slate-700 dark:text-slate-300 hover:text-indigo-700 border-slate-200 dark:border-slate-800'
-                }`}
-                title="Group sibling product variants under their parent Product Family header"
+            {/* Brand filter */}
+            <div className="relative w-full sm:w-40 shrink-0 flex items-center bg-slate-50/70 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600 rounded-xl h-9 transition">
+              <select
+                value={brandFilter}
+                onChange={(e) => setBrandFilter(e.target.value)}
+                aria-label="Filter by brand"
+                className="appearance-none w-full bg-transparent pl-3 pr-8 text-xs font-semibold text-slate-700 dark:text-slate-200 focus:outline-none cursor-pointer h-full font-sans truncate"
               >
-                <GitFork className="w-3.5 h-3.5 shrink-0" />
-                <span>Group Variants</span>
-                {variantFamilyCount > 0 && (
-                  <span
-                    className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono font-bold ${
-                      groupVariantsByFamily
-                        ? 'bg-indigo-800 text-indigo-100'
-                        : 'bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300'
-                    }`}
-                  >
-                    {variantFamilyCount}
-                  </span>
-                )}
-              </button>
+                <option value="All">All Brands</option>
+                {availableBrands.map((brand) => (
+                  <option key={brand} value={brand}>
+                    {brand}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="absolute right-2.5 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
             </div>
           </div>
 
-          {/* Standard Search Result Counter & Filter Status Banner */}
-          <SearchResultCounter
-            totalCount={activeCatalogProducts.length}
-            filteredCount={filteredProducts.length}
-            searchQuery={searchInput}
-            entityLabel="Products"
-            singularEntityLabel="Product"
-            onClear={handleClearProductFilters}
-            activeFilterLabels={[
-              ...(categoryFilter !== 'All' ? [`Category: ${categoryFilter}`] : []),
-              ...(stockFilter !== 'All' ? [`Filter: ${stockFilter}`] : []),
-              ...(groupVariantsByFamily ? ['Grouped by Variant Family'] : [])
-            ]}
-          />
-        </div>
-
-        {/* Products Table Layout */}
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl shadow-xs overflow-clip">
-          {paginatedProducts.length > 0 ? (
-            <>
-              <div className="w-full overflow-x-auto lg:overflow-x-visible scrollbar-thin">
-                <table className="w-full min-w-[760px] lg:min-w-0 table-fixed text-left border-collapse">
-                  <thead className="sticky top-0 z-10 bg-slate-50/95 dark:bg-slate-800/95 backdrop-blur-xs border-b border-slate-200 dark:border-slate-800 text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] select-none">
-                    <tr>
-                      <th className="py-3 px-4 w-[33%] truncate bg-slate-50 dark:bg-slate-900">Product &amp; Specifications</th>
-                      <th className="py-3 px-2.5 w-[15%] truncate bg-slate-50 dark:bg-slate-900">Category</th>
-                      <th className="py-3 px-2.5 w-[14%] truncate bg-slate-50 dark:bg-slate-900">Brand &amp; SKU</th>
-                      <th className="py-3 px-2.5 w-[12%] truncate bg-slate-50 dark:bg-slate-900">Stock &amp; Lead Time</th>
-                      <th className="py-3 pl-2 pr-4 w-[14%] min-w-[145px] text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">Unit Price</th>
-                      <th className="py-3 pl-2 pr-4 w-[124px] shrink-0 text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-200 dark:divide-slate-800 font-sans text-sm">
-                    {paginatedProducts.map((rawProd, rowIdx) => {
-                      const p = resolveEffectiveCatalogProduct(rawProd, activeCatalogProducts);
-                      const parentId = (rawProd as any).parent_product_id || rawProd.variant_parent_id || null;
-                      const linkedParent = parentId
-                        ? activeCatalogProducts.find((cand) => cand.id === parentId)
-                        : null;
-                      const childVariants = activeCatalogProducts.filter(
-                        (cand) =>
-                          cand.id !== p.id &&
-                          ((cand as any).parent_product_id === p.id || cand.variant_parent_id === p.id)
-                      );
-                      const childVariantsCount = childVariants.length;
-                      const explicitVariantLabel = String((rawProd as any).variant_label || '').trim();
-
-                      // When a Parent Product has empty brand_make, image_url, or unit_price === 0, inherit from its child variants for display
-                      const inheritedChildBrand =
-                        !p.brand_make && childVariants.length > 0
-                          ? childVariants.find((c) => (c.brand_make || '').trim())?.brand_make || ''
-                          : '';
-                      const inheritedChildImage =
-                        !p.image_url && childVariants.length > 0
-                          ? childVariants.find((c) => (c.image_url || '').trim())?.image_url || ''
-                          : '';
-                      const effectiveRowImageUrl = p.image_url || inheritedChildImage;
-                      const effectiveRowBrand = (p.brand_make || inheritedChildBrand || '').trim();
-
-                      const childPositivePrices = childVariants
-                        .map((c) => Number(c.unit_price) || 0)
-                        .filter((val) => val > 0);
-                      const minChildPrice =
-                        childPositivePrices.length > 0 ? Math.min(...childPositivePrices) : 0;
-                      const maxChildPrice =
-                        childPositivePrices.length > 0 ? Math.max(...childPositivePrices) : 0;
-
-                      const availableQty = (p.stock_on_hand || 0) - (p.stock_reserved || 0);
-                      const isLowStock = Boolean(p.is_inventoried) && availableQty <= (p.reorder_level || 0);
-                      const sellPrice = p.unit_price || 0;
-                      const costPrice = p.cost_price || 0;
-                      const cleanUnit = p.unit && p.unit !== 'Custom Unit' ? p.unit : 'Nos';
-                      const marginPct =
-                        sellPrice > 0 && costPrice > 0
-                          ? Math.round(((sellPrice - costPrice) / sellPrice) * 100)
-                          : null;
-                      const vInfo = p.id ? variantAnalysisMap.get(p.id) : undefined;
-                      const prevProd = rowIdx > 0 ? paginatedProducts[rowIdx - 1] : null;
-                      const showFamilyGroupHeader =
-                        groupVariantsByFamily &&
-                        !linkedParent &&
-                        childVariantsCount === 0 &&
-                        Boolean(vInfo?.isVariant) &&
-                        (!prevProd || (prevProd.id && variantAnalysisMap.get(prevProd.id)?.familyKey) !== vInfo?.familyKey);
-
-                      const productTitle = (p.name || p.product_type || 'Unnamed Product').trim();
-                      const parentAttrMap = new Map<string, string>();
-                      if (linkedParent && Array.isArray(linkedParent.attributes)) {
-                        for (const pa of linkedParent.attributes) {
-                          if (pa && pa.key) {
-                            parentAttrMap.set(pa.key.trim().toLowerCase(), (pa.value || '').trim().toLowerCase());
-                          }
-                        }
-                      }
-                      const isAttrDiffFromParent = (attr: { key: string; value: string }): boolean => {
-                        const kLower = (attr.key || '').trim().toLowerCase();
-                        const vLower = (attr.value || '').trim().toLowerCase();
-                        if (!kLower || !vLower) return false;
-                        if (linkedParent) {
-                          if (!parentAttrMap.has(kLower)) return true;
-                          return parentAttrMap.get(kLower) !== vLower;
-                        }
-                        if (vInfo?.isVariant) {
-                          return vInfo.differentiatingAttributes.some(
-                            (da) => da.key.trim().toLowerCase() === kLower
-                          );
-                        }
-                        return false;
-                      };
-
-                      const rawOrderedAttrs = vInfo?.isVariant
-                        ? [...vInfo.differentiatingAttributes, ...vInfo.sharedAttributes]
-                        : linkedParent
-                        ? [...(p.attributes || [])].sort((a, b) => {
-                            const aDiff = isAttrDiffFromParent(a) ? 0 : 1;
-                            const bDiff = isAttrDiffFromParent(b) ? 0 : 1;
-                            return aDiff - bDiff;
-                          })
-                        : (p.attributes || []);
-
-                      // Deduplicate attribute pills: exclude Brand/Make and any attribute that duplicates the row's purple variant_label badge
-                      const normVariantLabel = explicitVariantLabel.toLowerCase().replace(/\s+/g, ' ').trim();
-                      const orderedAttrs = rawOrderedAttrs.filter((attr) => {
-                        const k = (attr.key || '').trim();
-                        const v = (attr.value || '').trim();
-                        if (!k) return false;
-                        if (/^(brand|make|manufacturer|brand\s*\/\s*make)$/i.test(k)) return false;
-                        if (normVariantLabel) {
-                          const kvNorm = `${k}: ${v}`.toLowerCase().replace(/\s+/g, ' ').trim();
-                          const vNorm = v.toLowerCase().replace(/\s+/g, ' ').trim();
-                          if (
-                            kvNorm === normVariantLabel ||
-                            vNorm === normVariantLabel ||
-                            normVariantLabel.includes(kvNorm)
-                          ) {
-                            return false;
-                          }
-                        }
-                        return true;
-                      });
-
-                      const hasStructuredAttrs = orderedAttrs.length > 0;
-                      const visibleAttrs = orderedAttrs.slice(0, 3);
-                      const remainingAttrCount = Math.max(0, orderedAttrs.length - visibleAttrs.length);
-                      const allSpecsTooltip = orderedAttrs.map((a) => `${a.key}: ${a.value || '(Template Blank)'}`).join(' • ');
-
-                      // Deduplicated single-line subtitle when no structured attributes exist
-                      const rawDesc = (p.description || '').trim();
-                      let cleanSubtitle = rawDesc;
-                      if (cleanSubtitle.toLowerCase() === productTitle.toLowerCase()) {
-                        cleanSubtitle = '';
-                      } else if (cleanSubtitle.toLowerCase().startsWith(productTitle.toLowerCase())) {
-                        cleanSubtitle = cleanSubtitle.slice(productTitle.length).replace(/^[\s\-–—:|•,\n]+/, '').trim();
-                      }
-                      cleanSubtitle = cleanSubtitle.replace(/\s+/g, ' ').trim();
-                      if (cleanSubtitle.toLowerCase() === productTitle.toLowerCase()) {
-                        cleanSubtitle = '';
-                      }
-
-                      // Brand & SKU 2-line strings
-                      const hasBrand = Boolean(effectiveRowBrand);
-                      const brandLabel = hasBrand ? effectiveRowBrand : '—';
-                      const skuStr = (p.sku || '').trim();
-                      const modelStr = (p.model_part_no || '').trim();
-                      const skuModelParts = [
-                        skuStr || null,
-                        modelStr && modelStr.toLowerCase() !== skuStr.toLowerCase() ? modelStr : null
-                      ].filter(Boolean);
-                      const skuModelLine =
-                        skuModelParts.length > 0
-                          ? skuModelParts.join(' · ')
-                          : childVariantsCount > 0
-                          ? `${childVariantsCount} Variant SKU${childVariantsCount === 1 ? '' : 's'}`
-                          : '—';
-
-                      const isIndentedChildRow = groupVariantsByFamily && Boolean(linkedParent);
-                      const isParentCollapsed = Boolean(p.id && collapsedParentIds[p.id]);
-                      if (
-                        isIndentedChildRow &&
-                        linkedParent?.id &&
-                        collapsedParentIds[linkedParent.id] &&
-                        !searchInput.trim()
-                      ) {
-                        return null;
-                      }
-
-                      return (
-                        <React.Fragment key={p.id || rowIdx}>
-                          {showFamilyGroupHeader && vInfo && (
-                            <tr className="bg-indigo-50/60 dark:bg-indigo-950/30 border-y border-indigo-200/80 dark:border-indigo-800/60">
-                              <td colSpan={6} className="py-2 px-4">
-                                <div className="flex items-center justify-between gap-3 flex-wrap">
-                                  <div className="flex items-center gap-2 flex-wrap">
-                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-indigo-600 text-white text-xs font-bold">
-                                      <GitFork className="w-3.5 h-3.5" />
-                                      <span>{vInfo.familyDisplayName}</span>
-                                    </span>
-                                    <span className="text-xs font-mono font-bold text-indigo-900 dark:text-indigo-200">
-                                      {vInfo.siblingCount} Spec Variants
-                                    </span>
-                                    {vInfo.differentiatingKeys.length > 0 && (
-                                      <span className="text-[11px] font-mono text-indigo-700 dark:text-indigo-300 bg-white/80 dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 px-2 py-0.5 rounded-md">
-                                        Varies by: <strong>{vInfo.differentiatingKeys.join(', ')}</strong>
-                                      </span>
-                                    )}
-                                  </div>
-                                  {isEditable && (
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        openSpecVariantModal(p);
-                                      }}
-                                      className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 hover:bg-indigo-600 text-indigo-700 dark:text-indigo-300 hover:text-white border border-indigo-300 dark:border-indigo-700 text-xs font-bold inline-flex items-center gap-1 transition cursor-pointer shadow-2xs"
-                                    >
-                                      <Plus className="w-3.5 h-3.5" />
-                                      <span>Add Spec Variant</span>
-                                    </button>
-                                  )}
-                                </div>
-                              </td>
-                            </tr>
-                          )}
-                          <tr
-                            onClick={() => openEditModal(rawProd)}
-                            className={`transition-colors group cursor-pointer ${
-                              isIndentedChildRow
-                                ? 'bg-violet-50/25 dark:bg-violet-950/15 hover:bg-violet-50/60 dark:hover:bg-violet-900/30'
-                                : childVariantsCount > 0
-                                ? 'bg-indigo-50/20 dark:bg-indigo-950/20 hover:bg-indigo-50/45 dark:hover:bg-indigo-900/30'
-                                : 'hover:bg-slate-50/80 dark:hover:bg-slate-800/60'
-                            }`}
-                          >
-                            {/* 1. PRODUCT & SPECIFICATIONS (Strict 2-Line Cell, Zero Duplicate Specs) */}
-                            <td className="py-3 px-4 overflow-hidden align-middle">
-                              <div className={`flex items-center gap-2.5 min-w-0 overflow-hidden ${isIndentedChildRow ? 'pl-3' : ''}`}>
-                                {isIndentedChildRow && (
-                                  <span
-                                    className="font-mono text-xs font-bold text-violet-400 dark:text-violet-500 select-none shrink-0"
-                                    title={`Child Variant under ${linkedParent?.name}`}
-                                  >
-                                    └─
-                                  </span>
-                                )}
-                                {/* Product Image Thumbnail or Clean Placeholder */}
-                                {effectiveRowImageUrl ? (
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setLightboxProduct(p);
-                                    }}
-                                    className="relative group/thumb shrink-0 cursor-pointer"
-                                    title="Click to inspect photo, rotate, or add technical diagram"
-                                  >
-                                    <img
-                                      src={effectiveRowImageUrl}
-                                      alt={productTitle}
-                                      className="w-9 h-9 rounded-xl object-contain bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 group-hover/thumb:border-blue-400 p-0.5 shrink-0 shadow-2xs transition"
-                                      style={{
-                                        transform: `rotate(${p.image_adjustments?.rotation || 0}deg) scale(${p.image_adjustments?.scale || 1})`
-                                      }}
-                                      referrerPolicy="no-referrer"
-                                    />
-                                    {p.secondary_image_url && (
-                                      <span className="absolute -top-1 -right-1 px-1 py-0.2 rounded-full bg-indigo-600 text-white text-[8px] font-mono font-bold shadow-xs">
-                                        2
-                                      </span>
-                                    )}
-                                  </button>
-                                ) : (
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setLightboxProduct(p);
-                                    }}
-                                    className="w-9 h-9 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-blue-50 dark:hover:bg-blue-950/40 border border-slate-200/80 dark:border-slate-700 hover:border-blue-300 flex items-center justify-center text-slate-400 hover:text-blue-600 shrink-0 cursor-pointer transition"
-                                    title="Click to upload or paste product image"
-                                  >
-                                    <Package className="w-4 h-4" />
-                                  </button>
-                                )}
-
-                                <div className="min-w-0 flex-1 overflow-hidden">
-                                  {/* Line 1: Bold Product Name (or Prominent Child Variant Label when indented) + Compact Inline Badges */}
-                                  <div className="flex items-start gap-1.5 min-w-0 flex-wrap">
-                                    {isIndentedChildRow ? (
-                                      <>
-                                        <span
-                                          className="text-sm font-bold text-slate-900 dark:text-slate-100 line-clamp-2 leading-snug"
-                                          title={`${productTitle}${explicitVariantLabel ? ` — ${explicitVariantLabel}` : ''}`}
-                                        >
-                                          {explicitVariantLabel || productTitle}
-                                        </span>
-                                        <span
-                                          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-violet-100 dark:bg-violet-950/70 text-violet-800 dark:text-violet-200 border border-violet-300 dark:border-violet-700 shrink-0 mt-0.5"
-                                          title={`Child Variant of ${linkedParent?.name || 'Parent Family'}`}
-                                        >
-                                          <GitFork className="w-2.5 h-2.5" />
-                                          <span>Variant</span>
-                                        </span>
-                                      </>
-                                    ) : (
-                                      <>
-                                        <span
-                                          className="text-sm font-semibold text-slate-900 dark:text-slate-100 line-clamp-2 leading-snug"
-                                          title={productTitle}
-                                        >
-                                          {productTitle}
-                                        </span>
-                                        {linkedParent && (
-                                          <>
-                                            <span
-                                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 shrink-0 max-w-[180px] truncate mt-0.5"
-                                              title={`Child Variant of ${linkedParent.name} (${linkedParent.sku || 'Parent'})`}
-                                            >
-                                              <span>↳ {linkedParent.name || linkedParent.sku}</span>
-                                            </span>
-                                            {explicitVariantLabel && (
-                                              <span
-                                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-violet-100 dark:bg-violet-950/70 text-violet-800 dark:text-violet-200 border border-violet-300 dark:border-violet-700 shrink-0 mt-0.5"
-                                                title={`Differentiating Variant Label: ${explicitVariantLabel}`}
-                                              >
-                                                <GitFork className="w-2.5 h-2.5" />
-                                                <span>{explicitVariantLabel}</span>
-                                              </span>
-                                            )}
-                                          </>
-                                        )}
-                                      </>
-                                    )}
-                                    {p.is_composite_set && p.sub_components && p.sub_components.length > 0 ? (
-                                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800/60 shrink-0 mt-0.5">
-                                        <Layers className="w-2.5 h-2.5" />
-                                        <span>Kit / BOM</span>
-                                      </span>
-                                    ) : p.country_of_origin && !isIndentedChildRow ? (
-                                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200/80 dark:border-slate-700 shrink-0 mt-0.5">
-                                        <span>{p.country_of_origin}</span>
-                                      </span>
-                                    ) : null}
-                                    {p.datasheet_attachment?.url && (
-                                      <a
-                                        href={p.datasheet_attachment.url}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        onClick={(e) => e.stopPropagation()}
-                                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800/60 hover:bg-indigo-100 transition shrink-0 mt-0.5"
-                                        title={`View Technical Datasheet: ${p.datasheet_attachment.name}`}
-                                      >
-                                        <FileText className="w-2.5 h-2.5" />
-                                        <span>PDF</span>
-                                      </a>
-                                    )}
-                                  </div>
-
-                                  {/* Line 2: Parent Variant Expand/Collapse Toggle + Compact Spec Chips OR Non-Repeating Subtitle */}
-                                  {(!linkedParent && (childVariantsCount > 0 || (rawProd as any).has_variants)) ||
-                                  hasStructuredAttrs ||
-                                  cleanSubtitle ? (
-                                    <div
-                                      className="flex flex-wrap items-center gap-1 max-w-full overflow-hidden mt-1"
-                                      title={allSpecsTooltip}
-                                    >
-                                      {!linkedParent && (childVariantsCount > 0 || (rawProd as any).has_variants) && (
-                                        <button
-                                          type="button"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            if (!p.id) return;
-                                            if (!groupVariantsByFamily) {
-                                              setGroupVariantsByFamily(true);
-                                              setCollapsedParentIds((prev) => ({ ...prev, [p.id!]: false }));
-                                              return;
-                                            }
-                                            setCollapsedParentIds((prev) => ({
-                                              ...prev,
-                                              [p.id!]: !prev[p.id!]
-                                            }));
-                                          }}
-                                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/70 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 transition cursor-pointer shrink-0"
-                                          title={
-                                            isParentCollapsed
-                                              ? `Click to expand ${childVariantsCount} child variant(s)`
-                                              : `Click to collapse ${childVariantsCount} child variant(s)`
-                                          }
-                                        >
-                                          <GitFork className="w-2.5 h-2.5" />
-                                          <span>
-                                            {childVariantsCount} Variant{childVariantsCount === 1 ? '' : 's'}{' '}
-                                            {isParentCollapsed ? '▸' : '▾'}
-                                          </span>
-                                        </button>
-                                      )}
-                                      {hasStructuredAttrs ? (
-                                        <>
-                                          {visibleAttrs.map((attr, idx) => {
-                                            const isDiff = isAttrDiffFromParent(attr);
-                                            return (
-                                              <span
-                                                key={idx}
-                                                className={`text-[10.5px] font-mono px-1.5 py-0.5 rounded border max-w-[180px] truncate shrink-0 ${
-                                                  !attr.value
-                                                    ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800/60'
-                                                    : isDiff
-                                                    ? 'font-semibold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800/60'
-                                                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200/80 dark:border-slate-700'
-                                                }`}
-                                              >
-                                                {attr.key}: {attr.value || '(Fill on Quote)'}
-                                              </span>
-                                            );
-                                          })}
-                                          {remainingAttrCount > 0 && (
-                                            <span className="text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200/70 dark:border-slate-700 shrink-0">
-                                              +{remainingAttrCount} more
-                                            </span>
-                                          )}
-                                        </>
-                                      ) : cleanSubtitle ? (
-                                        <span
-                                          className="text-xs text-slate-500 dark:text-slate-400 truncate"
-                                          title={cleanSubtitle}
-                                        >
-                                          {cleanSubtitle}
-                                        </span>
-                                      ) : null}
-                                    </div>
-                                  ) : null}
-                                </div>
-                              </div>
-                            </td>
-
-                            {/* 2. CATEGORY */}
-                            <td className="py-3 px-2.5 overflow-hidden align-middle">
-                              <span
-                                className="inline-block text-[11px] font-medium px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-950/40 border border-blue-200/70 dark:border-blue-800/60 text-blue-700 dark:text-blue-300 truncate max-w-full"
-                                title={p.product_type || 'General'}
-                              >
-                                {p.product_type || 'General'}
-                              </span>
-                            </td>
-
-                            {/* 3. BRAND & SKU (Max 2 Lines) */}
-                            <td className="py-3 px-2.5 overflow-hidden align-middle">
-                              <div className="flex flex-col gap-0.5 min-w-0 overflow-hidden">
-                                {!hasBrand && skuModelLine !== '—' ? (
-                                  <>
-                                    <span
-                                      className="font-mono text-xs font-medium text-slate-700 dark:text-slate-300 truncate"
-                                      title={skuModelLine}
-                                    >
-                                      {skuModelLine}
-                                    </span>
-                                    <span className="text-[11px] text-slate-400 dark:text-slate-500 truncate">
-                                      No brand set
-                                    </span>
-                                  </>
-                                ) : (
-                                  <>
-                                    <span
-                                      className="font-semibold text-xs text-slate-800 dark:text-slate-200 truncate"
-                                      title={brandLabel}
-                                    >
-                                      {brandLabel}
-                                    </span>
-                                    <span
-                                      className="font-mono text-[11px] text-slate-500 dark:text-slate-400 truncate"
-                                      title={skuModelLine}
-                                    >
-                                      {skuModelLine}
-                                    </span>
-                                  </>
-                                )}
-                              </div>
-                            </td>
-
-                            {/* 4. STOCK & LEAD TIME (Max 2 Lines) */}
-                            <td className="py-3 px-2.5 overflow-hidden align-middle">
-                              <div className="flex flex-col items-start gap-0.5 min-w-0 overflow-hidden">
-                                {p.is_inventoried ? (
-                                  <>
-                                    <span
-                                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold truncate max-w-full ${
-                                        isLowStock
-                                          ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60'
-                                          : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60'
-                                      }`}
-                                      title={`Available: ${availableQty} ${cleanUnit} (On Hand: ${p.stock_on_hand || 0}, Reserved: ${p.stock_reserved || 0})`}
-                                    >
-                                      {isLowStock && <AlertTriangle className="w-3 h-3 text-amber-600 dark:text-amber-400 shrink-0" />}
-                                      <span className="truncate">
-                                        In Stock: {availableQty} {cleanUnit}
-                                      </span>
-                                    </span>
-                                    {(() => {
-                                      const stockSubParts = [
-                                        p.default_availability || null,
-                                        p.storage_location ? `Bin: ${p.storage_location}` : null,
-                                        (p.stock_reserved || 0) > 0 ? `Res: ${p.stock_reserved}` : null
-                                      ].filter(Boolean);
-                                      if (stockSubParts.length === 0) return null;
-                                      return (
-                                        <span
-                                          className="text-[11px] text-slate-400 dark:text-slate-500 truncate max-w-full"
-                                          title={stockSubParts.join(' · ')}
-                                        >
-                                          {stockSubParts.join(' · ')}
-                                        </span>
-                                      );
-                                    })()}
-                                  </>
-                                ) : (
-                                  <>
-                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200/80 dark:border-slate-700 truncate max-w-full">
-                                      Order / Non-Stock
-                                    </span>
-                                    {p.default_availability && (
-                                      <span
-                                        className="text-[11px] text-slate-400 dark:text-slate-500 truncate max-w-full"
-                                        title={p.default_availability}
-                                      >
-                                        {p.default_availability}
-                                      </span>
-                                    )}
-                                  </>
-                                )}
-                              </div>
-                            </td>
-
-                            {/* 5. UNIT PRICE (Right-Aligned with pr-4, whitespace-nowrap; Inherits Child Variant Price Range on Parent Families) */}
-                            <td className="py-3 pl-2 pr-4 text-right whitespace-nowrap align-middle">
-                              {p.unit_price !== undefined && p.unit_price > 0 ? (
-                                <div className="flex flex-col items-end gap-0.5 min-w-0">
-                                  <span className="font-bold font-mono tabular-nums text-sm text-slate-900 dark:text-slate-100 whitespace-nowrap">
-                                    AED{' '}
-                                    {p.unit_price.toLocaleString(undefined, {
-                                      minimumFractionDigits: 2,
-                                      maximumFractionDigits: 2
-                                    })}
-                                  </span>
-                                  {(() => {
-                                    const subParts = [
-                                      `per ${cleanUnit}`,
-                                      canViewConfidentialMargins && marginPct !== null ? `${marginPct}% margin` : null,
-                                      canViewConfidentialMargins && p.last_landed_cost && p.last_landed_cost > 0
-                                        ? `Landed: ${p.last_landed_cost.toFixed(0)}`
-                                        : null
-                                    ].filter(Boolean);
-                                    return (
-                                      <span
-                                        className="text-[11px] text-slate-400 dark:text-slate-500 truncate max-w-full"
-                                        title={subParts.join(' · ')}
-                                      >
-                                        {subParts.join(' · ')}
-                                      </span>
-                                    );
-                                  })()}
-                                </div>
-                              ) : minChildPrice > 0 ? (
-                                <div className="flex flex-col items-end gap-0.5 min-w-0">
-                                  <span className="font-bold font-mono tabular-nums text-sm text-indigo-700 dark:text-indigo-300 whitespace-nowrap">
-                                    {minChildPrice === maxChildPrice
-                                      ? `AED ${minChildPrice.toLocaleString(undefined, {
-                                          minimumFractionDigits: 2,
-                                          maximumFractionDigits: 2
-                                        })}`
-                                      : `From AED ${minChildPrice.toLocaleString(undefined, {
-                                          minimumFractionDigits: 2,
-                                          maximumFractionDigits: 2
-                                        })}`}
-                                  </span>
-                                  <span className="text-[11px] text-slate-400 dark:text-slate-500 whitespace-nowrap">
-                                    {childVariantsCount} variant{childVariantsCount === 1 ? '' : 's'} · per {cleanUnit}
-                                  </span>
-                                </div>
-                              ) : (
-                                <div className="flex flex-col items-end gap-0.5 min-w-0">
-                                  <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200/80 dark:border-amber-800/60 whitespace-nowrap">
-                                    Price on Request
-                                  </span>
-                                  <span className="text-[11px] text-slate-400 dark:text-slate-500 whitespace-nowrap">per {cleanUnit}</span>
-                                </div>
-                              )}
-                            </td>
-
-                            {/* 6. ACTIONS (w-[124px] shrink-0 text-right pr-4; compact icon buttons) */}
-                            <td className="py-3 pl-2 pr-4 w-[124px] shrink-0 text-right whitespace-nowrap align-middle relative" onClick={(e) => e.stopPropagation()}>
-                              <div className="inline-flex items-center justify-end gap-1">
-                                {isEditable ? (
-                                  <>
-                                    {!linkedParent && (
-                                      <button
-                                        type="button"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          openSpecVariantModal(rawProd);
-                                        }}
-                                        className="w-7 h-7 rounded-lg inline-flex items-center justify-center text-indigo-700 dark:text-indigo-300 bg-indigo-50/80 dark:bg-indigo-950/50 hover:bg-indigo-600 hover:text-white border border-indigo-200 dark:border-indigo-800 transition cursor-pointer shrink-0"
-                                        title="Add Spec Variant"
-                                        aria-label="Add Spec Variant"
-                                      >
-                                        <GitFork className="w-3.5 h-3.5" />
-                                      </button>
-                                    )}
-                                    {linkedParent ? (
-                                      <button
-                                        type="button"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          handleDetachProductVariant(rawProd);
-                                        }}
-                                        className="w-7 h-7 rounded-lg inline-flex items-center justify-center text-violet-600 dark:text-violet-400 hover:text-amber-700 hover:bg-amber-50 border border-violet-200/80 hover:border-amber-300 transition cursor-pointer shrink-0"
-                                        title={`Detach from "${linkedParent.name}" as Standalone Product`}
-                                      >
-                                        <Unlink className="w-3.5 h-3.5" />
-                                      </button>
-                                    ) : (
-                                      <button
-                                        type="button"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          setQuickLinkVariantTargetId((prev) => (prev === rawProd.id ? null : rawProd.id || null));
-                                          setQuickLinkParentSearch('');
-                                        }}
-                                        className="w-7 h-7 rounded-lg inline-flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-violet-600 hover:bg-violet-50 border border-transparent hover:border-violet-200 transition cursor-pointer shrink-0"
-                                        title="🔗 Make Variant Of... (Link this standalone item under an existing Parent Product or Extract Parent Family)"
-                                      >
-                                        <Link2 className="w-3.5 h-3.5" />
-                                      </button>
-                                    )}
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        openEditModal(rawProd);
-                                      }}
-                                      className="w-7 h-7 rounded-lg inline-flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 border border-transparent hover:border-blue-200/80 dark:hover:border-blue-800/60 transition cursor-pointer shrink-0"
-                                      title="Inspect / Edit Product"
-                                      aria-label="Inspect / Edit Product"
-                                    >
-                                      <Edit2 className="w-3.5 h-3.5" />
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleDeleteProduct(rawProd);
-                                      }}
-                                      className="w-7 h-7 rounded-lg inline-flex items-center justify-center text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 border border-transparent hover:border-rose-200 dark:hover:border-rose-800/60 transition cursor-pointer shrink-0"
-                                      title="Move to Recycle Bin"
-                                      aria-label="Move to Recycle Bin"
-                                    >
-                                      <Trash2 className="w-3.5 h-3.5" />
-                                    </button>
-                                  </>
-                                ) : (
-                                  <span className="text-xs text-slate-400 italic">Viewer</span>
-                                )}
-                              </div>
-
-                              {/* Inline 1-Click "Make Variant Of..." Popover */}
-                              {quickLinkVariantTargetId === rawProd.id && (
-                                <div
-                                  onClick={(e) => e.stopPropagation()}
-                                  className="absolute right-3 top-full mt-1 w-72 rounded-xl bg-white dark:bg-slate-900 border border-violet-200 dark:border-violet-800 shadow-2xl p-2.5 z-50 text-left space-y-2"
-                                >
-                                  <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-1.5">
-                                    <span className="text-[11px] font-bold text-violet-950 dark:text-violet-200 flex items-center gap-1">
-                                      <Link2 className="w-3 h-3 text-violet-600" />
-                                      <span>Make Variant Of Parent Product</span>
-                                    </span>
-                                    <button
-                                      type="button"
-                                      onClick={() => setQuickLinkVariantTargetId(null)}
-                                      className="text-slate-400 hover:text-slate-600 cursor-pointer"
-                                    >
-                                      <X className="w-3.5 h-3.5" />
-                                    </button>
-                                  </div>
-                                  <input
-                                    type="text"
-                                    autoFocus
-                                    value={quickLinkParentSearch}
-                                    onChange={(e) => setQuickLinkParentSearch(e.target.value)}
-                                    placeholder="Search parent product..."
-                                    className="w-full px-2.5 py-1 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none focus:border-violet-500"
-                                  />
-                                  <button
-                                    type="button"
-                                    onClick={() => handleCreateParentFamilyFromItem(rawProd)}
-                                    className="w-full text-left px-2.5 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-600 text-indigo-800 hover:text-white border border-indigo-200 text-[11px] font-bold flex items-center gap-1.5 transition cursor-pointer"
-                                    title="Automatically strip size/capacity suffix, create a Parent Product, and link this item under it"
-                                  >
-                                    <Sparkles className="w-3.5 h-3.5 shrink-0" />
-                                    <span>✨ Create Parent Family from This Item</span>
-                                  </button>
-                                  <div className="max-h-40 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
-                                    {activeCatalogProducts
-                                      .filter(
-                                        (cand) =>
-                                          cand.id !== rawProd.id &&
-                                          !cand.variant_parent_id &&
-                                          !(cand as any).parent_product_id &&
-                                          (!quickLinkParentSearch.trim() ||
-                                            `${cand.name} ${cand.sku} ${cand.brand_make}`
-                                              .toLowerCase()
-                                              .includes(quickLinkParentSearch.trim().toLowerCase()))
-                                      )
-                                      .slice(0, 20)
-                                      .map((cand) => (
-                                        <button
-                                          key={cand.id}
-                                          type="button"
-                                          onClick={() => handleMakeProductVariantOf(rawProd, cand)}
-                                          className="w-full text-left px-2 py-1.5 hover:bg-violet-50 dark:hover:bg-violet-950/40 rounded-lg transition cursor-pointer flex items-center justify-between gap-2"
-                                        >
-                                          <div className="min-w-0">
-                                            <div className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate">
-                                              {cand.name}
-                                            </div>
-                                            <div className="text-[10px] font-mono text-slate-500 truncate">
-                                              {cand.sku || cand.product_type}
-                                            </div>
-                                          </div>
-                                          <span className="text-[10px] font-bold text-violet-600 shrink-0">Link →</span>
-                                        </button>
-                                      ))}
-                                  </div>
-                                </div>
-                              )}
-                            </td>
-                          </tr>
-                        </React.Fragment>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-
-              {/* Pagination controls */}
-              <div className="px-4 py-3 bg-slate-50/60 dark:bg-slate-900/60 border-t border-slate-200/80 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600 dark:text-slate-400">
-                <div className="text-xs font-mono tabular-nums text-slate-600 dark:text-slate-400">
-                  Showing{' '}
-                  <span className="font-bold text-slate-900 dark:text-slate-100">
-                    {Math.min((currentPage - 1) * (itemsPerPage === 'All' ? totalItems : itemsPerPage) + 1, totalItems)}
-                  </span>{' '}
-                  to{' '}
-                  <span className="font-bold text-slate-900 dark:text-slate-100">
-                    {Math.min(currentPage * (itemsPerPage === 'All' ? totalItems : itemsPerPage), totalItems)}
-                  </span>{' '}
-                  of <span className="font-bold text-slate-900 dark:text-slate-100">{totalItems}</span> products
-                </div>
-
-                <div className="flex items-center space-x-4">
-                  <div className="flex items-center space-x-2">
-                    <span className="text-xs text-slate-500 dark:text-slate-400 font-sans">Rows per page:</span>
-                    <select
-                      value={itemsPerPage}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        setItemsPerPage(val === 'All' ? 'All' : Number(val));
-                        setCurrentPage(1);
-                      }}
-                      className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-xs font-semibold text-slate-700 dark:text-slate-200 focus:outline-none cursor-pointer"
-                    >
-                      <option value={10}>10</option>
-                      <option value={25}>25</option>
-                      <option value={50}>50</option>
-                      <option value={100}>100</option>
-                      <option value="All">All</option>
-                    </select>
-                  </div>
-
-                  <div className="flex items-center space-x-1">
-                    <button
-                      type="button"
-                      onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
-                      disabled={currentPage <= 1 || itemsPerPage === 'All'}
-                      className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer text-xs font-semibold inline-flex items-center gap-1"
-                      title="Previous Page"
-                    >
-                      <ChevronLeft className="w-3.5 h-3.5" />
-                      <span>Prev</span>
-                    </button>
-                    <span className="text-xs font-mono tabular-nums px-2.5 text-slate-600 dark:text-slate-400">
-                      Page <span className="font-bold text-slate-900 dark:text-slate-100">{itemsPerPage === 'All' ? 1 : currentPage}</span> of{' '}
-                      <span className="font-bold text-slate-900 dark:text-slate-100">{itemsPerPage === 'All' ? 1 : Math.max(1, totalPages)}</span>
+          {/* Conditional Active Filter Strip (Zero Idle Height When Unfiltered) */}
+          {hasActiveFilter && (
+            <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="font-mono text-[11px] text-slate-500 dark:text-slate-400 tabular-nums">
+                  Showing <strong className="text-slate-800 dark:text-slate-100">{filteredProducts.length}</strong> of{' '}
+                  <strong className="text-slate-800 dark:text-slate-100">{activeCatalogProducts.length}</strong> products
+                </span>
+                {stockFilter !== 'All' && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border border-blue-200/80 dark:border-blue-800 text-[11px] font-medium">
+                    <span>
+                      View:{' '}
+                      {stockFilter === 'CompositeKit'
+                        ? 'Kits / BOM'
+                        : stockFilter === 'LowStock'
+                        ? 'Low Stock'
+                        : stockFilter === 'WithDatasheet'
+                        ? 'With Datasheet'
+                        : stockFilter}
                     </span>
                     <button
                       type="button"
-                      onClick={() => setCurrentPage((prev) => Math.min(prev + 1, Math.max(1, totalPages)))}
-                      disabled={itemsPerPage === 'All' || currentPage >= Math.max(1, totalPages)}
-                      className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer text-xs font-semibold inline-flex items-center gap-1"
-                      title="Next Page"
+                      onClick={() => setStockFilter('All')}
+                      className="hover:text-blue-900 dark:hover:text-blue-100 cursor-pointer"
+                      aria-label="Remove view filter"
                     >
-                      <span>Next</span>
-                      <ChevronRight className="w-3.5 h-3.5" />
+                      <X className="w-3 h-3" />
                     </button>
-                  </div>
-                </div>
-              </div>
-            </>
-          ) : (
-            <div className="py-16 px-4 text-center font-sans">
-              {searchInput || categoryFilter !== 'All' || stockFilter !== 'All' ? (
-                <div className="max-w-md mx-auto flex flex-col items-center gap-2.5">
-                  <div className="w-11 h-11 rounded-2xl bg-blue-50 border border-blue-100 text-blue-600 flex items-center justify-center">
-                    <Search className="w-5 h-5" />
-                  </div>
-                  <h4 className="text-sm font-bold text-slate-900">
-                    No Products Match Your Filter
-                  </h4>
-                  <p className="text-xs text-slate-500">
-                    {searchInput.trim() ? (
-                      <>
-                        No products match <span className="font-semibold text-slate-800">&ldquo;{searchInput.trim()}&rdquo;</span>
-                        {categoryFilter !== 'All' ? ` in ${categoryFilter}` : ''}.
-                      </>
-                    ) : (
-                      <>No products match the selected category or stock status filter.</>
-                    )}{' '}
-                    Clear your filters to restore all {activeCatalogProducts.length} catalog products.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={handleClearProductFilters}
-                    className="mt-1 inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 transition cursor-pointer"
-                  >
-                    <RotateCcw className="w-3.5 h-3.5" />
-                    <span>Clear Search / Reset Filters</span>
-                  </button>
-                </div>
-              ) : (
-                <div className="max-w-md mx-auto flex flex-col items-center gap-2.5">
-                  <div className="w-12 h-12 rounded-2xl bg-blue-50 border border-blue-100 text-blue-600 flex items-center justify-center">
-                    <Package className="w-6 h-6" />
-                  </div>
-                  <h4 className="text-sm font-bold text-slate-900">
-                    Your Product Catalog is Empty
-                  </h4>
-                  <p className="text-xs text-slate-500">
-                    Register equipment, materials, spec variant families, or composite engineering packages to streamline quotations, stock reservations, and GRN intake.
-                  </p>
-                  {isEditable && (
+                  </span>
+                )}
+                {categoryFilter !== 'All' && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border border-blue-200/80 dark:border-blue-800 text-[11px] font-medium">
+                    <span>Category: {categoryFilter}</span>
                     <button
                       type="button"
-                      onClick={() => openAddModal()}
-                      className="mt-1 inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-xs transition cursor-pointer"
+                      onClick={() => setCategoryFilter('All')}
+                      className="hover:text-blue-900 dark:hover:text-blue-100 cursor-pointer"
+                      aria-label="Remove category filter"
                     >
-                      <Plus className="w-3.5 h-3.5" />
-                      <span>Create New Product</span>
+                      <X className="w-3 h-3" />
                     </button>
-                  )}
-                </div>
-              )}
+                  </span>
+                )}
+                {brandFilter !== 'All' && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border border-blue-200/80 dark:border-blue-800 text-[11px] font-medium">
+                    <span>Brand: {brandFilter}</span>
+                    <button
+                      type="button"
+                      onClick={() => setBrandFilter('All')}
+                      className="hover:text-blue-900 dark:hover:text-blue-100 cursor-pointer"
+                      aria-label="Remove brand filter"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                )}
+                {searchInput.trim() && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 text-[11px] font-medium">
+                    <span>Search: &ldquo;{searchInput.trim()}&rdquo;</span>
+                    <button
+                      type="button"
+                      onClick={() => setSearchInput('')}
+                      className="hover:text-slate-900 dark:hover:text-white cursor-pointer"
+                      aria-label="Clear search query"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={handleClearProductFilters}
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition cursor-pointer"
+              >
+                <RotateCcw className="w-3 h-3" />
+                <span>Reset Filters</span>
+              </button>
             </div>
           )}
+        </div>
+
+        {/* Standalone Products Table Card (Explicit 6-Column <colgroup>, Strict colSpan Parity) */}
+        <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl shadow-xs overflow-clip">
+          <div className="w-full overflow-x-auto lg:overflow-x-visible scrollbar-thin relative">
+            <table className="w-full min-w-[960px] lg:min-w-0 lg:table-fixed text-left border-collapse font-sans">
+              <colgroup>
+                <col className="w-auto" />
+                <col className="w-[144px]" />
+                <col className="w-[164px]" />
+                <col className="w-[152px]" />
+                <col className="w-[136px]" />
+                <col className="w-[156px]" />
+              </colgroup>
+              <thead className="sticky top-0 z-10 bg-slate-50/95 dark:bg-slate-800/95 backdrop-blur-xs border-b border-slate-200 dark:border-slate-800 text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] select-none">
+                <tr>
+                  <th className="py-2.5 px-4 whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Product &amp; Specifications</th>
+                  <th className="py-2.5 px-2.5 whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Category</th>
+                  <th className="py-2.5 px-2.5 whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Brand &amp; SKU</th>
+                  <th className="py-2.5 px-2.5 whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Stock &amp; Lead Time</th>
+                  <th className="py-2.5 pl-2 pr-4 text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">Unit Price</th>
+                  <th className="py-2.5 pl-2 pr-4 text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200/80 dark:divide-slate-800 font-sans text-sm bg-white dark:bg-slate-900">
+                {paginatedProducts.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="py-14 px-4 text-center font-sans">
+                      {hasActiveFilter ? (
+                        <div className="max-w-md mx-auto flex flex-col items-center gap-2.5">
+                          <div className="w-11 h-11 rounded-2xl bg-blue-50 dark:bg-blue-950/50 border border-blue-100 dark:border-blue-800 text-blue-600 dark:text-blue-400 flex items-center justify-center">
+                            <Search className="w-5 h-5" />
+                          </div>
+                          <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                            No Products Match Your Filter
+                          </h4>
+                          <p className="text-xs text-slate-500 dark:text-slate-400">
+                            {searchInput.trim() ? (
+                              <>
+                                No products match <span className="font-semibold text-slate-800 dark:text-slate-200">&ldquo;{searchInput.trim()}&rdquo;</span>
+                                {categoryFilter !== 'All' ? ` in ${categoryFilter}` : ''}
+                                {brandFilter !== 'All' ? ` (${brandFilter})` : ''}.
+                              </>
+                            ) : (
+                              <>No products match the selected category, brand, or stock filter.</>
+                            )}{' '}
+                            Clear your filters to restore all {activeCatalogProducts.length} catalog products.
+                          </p>
+                          <button
+                            type="button"
+                            onClick={handleClearProductFilters}
+                            className="mt-1 inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 transition cursor-pointer"
+                          >
+                            <RotateCcw className="w-3.5 h-3.5" />
+                            <span>Clear Search / Reset Filters</span>
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="max-w-md mx-auto flex flex-col items-center gap-2.5">
+                          <div className="w-12 h-12 rounded-2xl bg-blue-50 dark:bg-blue-950/50 border border-blue-100 dark:border-blue-800 text-blue-600 dark:text-blue-400 flex items-center justify-center">
+                            <Package className="w-6 h-6" />
+                          </div>
+                          <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                            Your Product Catalog is Empty
+                          </h4>
+                          <p className="text-xs text-slate-500 dark:text-slate-400">
+                            Register equipment, materials, spec variant families, or composite engineering packages to streamline quotations, stock reservations, and GRN intake.
+                          </p>
+                          {isEditable && (
+                            <button
+                              type="button"
+                              onClick={() => openAddModal()}
+                              className="mt-1 inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-xs transition cursor-pointer"
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                              <span>Add Product</span>
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                ) : (
+                  paginatedProducts.map((rawProd, rowIdx) => {
+                    const p = resolveEffectiveCatalogProduct(rawProd, activeCatalogProducts);
+                    const parentId = (rawProd as any).parent_product_id || rawProd.variant_parent_id || null;
+                    const linkedParent = parentId
+                      ? activeCatalogProducts.find((cand) => cand.id === parentId)
+                      : null;
+                    const childVariants = activeCatalogProducts.filter(
+                      (cand) =>
+                        cand.id !== p.id &&
+                        ((cand as any).parent_product_id === p.id || cand.variant_parent_id === p.id)
+                    );
+                    const childVariantsCount = childVariants.length;
+                    const explicitVariantLabel = String((rawProd as any).variant_label || '').trim();
+
+                    // When a Parent Product has empty brand_make, image_url, or unit_price === 0, inherit from its child variants for display
+                    const inheritedChildBrand =
+                      !p.brand_make && childVariants.length > 0
+                        ? childVariants.find((c) => (c.brand_make || '').trim())?.brand_make || ''
+                        : '';
+                    const inheritedChildImage =
+                      !p.image_url && childVariants.length > 0
+                        ? childVariants.find((c) => (c.image_url || '').trim())?.image_url || ''
+                        : '';
+                    const effectiveRowImageUrl = p.image_url || inheritedChildImage;
+                    const effectiveRowBrand = (p.brand_make || inheritedChildBrand || '').trim();
+
+                    const childPositivePrices = childVariants
+                      .map((c) => Number(c.unit_price) || 0)
+                      .filter((val) => val > 0);
+                    const minChildPrice =
+                      childPositivePrices.length > 0 ? Math.min(...childPositivePrices) : 0;
+                    const maxChildPrice =
+                      childPositivePrices.length > 0 ? Math.max(...childPositivePrices) : 0;
+
+                    const stockOnHandVal = getProductStockOnHand(p);
+                    const availableQty = stockOnHandVal - (Number(p.stock_reserved) || 0);
+                    const isLowStock = isProductLowStock(p);
+                    const sellPrice = p.unit_price || 0;
+                    const costPrice = p.cost_price || 0;
+                    const cleanUnit = p.unit && p.unit !== 'Custom Unit' ? p.unit : 'Nos';
+                    const marginPct =
+                      sellPrice > 0 && costPrice > 0
+                        ? Math.round(((sellPrice - costPrice) / sellPrice) * 100)
+                        : null;
+                    const vInfo = p.id ? variantAnalysisMap.get(p.id) : undefined;
+                    const prevProd = rowIdx > 0 ? paginatedProducts[rowIdx - 1] : null;
+                    const showFamilyGroupHeader =
+                      groupVariantsByFamily &&
+                      !linkedParent &&
+                      childVariantsCount === 0 &&
+                      Boolean(vInfo?.isVariant) &&
+                      (!prevProd || (prevProd.id && variantAnalysisMap.get(prevProd.id)?.familyKey) !== vInfo?.familyKey);
+
+                    const productTitle = (p.name || p.product_type || 'Unnamed Product').trim();
+                    const parentAttrMap = new Map<string, string>();
+                    if (linkedParent && Array.isArray(linkedParent.attributes)) {
+                      for (const pa of linkedParent.attributes) {
+                        if (pa && pa.key) {
+                          parentAttrMap.set(pa.key.trim().toLowerCase(), (pa.value || '').trim().toLowerCase());
+                        }
+                      }
+                    }
+                    const isAttrDiffFromParent = (attr: { key: string; value: string }): boolean => {
+                      const kLower = (attr.key || '').trim().toLowerCase();
+                      const vLower = (attr.value || '').trim().toLowerCase();
+                      if (!kLower || !vLower) return false;
+                      if (linkedParent) {
+                        if (!parentAttrMap.has(kLower)) return true;
+                        return parentAttrMap.get(kLower) !== vLower;
+                      }
+                      if (vInfo?.isVariant) {
+                        return vInfo.differentiatingAttributes.some(
+                          (da) => da.key.trim().toLowerCase() === kLower
+                        );
+                      }
+                      return false;
+                    };
+
+                    const rawOrderedAttrs = vInfo?.isVariant
+                      ? [...vInfo.differentiatingAttributes, ...vInfo.sharedAttributes]
+                      : linkedParent
+                      ? [...(p.attributes || [])].sort((a, b) => {
+                          const aDiff = isAttrDiffFromParent(a) ? 0 : 1;
+                          const bDiff = isAttrDiffFromParent(b) ? 0 : 1;
+                          return aDiff - bDiff;
+                        })
+                      : (p.attributes || []);
+
+                    // Deduplicate attribute pills: exclude Brand/Make and any attribute that duplicates the row's purple variant_label badge
+                    const normVariantLabel = explicitVariantLabel.toLowerCase().replace(/\s+/g, ' ').trim();
+                    const orderedAttrs = rawOrderedAttrs.filter((attr) => {
+                      const k = (attr.key || '').trim();
+                      const v = (attr.value || '').trim();
+                      if (!k) return false;
+                      if (/^(brand|make|manufacturer|brand\s*\/\s*make)$/i.test(k)) return false;
+                      if (normVariantLabel) {
+                        const kvNorm = `${k}: ${v}`.toLowerCase().replace(/\s+/g, ' ').trim();
+                        const vNorm = v.toLowerCase().replace(/\s+/g, ' ').trim();
+                        if (
+                          kvNorm === normVariantLabel ||
+                          vNorm === normVariantLabel ||
+                          normVariantLabel.includes(kvNorm)
+                        ) {
+                          return false;
+                        }
+                      }
+                      return true;
+                    });
+
+                    const hasStructuredAttrs = orderedAttrs.length > 0;
+                    const visibleAttrs = orderedAttrs.slice(0, 3);
+                    const remainingAttrCount = Math.max(0, orderedAttrs.length - visibleAttrs.length);
+                    const allSpecsTooltip = orderedAttrs.map((a) => `${a.key}: ${a.value || '(Template Blank)'}`).join(' • ');
+
+                    // Deduplicated single-line subtitle when no structured attributes exist
+                    const rawDesc = (p.description || '').trim();
+                    let cleanSubtitle = rawDesc;
+                    if (cleanSubtitle.toLowerCase() === productTitle.toLowerCase()) {
+                      cleanSubtitle = '';
+                    } else if (cleanSubtitle.toLowerCase().startsWith(productTitle.toLowerCase())) {
+                      cleanSubtitle = cleanSubtitle.slice(productTitle.length).replace(/^[\s\-–—:|•,\n]+/, '').trim();
+                    }
+                    cleanSubtitle = cleanSubtitle.replace(/\s+/g, ' ').trim();
+                    if (cleanSubtitle.toLowerCase() === productTitle.toLowerCase()) {
+                      cleanSubtitle = '';
+                    }
+
+                    // Brand & SKU 2-line strings
+                    const hasBrand = Boolean(effectiveRowBrand);
+                    const brandLabel = hasBrand ? effectiveRowBrand : '—';
+                    const skuStr = (p.sku || '').trim();
+                    const modelStr = (p.model_part_no || '').trim();
+                    const skuModelParts = [
+                      skuStr || null,
+                      modelStr && modelStr.toLowerCase() !== skuStr.toLowerCase() ? modelStr : null
+                    ].filter(Boolean);
+                    const skuModelLine =
+                      skuModelParts.length > 0
+                        ? skuModelParts.join(' · ')
+                        : childVariantsCount > 0
+                        ? `${childVariantsCount} Variant SKU${childVariantsCount === 1 ? '' : 's'}`
+                        : '—';
+
+                    const isIndentedChildRow = groupVariantsByFamily && Boolean(linkedParent);
+                    const isParentCollapsed = Boolean(p.id && collapsedParentIds[p.id]);
+                    if (
+                      isIndentedChildRow &&
+                      linkedParent?.id &&
+                      collapsedParentIds[linkedParent.id] &&
+                      !searchInput.trim()
+                    ) {
+                      return null;
+                    }
+
+                    const stockSubParts = [
+                      p.default_availability || null,
+                      p.storage_location ? `Bin: ${p.storage_location}` : null,
+                      (p.stock_reserved || 0) > 0 ? `Res: ${p.stock_reserved}` : null
+                    ].filter(Boolean);
+
+                    const priceSubParts = [
+                      `per ${cleanUnit}`,
+                      canViewConfidentialMargins && marginPct !== null ? `${marginPct}% margin` : null,
+                      canViewConfidentialMargins && p.last_landed_cost && p.last_landed_cost > 0
+                        ? `Landed: ${p.last_landed_cost.toFixed(0)}`
+                        : null
+                    ].filter(Boolean);
+
+                    return (
+                      <React.Fragment key={p.id || rowIdx}>
+                        {showFamilyGroupHeader && vInfo && (
+                          <tr className="bg-indigo-50/60 dark:bg-indigo-950/30 border-y border-indigo-200/80 dark:border-indigo-800/60">
+                            <td colSpan={6} className="py-2 px-4">
+                              <div className="flex items-center justify-between gap-3 flex-wrap">
+                                <div className="flex items-center gap-2 flex-wrap min-w-0">
+                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-indigo-600 text-white text-xs font-bold">
+                                    <GitFork className="w-3.5 h-3.5" />
+                                    <span>{vInfo.familyDisplayName}</span>
+                                  </span>
+                                  <span className="text-xs font-mono font-bold text-indigo-900 dark:text-indigo-200">
+                                    {vInfo.siblingCount} Spec Variants
+                                  </span>
+                                  {vInfo.differentiatingKeys.length > 0 && (
+                                    <span className="text-[11px] font-mono text-indigo-700 dark:text-indigo-300 bg-white/80 dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 px-2 py-0.5 rounded-md">
+                                      Varies by: <strong>{vInfo.differentiatingKeys.join(', ')}</strong>
+                                    </span>
+                                  )}
+                                </div>
+                                {isEditable && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      openSpecVariantModal(p);
+                                    }}
+                                    className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 hover:bg-indigo-600 text-indigo-700 dark:text-indigo-300 hover:text-white border border-indigo-300 dark:border-indigo-700 text-xs font-bold inline-flex items-center gap-1 transition cursor-pointer shadow-2xs"
+                                  >
+                                    <Plus className="w-3.5 h-3.5" />
+                                    <span>Add Spec Variant</span>
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                        <tr
+                          onClick={() => openEditModal(rawProd)}
+                          className={`transition-colors group cursor-pointer ${
+                            isIndentedChildRow
+                              ? 'bg-violet-50/25 dark:bg-violet-950/15 hover:bg-violet-50/60 dark:hover:bg-violet-900/30'
+                              : childVariantsCount > 0
+                              ? 'bg-indigo-50/20 dark:bg-indigo-950/20 hover:bg-indigo-50/45 dark:hover:bg-indigo-900/30'
+                              : 'hover:bg-slate-50/80 dark:hover:bg-slate-800/60'
+                          }`}
+                        >
+                          {/* 1. PRODUCT & SPECIFICATIONS (Auto-Width Fluid Column) */}
+                          <td className="py-3 px-4 overflow-hidden align-middle">
+                            <div className={`flex items-center gap-2.5 min-w-0 overflow-hidden ${isIndentedChildRow ? 'pl-3' : ''}`}>
+                              {isIndentedChildRow && (
+                                <span
+                                  className="font-mono text-xs font-bold text-violet-400 dark:text-violet-500 select-none shrink-0"
+                                  title={`Child Variant under ${linkedParent?.name}`}
+                                >
+                                  └─
+                                </span>
+                              )}
+                              {/* Product Image Thumbnail or Clean Placeholder */}
+                              {effectiveRowImageUrl ? (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setLightboxProduct(p);
+                                  }}
+                                  className="relative group/thumb shrink-0 cursor-pointer"
+                                  title="Click to inspect photo, rotate, or add technical diagram"
+                                >
+                                  <img
+                                    src={effectiveRowImageUrl}
+                                    alt={productTitle}
+                                    className="w-9 h-9 rounded-xl object-contain bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 group-hover/thumb:border-blue-400 p-0.5 shrink-0 shadow-2xs transition"
+                                    style={{
+                                      transform: `rotate(${p.image_adjustments?.rotation || 0}deg) scale(${p.image_adjustments?.scale || 1})`
+                                    }}
+                                    referrerPolicy="no-referrer"
+                                  />
+                                  {p.secondary_image_url && (
+                                    <span className="absolute -top-1 -right-1 px-1 py-0.2 rounded-full bg-indigo-600 text-white text-[8px] font-mono font-bold shadow-xs">
+                                      2
+                                    </span>
+                                  )}
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setLightboxProduct(p);
+                                  }}
+                                  className="w-9 h-9 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-blue-50 dark:hover:bg-blue-950/40 border border-slate-200/80 dark:border-slate-700 hover:border-blue-300 flex items-center justify-center text-slate-400 hover:text-blue-600 shrink-0 cursor-pointer transition"
+                                  title="Click to upload or paste product image"
+                                >
+                                  <Package className="w-4 h-4" />
+                                </button>
+                              )}
+
+                              <div className="min-w-0 flex-1 overflow-hidden">
+                                {/* Line 1: HoverScrollText Product Title + Compact Inline Badges */}
+                                <div className="flex items-center gap-1.5 min-w-0">
+                                  {isIndentedChildRow ? (
+                                    <>
+                                      <HoverScrollText
+                                        text={explicitVariantLabel || productTitle}
+                                        title={`${productTitle}${explicitVariantLabel ? ` — ${explicitVariantLabel}` : ''}`}
+                                        className="text-sm font-bold text-slate-900 dark:text-slate-100 flex-1"
+                                      />
+                                      <span
+                                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-violet-100 dark:bg-violet-950/70 text-violet-800 dark:text-violet-200 border border-violet-300 dark:border-violet-700 shrink-0"
+                                        title={`Child Variant of ${linkedParent?.name || 'Parent Family'}`}
+                                      >
+                                        <GitFork className="w-2.5 h-2.5" />
+                                        <span>Variant</span>
+                                      </span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <HoverScrollText
+                                        text={productTitle}
+                                        title={productTitle}
+                                        className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex-1"
+                                      />
+                                      {linkedParent && (
+                                        <>
+                                          <span
+                                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 shrink-0 max-w-[160px] truncate"
+                                            title={`Child Variant of ${linkedParent.name} (${linkedParent.sku || 'Parent'})`}
+                                          >
+                                            <span>↳ {linkedParent.name || linkedParent.sku}</span>
+                                          </span>
+                                          {explicitVariantLabel && (
+                                            <span
+                                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-violet-100 dark:bg-violet-950/70 text-violet-800 dark:text-violet-200 border border-violet-300 dark:border-violet-700 shrink-0"
+                                              title={`Differentiating Variant Label: ${explicitVariantLabel}`}
+                                            >
+                                              <GitFork className="w-2.5 h-2.5" />
+                                              <span>{explicitVariantLabel}</span>
+                                            </span>
+                                          )}
+                                        </>
+                                      )}
+                                    </>
+                                  )}
+                                  {p.is_composite_set && p.sub_components && p.sub_components.length > 0 ? (
+                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800/60 shrink-0">
+                                      <Layers className="w-2.5 h-2.5" />
+                                      <span>Kit / BOM</span>
+                                    </span>
+                                  ) : p.country_of_origin && !isIndentedChildRow ? (
+                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200/80 dark:border-slate-700 shrink-0">
+                                      <span>{p.country_of_origin}</span>
+                                    </span>
+                                  ) : null}
+                                  {p.datasheet_attachment?.url && (
+                                    <a
+                                      href={p.datasheet_attachment.url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      onClick={(e) => e.stopPropagation()}
+                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800/60 hover:bg-indigo-100 transition shrink-0"
+                                      title={`View Technical Datasheet: ${p.datasheet_attachment.name}`}
+                                    >
+                                      <FileText className="w-2.5 h-2.5" />
+                                      <span>PDF</span>
+                                    </a>
+                                  )}
+                                </div>
+
+                                {/* Line 2: Parent Variant Expand/Collapse Toggle + Compact Spec Chips OR Non-Repeating Subtitle */}
+                                {(!linkedParent && (childVariantsCount > 0 || (rawProd as any).has_variants)) ||
+                                hasStructuredAttrs ||
+                                cleanSubtitle ? (
+                                  <div
+                                    className="flex flex-wrap items-center gap-1 max-w-full overflow-hidden mt-1"
+                                    title={allSpecsTooltip || cleanSubtitle}
+                                  >
+                                    {!linkedParent && (childVariantsCount > 0 || (rawProd as any).has_variants) && (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          if (!p.id) return;
+                                          if (!groupVariantsByFamily) {
+                                            setGroupVariantsByFamily(true);
+                                            setCollapsedParentIds((prev) => ({ ...prev, [p.id!]: false }));
+                                            return;
+                                          }
+                                          setCollapsedParentIds((prev) => ({
+                                            ...prev,
+                                            [p.id!]: !prev[p.id!]
+                                          }));
+                                        }}
+                                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/70 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 transition cursor-pointer shrink-0"
+                                        title={
+                                          isParentCollapsed
+                                            ? `Click to expand ${childVariantsCount} child variant(s)`
+                                            : `Click to collapse ${childVariantsCount} child variant(s)`
+                                        }
+                                      >
+                                        <GitFork className="w-2.5 h-2.5" />
+                                        <span>
+                                          {childVariantsCount} Variant{childVariantsCount === 1 ? '' : 's'}{' '}
+                                          {isParentCollapsed ? '▸' : '▾'}
+                                        </span>
+                                      </button>
+                                    )}
+                                    {hasStructuredAttrs ? (
+                                      <>
+                                        {visibleAttrs.map((attr, idx) => {
+                                          const isDiff = isAttrDiffFromParent(attr);
+                                          return (
+                                            <span
+                                              key={idx}
+                                              className={`text-[10.5px] font-mono px-1.5 py-0.5 rounded border max-w-[180px] truncate shrink-0 ${
+                                                !attr.value
+                                                  ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800/60'
+                                                  : isDiff
+                                                  ? 'font-semibold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800/60'
+                                                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200/80 dark:border-slate-700'
+                                              }`}
+                                            >
+                                              {attr.key}: {attr.value || '(Fill on Quote)'}
+                                            </span>
+                                          );
+                                        })}
+                                        {remainingAttrCount > 0 && (
+                                          <span className="text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200/70 dark:border-slate-700 shrink-0">
+                                            +{remainingAttrCount} more
+                                          </span>
+                                        )}
+                                      </>
+                                    ) : cleanSubtitle ? (
+                                      <HoverScrollText
+                                        text={cleanSubtitle}
+                                        title={cleanSubtitle}
+                                        className="text-xs text-slate-500 dark:text-slate-400 flex-1"
+                                      />
+                                    ) : null}
+                                  </div>
+                                ) : null}
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* 2. CATEGORY (144px) */}
+                          <td className="py-3 px-2.5 overflow-hidden align-middle">
+                            <span
+                              className="inline-block max-w-full text-[11px] font-medium px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-950/40 border border-blue-200/70 dark:border-blue-800/60 text-blue-700 dark:text-blue-300"
+                              title={p.product_type || 'General'}
+                            >
+                              <HoverScrollText text={p.product_type || 'General'} />
+                            </span>
+                          </td>
+
+                          {/* 3. BRAND & SKU (164px) */}
+                          <td className="py-3 px-2.5 overflow-hidden align-middle">
+                            <div className="flex flex-col gap-0.5 min-w-0 overflow-hidden">
+                              {!hasBrand && skuModelLine !== '—' ? (
+                                <>
+                                  <HoverScrollText
+                                    text={skuModelLine}
+                                    title={skuModelLine}
+                                    className="font-mono text-xs font-medium text-slate-700 dark:text-slate-300"
+                                  />
+                                  <span className="text-[11px] text-slate-400 dark:text-slate-500 truncate">
+                                    No brand set
+                                  </span>
+                                </>
+                              ) : (
+                                <>
+                                  <HoverScrollText
+                                    text={brandLabel}
+                                    title={brandLabel}
+                                    className="font-semibold text-xs text-slate-800 dark:text-slate-200"
+                                  />
+                                  <HoverScrollText
+                                    text={skuModelLine}
+                                    title={skuModelLine}
+                                    className="font-mono text-[11px] text-slate-500 dark:text-slate-400"
+                                  />
+                                </>
+                              )}
+                            </div>
+                          </td>
+
+                          {/* 4. STOCK & LEAD TIME (152px) */}
+                          <td className="py-3 px-2.5 overflow-hidden align-middle">
+                            <div className="flex flex-col items-start gap-0.5 min-w-0 overflow-hidden">
+                              {p.is_inventoried ? (
+                                <>
+                                  <span
+                                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold truncate max-w-full ${
+                                      isLowStock
+                                        ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60'
+                                        : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60'
+                                    }`}
+                                    title={`Available: ${availableQty} ${cleanUnit} (On Hand: ${stockOnHandVal}, Reserved: ${p.stock_reserved || 0}, Min: ${getProductReorderThreshold(p)})`}
+                                  >
+                                    {isLowStock && <AlertTriangle className="w-3 h-3 text-amber-600 dark:text-amber-400 shrink-0" />}
+                                    <span className="truncate font-mono tabular-nums">
+                                      In Stock: {availableQty} {cleanUnit}
+                                    </span>
+                                  </span>
+                                  {stockSubParts.length > 0 && (
+                                    <HoverScrollText
+                                      text={stockSubParts.join(' · ')}
+                                      title={stockSubParts.join(' · ')}
+                                      className="text-[11px] text-slate-400 dark:text-slate-500"
+                                    />
+                                  )}
+                                </>
+                              ) : (
+                                <>
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200/80 dark:border-slate-700 truncate max-w-full">
+                                    Order / Non-Stock
+                                  </span>
+                                  {p.default_availability && (
+                                    <HoverScrollText
+                                      text={p.default_availability}
+                                      title={p.default_availability}
+                                      className="text-[11px] text-slate-400 dark:text-slate-500"
+                                    />
+                                  )}
+                                </>
+                              )}
+                            </div>
+                          </td>
+
+                          {/* 5. UNIT PRICE (136px, Right-Aligned) */}
+                          <td className="py-3 pl-2 pr-4 text-right whitespace-nowrap align-middle overflow-hidden">
+                            {p.unit_price !== undefined && p.unit_price > 0 ? (
+                              <div className="flex flex-col items-end gap-0.5 min-w-0">
+                                <span className="font-bold font-mono tabular-nums text-xs sm:text-sm text-slate-900 dark:text-slate-100 whitespace-nowrap">
+                                  AED{' '}
+                                  {p.unit_price.toLocaleString(undefined, {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2
+                                  })}
+                                </span>
+                                <HoverScrollText
+                                  text={priceSubParts.join(' · ')}
+                                  title={priceSubParts.join(' · ')}
+                                  className="text-[11px] text-slate-400 dark:text-slate-500 text-right"
+                                />
+                              </div>
+                            ) : minChildPrice > 0 ? (
+                              <div className="flex flex-col items-end gap-0.5 min-w-0">
+                                <span className="font-bold font-mono tabular-nums text-xs sm:text-sm text-indigo-700 dark:text-indigo-300 whitespace-nowrap">
+                                  {minChildPrice === maxChildPrice
+                                    ? `AED ${minChildPrice.toLocaleString(undefined, {
+                                        minimumFractionDigits: 2,
+                                        maximumFractionDigits: 2
+                                      })}`
+                                    : `From AED ${minChildPrice.toLocaleString(undefined, {
+                                        minimumFractionDigits: 2,
+                                        maximumFractionDigits: 2
+                                      })}`}
+                                </span>
+                                <span className="text-[11px] text-slate-400 dark:text-slate-500 whitespace-nowrap truncate max-w-full">
+                                  {childVariantsCount} variant{childVariantsCount === 1 ? '' : 's'} · per {cleanUnit}
+                                </span>
+                              </div>
+                            ) : (
+                              <div className="flex flex-col items-end gap-0.5 min-w-0">
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200/80 dark:border-amber-800/60 whitespace-nowrap">
+                                  Price on Request
+                                </span>
+                                <span className="text-[11px] text-slate-400 dark:text-slate-500 whitespace-nowrap">per {cleanUnit}</span>
+                              </div>
+                            )}
+                          </td>
+
+                          {/* 6. ACTIONS (156px, Right-Aligned pr-4, Subtle Divider Before Delete) */}
+                          <td className="py-3 pl-2 pr-4 text-right whitespace-nowrap align-middle relative" onClick={(e) => e.stopPropagation()}>
+                            <div className="flex w-full items-center justify-end gap-1">
+                              {isEditable ? (
+                                <>
+                                  {!linkedParent && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        openSpecVariantModal(rawProd);
+                                      }}
+                                      className="w-7 h-7 rounded-lg inline-flex items-center justify-center text-indigo-700 dark:text-indigo-300 bg-indigo-50/80 dark:bg-indigo-950/50 hover:bg-indigo-600 hover:text-white border border-indigo-200 dark:border-indigo-800 transition cursor-pointer shrink-0"
+                                      title="Add Spec Variant"
+                                      aria-label="Add Spec Variant"
+                                    >
+                                      <GitFork className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
+                                  {linkedParent ? (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleDetachProductVariant(rawProd);
+                                      }}
+                                      className="w-7 h-7 rounded-lg inline-flex items-center justify-center text-violet-600 dark:text-violet-400 hover:text-amber-700 hover:bg-amber-50 border border-violet-200/80 hover:border-amber-300 transition cursor-pointer shrink-0"
+                                      title={`Detach from "${linkedParent.name}" as Standalone Product`}
+                                      aria-label="Detach Variant"
+                                    >
+                                      <Unlink className="w-3.5 h-3.5" />
+                                    </button>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setQuickLinkVariantTargetId((prev) => (prev === rawProd.id ? null : rawProd.id || null));
+                                        setQuickLinkParentSearch('');
+                                      }}
+                                      className="w-7 h-7 rounded-lg inline-flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-violet-600 hover:bg-violet-50 border border-transparent hover:border-violet-200 transition cursor-pointer shrink-0"
+                                      title="Make Variant Of... (Link under an existing Parent Product or Extract Parent Family)"
+                                      aria-label="Link as Variant"
+                                    >
+                                      <Link2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      openEditModal(rawProd);
+                                    }}
+                                    className="w-7 h-7 rounded-lg inline-flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 border border-transparent hover:border-blue-200/80 dark:hover:border-blue-800/60 transition cursor-pointer shrink-0"
+                                    title="Inspect / Edit Product"
+                                    aria-label="Inspect / Edit Product"
+                                  >
+                                    <Edit2 className="w-3.5 h-3.5" />
+                                  </button>
+                                  <span className="h-4 w-px bg-slate-200 dark:bg-slate-700 mx-0.5 shrink-0" aria-hidden="true" />
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleDeleteProduct(rawProd);
+                                    }}
+                                    className="w-7 h-7 rounded-lg inline-flex items-center justify-center text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 border border-transparent hover:border-rose-200 dark:hover:border-rose-800/60 transition cursor-pointer shrink-0"
+                                    title="Move to Recycle Bin"
+                                    aria-label="Move to Recycle Bin"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </>
+                              ) : (
+                                <span className="text-xs text-slate-400 italic">Viewer</span>
+                              )}
+                            </div>
+
+                            {/* Inline 1-Click "Make Variant Of..." Popover */}
+                            {quickLinkVariantTargetId === rawProd.id && (
+                              <div
+                                onClick={(e) => e.stopPropagation()}
+                                className="absolute right-3 top-full mt-1 w-72 rounded-xl bg-white dark:bg-slate-900 border border-violet-200 dark:border-violet-800 shadow-2xl p-2.5 z-50 text-left space-y-2"
+                              >
+                                <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-1.5">
+                                  <span className="text-[11px] font-bold text-violet-950 dark:text-violet-200 flex items-center gap-1">
+                                    <Link2 className="w-3 h-3 text-violet-600" />
+                                    <span>Make Variant Of Parent Product</span>
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => setQuickLinkVariantTargetId(null)}
+                                    className="text-slate-400 hover:text-slate-600 cursor-pointer"
+                                  >
+                                    <X className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                                <input
+                                  type="text"
+                                  autoFocus
+                                  value={quickLinkParentSearch}
+                                  onChange={(e) => setQuickLinkParentSearch(e.target.value)}
+                                  placeholder="Search parent product..."
+                                  className="w-full px-2.5 py-1 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none focus:border-violet-500"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => handleCreateParentFamilyFromItem(rawProd)}
+                                  className="w-full text-left px-2.5 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-600 text-indigo-800 hover:text-white border border-indigo-200 text-[11px] font-bold flex items-center gap-1.5 transition cursor-pointer"
+                                  title="Automatically strip size/capacity suffix, create a Parent Product, and link this item under it"
+                                >
+                                  <Sparkles className="w-3.5 h-3.5 shrink-0" />
+                                  <span>Create Parent Family from This Item</span>
+                                </button>
+                                <div className="max-h-40 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
+                                  {activeCatalogProducts
+                                    .filter(
+                                      (cand) =>
+                                        cand.id !== rawProd.id &&
+                                        !cand.variant_parent_id &&
+                                        !(cand as any).parent_product_id &&
+                                        (!quickLinkParentSearch.trim() ||
+                                          `${cand.name} ${cand.sku} ${cand.brand_make}`
+                                            .toLowerCase()
+                                            .includes(quickLinkParentSearch.trim().toLowerCase()))
+                                    )
+                                    .slice(0, 20)
+                                    .map((cand) => (
+                                      <button
+                                        key={cand.id}
+                                        type="button"
+                                        onClick={() => handleMakeProductVariantOf(rawProd, cand)}
+                                        className="w-full text-left px-2 py-1.5 hover:bg-violet-50 dark:hover:bg-violet-950/40 rounded-lg transition cursor-pointer flex items-center justify-between gap-2"
+                                      >
+                                        <div className="min-w-0">
+                                          <div className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate">
+                                            {cand.name}
+                                          </div>
+                                          <div className="text-[10px] font-mono text-slate-500 truncate">
+                                            {cand.sku || cand.product_type}
+                                          </div>
+                                        </div>
+                                        <span className="text-[10px] font-bold text-violet-600 shrink-0">Link →</span>
+                                      </button>
+                                    ))}
+                                </div>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      </React.Fragment>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Unconditional Uniform Pagination Footer */}
+          <div className="px-4 py-2.5 bg-slate-50/60 dark:bg-slate-900/60 border-t border-slate-200/80 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600 dark:text-slate-400">
+            <div className="text-xs font-mono tabular-nums text-slate-600 dark:text-slate-400">
+              Showing{' '}
+              <span className="font-bold text-slate-900 dark:text-slate-100">
+                {totalItems === 0
+                  ? 0
+                  : Math.min((currentPage - 1) * (itemsPerPage === 'All' ? totalItems : itemsPerPage) + 1, totalItems)}
+              </span>{' '}
+              to{' '}
+              <span className="font-bold text-slate-900 dark:text-slate-100">
+                {totalItems === 0
+                  ? 0
+                  : Math.min(currentPage * (itemsPerPage === 'All' ? totalItems : itemsPerPage), totalItems)}
+              </span>{' '}
+              of <span className="font-bold text-slate-900 dark:text-slate-100">{totalItems}</span> products
+            </div>
+
+            <div className="flex items-center space-x-4">
+              <div className="flex items-center space-x-2">
+                <span className="text-xs text-slate-500 dark:text-slate-400 font-sans">Rows per page:</span>
+                <select
+                  value={itemsPerPage}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setItemsPerPage(val === 'All' ? 'All' : Number(val));
+                    setCurrentPage(1);
+                  }}
+                  aria-label="Rows per page"
+                  className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-xs font-semibold text-slate-700 dark:text-slate-200 focus:outline-none cursor-pointer"
+                >
+                  <option value={10}>10</option>
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                  <option value="All">All</option>
+                </select>
+              </div>
+
+              <div className="flex items-center space-x-1">
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
+                  disabled={totalItems === 0 || currentPage <= 1 || itemsPerPage === 'All'}
+                  className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer text-xs font-semibold inline-flex items-center gap-1"
+                  title="Previous Page"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                  <span>Prev</span>
+                </button>
+                <span className="text-xs font-mono tabular-nums px-2.5 text-slate-600 dark:text-slate-400">
+                  Page <span className="font-bold text-slate-900 dark:text-slate-100">{itemsPerPage === 'All' ? 1 : currentPage}</span> of{' '}
+                  <span className="font-bold text-slate-900 dark:text-slate-100">{itemsPerPage === 'All' ? 1 : Math.max(1, totalPages)}</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage((prev) => Math.min(prev + 1, Math.max(1, totalPages)))}
+                  disabled={totalItems === 0 || itemsPerPage === 'All' || currentPage >= Math.max(1, totalPages)}
+                  className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer text-xs font-semibold inline-flex items-center gap-1"
+                  title="Next Page"
+                >
+                  <span>Next</span>
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* ORGANIZED 3-CHAPTER MODAL: Register or Edit Product */}
