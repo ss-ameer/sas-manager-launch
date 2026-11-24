@@ -105,7 +105,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
       if (!existingData) {
         try {
           const anyUserSnap = await safeGetDocs('users', limit(1));
-          isFirstUser = !anyUserSnap || anyUserSnap.empty;
+          isFirstUser = Boolean(anyUserSnap && anyUserSnap.empty);
         } catch (e) {
           console.warn('Could not query user collection count:', e);
         }

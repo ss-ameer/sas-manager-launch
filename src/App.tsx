@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { auth, db, safeDeleteDoc, safeAddDoc, safeUpdateDoc, safeSetDoc, safeGetDoc, safeGetDocs } from './firebase';
+import { auth, db, safeDeleteDoc, safeAddDoc, safeUpdateDoc, safeSetDoc, safeGetDoc, safeGetDocs, isQuotaCircuitBroken } from './firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { collection, onSnapshot, query, orderBy, doc, writeBatch, updateDoc, where, or, documentId, limit } from 'firebase/firestore';
 import { Company, Contact, Enquiry, Invite, AuditLog, Salesperson, UserProfile, Product, Project, DropdownOption, Workspace, CallLogEntry, CallStatus, WORKSPACE_STORAGE_KEY } from './types';
@@ -143,6 +143,7 @@ const DEFAULT_WORKSPACE: Workspace = {
 
 export default function App() {
   const [user, setUser] = useState<UserProfile | null>(null);
+  const [firebaseAuthUid, setFirebaseAuthUid] = useState<string | null>(() => auth.currentUser?.uid || null);
   const [authLoading, setAuthLoading] = useState(true);
 
   // Tab State (defaults to Dashboard on initial load & browser refresh)
@@ -345,18 +346,18 @@ export default function App() {
     };
   }, [realtimeSyncEnabled]);
 
-  // Synchronize QuotationRepository, ProcurementRepository, and StockMovements singleton listeners with realtimeSyncEnabled
+  // Synchronize QuotationRepository, ProcurementRepository, and StockMovements singleton listeners with realtimeSyncEnabled & Firebase Auth readiness
   useEffect(() => {
     if (!realtimeSyncEnabled) {
       QuotationRepository.pauseSubscriptions();
       ProcurementRepository.pauseSubscriptions();
       pauseStockMovementsSubscriptions();
-    } else if (activeWorkspaceId) {
+    } else if (activeWorkspaceId && firebaseAuthUid) {
       QuotationRepository.resumeSubscriptions(activeWorkspaceId);
       ProcurementRepository.resumeSubscriptions(activeWorkspaceId);
       resumeStockMovementsSubscriptions(activeWorkspaceId);
     }
-  }, [realtimeSyncEnabled, activeWorkspaceId]);
+  }, [realtimeSyncEnabled, activeWorkspaceId, firebaseAuthUid]);
 
   // Admin Data Visibility & Salesperson Selection Permissions State
   const [dataVisibilityScope, setDataVisibilityScope] = useState<'ALL_DATA' | 'OWN_DATA_ONLY'>(() => {
@@ -1282,6 +1283,7 @@ export default function App() {
   // Auth monitoring listener
   useEffect(() => {
     const unsubAuth = onAuthStateChanged(auth, (firebaseUser) => {
+      setFirebaseAuthUid(firebaseUser?.uid || null);
       // Synchronously clear all active subscriptions immediately on auth change
       cleanupAllListeners();
 
@@ -1444,8 +1446,16 @@ export default function App() {
       return; // Already freshly cached in IndexedDB/localStorage
     }
 
-    try {
+    // Never overwrite local caches or stamp the 24h TTL when Firebase Auth is not ready, offline, or circuit-broken
+    if (
+      !auth.currentUser ||
+      isQuotaCircuitBroken() ||
+      (typeof navigator !== 'undefined' && navigator.onLine === false)
+    ) {
+      return;
+    }
 
+    try {
       // Enquiry Sources
       const srcSnap = await safeGetDocs('dropdown_enquiry_sources');
       if (srcSnap && !srcSnap.empty) {
@@ -1454,47 +1464,51 @@ export default function App() {
         setLocalCache('omni_sources', list);
       }
 
-      // Product Categories
+      // Product Categories — only update state/cache when cloud read succeeded (non-null snapshot)
       const catSnap = await safeGetDocs('dropdown_product_categories');
-      const loadedCategories: DropdownOption[] = [];
-      if (catSnap && !catSnap.empty) {
-        for (const d of catSnap.docs) {
-          const data = d.data();
-          const name = String(data.name || '').trim();
-          const lower = name.toLowerCase();
-          // Data Scrubbing: Explicitly delete or filter out rogue typo artifacts ('Anthrecite', 'Anthresite')
-          if (lower === 'anthrecite' || lower === 'anthresite') {
-            safeDeleteDoc('dropdown_product_categories', d.id).catch(() => {});
-            continue;
+      if (catSnap) {
+        const loadedCategories: DropdownOption[] = [];
+        if (!catSnap.empty) {
+          for (const d of catSnap.docs) {
+            const data = d.data();
+            const name = String(data.name || '').trim();
+            const lower = name.toLowerCase();
+            // Data Scrubbing: Explicitly delete or filter out rogue typo artifacts ('Anthrecite', 'Anthresite')
+            if (lower === 'anthrecite' || lower === 'anthresite') {
+              safeDeleteDoc('dropdown_product_categories', d.id).catch(() => {});
+              continue;
+            }
+            if (!name) continue;
+            loadedCategories.push({
+              id: d.id,
+              name,
+              color: data.color,
+              workspace_id: data.workspace_id || data.workspaceId || undefined
+            });
           }
-          if (!name) continue;
-          loadedCategories.push({
-            id: d.id,
-            name,
-            color: data.color,
-            workspace_id: data.workspace_id || data.workspaceId || undefined
-          });
         }
+        const healedCategories = healDropdownOptions(loadedCategories, UNIVERSAL_CATEGORIES, 'cat');
+        setProductCategories(healedCategories.mergedList);
+        setLocalCache('omni_categories', healedCategories.mergedList);
       }
-      const healedCategories = healDropdownOptions(loadedCategories, UNIVERSAL_CATEGORIES, 'cat');
-      setProductCategories(healedCategories.mergedList);
-      setLocalCache('omni_categories', healedCategories.mergedList);
 
-      // Units
+      // Units — only update state/cache when cloud read succeeded (non-null snapshot)
       const unitSnap = await safeGetDocs('dropdown_units');
-      let loadedUnits: DropdownOption[] = [];
-      if (unitSnap && !unitSnap.empty) {
-        loadedUnits = unitSnap.docs
-          .map((d) => ({
-            id: d.id,
-            name: String(d.data().name || '').trim(),
-            color: d.data().color
-          } as DropdownOption))
-          .filter((u) => Boolean(u.name));
+      if (unitSnap) {
+        let loadedUnits: DropdownOption[] = [];
+        if (!unitSnap.empty) {
+          loadedUnits = unitSnap.docs
+            .map((d) => ({
+              id: d.id,
+              name: String(d.data().name || '').trim(),
+              color: d.data().color
+            } as DropdownOption))
+            .filter((u) => Boolean(u.name));
+        }
+        const healedUnits = healDropdownOptions(loadedUnits, UNIVERSAL_UNITS, 'u');
+        setUnits(healedUnits.mergedList);
+        setLocalCache('omni_units', healedUnits.mergedList);
       }
-      const healedUnits = healDropdownOptions(loadedUnits, UNIVERSAL_UNITS, 'u');
-      setUnits(healedUnits.mergedList);
-      setLocalCache('omni_units', healedUnits.mergedList);
 
       // Call Statuses
       const csSnap = await safeGetDocs('dropdown_call_statuses');
@@ -1523,7 +1537,10 @@ export default function App() {
         setLocalCache('omni_call_outcomes', healed.mergedList);
       }
 
-      localStorage.setItem('omni_metadata_last_fetched_at', Date.now().toString());
+      // Only stamp the 24h TTL when all core metadata reads actually returned non-null snapshots
+      if (srcSnap && catSnap && unitSnap && csSnap && cpSnap && coSnap) {
+        localStorage.setItem('omni_metadata_last_fetched_at', Date.now().toString());
+      }
     } catch (err) {
       console.warn('Metadata one-time fetch error:', err);
     }
@@ -1533,11 +1550,11 @@ export default function App() {
     if (user?.uid) {
       fetchMetadataAndDropdownsOnce();
     }
-  }, [user?.uid, activeWorkspaceId, fetchMetadataAndDropdownsOnce]);
+  }, [user?.uid, activeWorkspaceId, firebaseAuthUid, fetchMetadataAndDropdownsOnce]);
 
   // 2. Workspace Members & Workspaces Listeners (Decoupled from operational collection listeners)
   useEffect(() => {
-    if (!user?.uid || !auth.currentUser || !realtimeSyncEnabled) {
+    if (!user?.uid || !firebaseAuthUid || !auth.currentUser || !realtimeSyncEnabled) {
       if (activeUnsubscribersRef.current.workspaces) {
         activeUnsubscribersRef.current.workspaces();
         activeUnsubscribersRef.current.workspaces = null;
@@ -1695,10 +1712,10 @@ export default function App() {
       if (refs.workspaces) { refs.workspaces(); refs.workspaces = null; }
       if (refs.workspaceMembers) { refs.workspaceMembers(); refs.workspaceMembers = null; }
     };
-  }, [user?.uid, user?.email, user?.role, user?.is_super_admin, user?.defaultWorkspaceId, Array.isArray(user?.workspaceIds) ? user.workspaceIds.join(',') : '', realtimeSyncEnabled]);
+  }, [user?.uid, firebaseAuthUid, user?.email, user?.role, user?.is_super_admin, user?.defaultWorkspaceId, Array.isArray(user?.workspaceIds) ? user.workspaceIds.join(',') : '', realtimeSyncEnabled]);
 
   // 3. Operational Collections Listeners: strictly partitioned by activeWorkspaceId
-  // Dependencies are stable primitives: [user?.uid, activeWorkspaceId, realtimeSyncEnabled]
+  // Dependencies are stable primitives: [user?.uid, firebaseAuthUid, activeWorkspaceId, realtimeSyncEnabled]
   // This eliminates listener churn when user profile updates occur!
   useEffect(() => {
     const refs = activeUnsubscribersRef.current;
@@ -1712,7 +1729,7 @@ export default function App() {
     if (refs.salespersons) { refs.salespersons(); refs.salespersons = null; }
     if (refs.projects) { refs.projects(); refs.projects = null; }
 
-    if (!user?.uid || !auth.currentUser || !realtimeSyncEnabled || !activeWorkspaceId) {
+    if (!user?.uid || !firebaseAuthUid || !auth.currentUser || !realtimeSyncEnabled || !activeWorkspaceId) {
       return;
     }
 
@@ -1898,7 +1915,7 @@ export default function App() {
       if (refs.salespersons) { refs.salespersons(); refs.salespersons = null; }
       if (refs.projects) { refs.projects(); refs.projects = null; }
     };
-  }, [user?.uid, activeWorkspaceId, realtimeSyncEnabled]);
+  }, [user?.uid, firebaseAuthUid, activeWorkspaceId, realtimeSyncEnabled]);
 
   if (authLoading) {
     return (

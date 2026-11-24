@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { onAuthStateChanged } from 'firebase/auth';
 import { auth, safeGetDoc, safeSetDoc } from '../firebase';
 import { IndustryTaxonomySector } from '../types';
 import { SYSTEM_INDUSTRY_TAXONOMY } from '../utils/defaults';
@@ -25,6 +26,7 @@ type SubscriberCallback = (sectors: IndustryTaxonomySector[]) => void;
 const subscribers = new Set<SubscriberCallback>();
 let hasFetchedSessionTaxonomy = false;
 let activeListenerCount = 0;
+let pendingAuthUnsub: (() => void) | null = null;
 
 export function notifyTaxonomySubscribers(newSectors: IndustryTaxonomySector[]) {
   notifySubscribers(newSectors);
@@ -52,7 +54,21 @@ function notifySubscribers(newSectors: IndustryTaxonomySector[]) {
 
 function startFirestoreListener() {
   if (hasFetchedSessionTaxonomy) return;
-  if (!auth.currentUser) return;
+  if (!auth.currentUser) {
+    if (!pendingAuthUnsub) {
+      pendingAuthUnsub = onAuthStateChanged(auth, (firebaseUser) => {
+        if (firebaseUser) {
+          const unsub = pendingAuthUnsub;
+          pendingAuthUnsub = null;
+          if (unsub) unsub();
+          if (activeListenerCount > 0) {
+            startFirestoreListener();
+          }
+        }
+      });
+    }
+    return;
+  }
   hasFetchedSessionTaxonomy = true;
 
   const isQuotaSaver =
@@ -195,6 +211,11 @@ export function useIndustryTaxonomy() {
     return () => {
       subscribers.delete(subscriber);
       activeListenerCount = Math.max(0, activeListenerCount - 1);
+      if (activeListenerCount === 0 && pendingAuthUnsub) {
+        const unsub = pendingAuthUnsub;
+        pendingAuthUnsub = null;
+        unsub();
+      }
       // Keep the single document listener alive for the session so navigating between tabs
       // does not tear down and re-read settings/industry_taxonomy.
     };
