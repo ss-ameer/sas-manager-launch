@@ -20,6 +20,7 @@ import ContactModal from './ContactModal';
 import CompanyEditModal from './CompanyEditModal';
 import LiveExecutionModal from './LiveExecutionModal';
 import CallLogDetailModal from './CallLogDetailModal';
+import HoverScrollText from './common/HoverScrollText';
 import { CallLogRepository } from '../services/repositories/CallLogRepository';
 import { QuotationRepository } from '../services/repositories/QuotationRepository';
 import { ProcurementRepository } from '../services/repositories/ProcurementRepository';
@@ -750,42 +751,86 @@ export default function Company360Modal({
     };
   }, [companyCallLogs, companyEnquiries]);
 
-  if ((isOpen !== undefined && !isOpen) || !companyId || !company) return null;
+  const isModalVisible = (isOpen === undefined || isOpen) && Boolean(companyId) && Boolean(company);
+
+  // Guarded Escape key dismissal: close only when no nested modal/dialog or open dropdown is active
+  useEffect(() => {
+    if (!isModalVisible) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (
+        contactModalOpen ||
+        internalEditModalOpen ||
+        Boolean(activeExecutionTask) ||
+        Boolean(selectedCallLogDetail)
+      ) {
+        return;
+      }
+      const activeEl = document.activeElement as HTMLElement | null;
+      if (
+        activeEl &&
+        (activeEl.getAttribute('aria-expanded') === 'true' ||
+          activeEl.closest('[role="listbox"], [role="menu"], [data-dropdown-open="true"]'))
+      ) {
+        return;
+      }
+      e.preventDefault();
+      onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [
+    isModalVisible,
+    contactModalOpen,
+    internalEditModalOpen,
+    activeExecutionTask,
+    selectedCallLogDetail,
+    onClose
+  ]);
+
+  if (!isModalVisible || !company) return null;
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 lg:p-6 overflow-hidden animate-fade-in">
       <div className="w-full max-w-6xl max-h-[92vh] flex flex-col rounded-2xl bg-white dark:bg-slate-900 shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden my-auto">
         {/* Sticky Executive Dossier Header */}
-        <div className="p-4 sm:p-5 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 text-slate-900 dark:text-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-3 sm:gap-4 shrink-0">
-          <div className="flex items-start space-x-3.5 min-w-0">
+        <div className="p-4 sm:p-5 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 text-slate-900 dark:text-slate-100 flex flex-col md:flex-row md:items-start justify-between gap-3 sm:gap-4 shrink-0">
+          <div className="flex items-start gap-3.5 min-w-0 flex-1">
             <div className="w-11 h-11 rounded-xl bg-blue-600 flex items-center justify-center text-white shadow-md shrink-0 mt-0.5">
               <Building2 className="w-5 h-5 sm:w-6 sm:h-6" />
             </div>
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-lg sm:text-xl font-black tracking-tight text-slate-900 dark:text-slate-100 truncate">
-                  {company.display_name}
-                </h2>
+            <div className="min-w-0 flex-1 space-y-1.5">
+              {/* Line 1: Company Name + Search Shortcut */}
+              <div className="flex items-center gap-2 min-w-0">
+                <HoverScrollText
+                  text={company.display_name}
+                  as="h2"
+                  containerClassName="min-w-0 max-w-full"
+                  className="text-lg sm:text-xl font-black tracking-tight text-slate-900 dark:text-slate-100"
+                />
+                <div className="shrink-0">
+                  <GoogleSearchButton
+                    companyName={company.canonical_name || company.display_name}
+                    location={company.city}
+                    size="sm"
+                  />
+                </div>
+              </div>
 
+              {/* Line 2: Compact Single-Line Badges Strip */}
+              <div className="flex flex-wrap items-center gap-1.5 min-w-0">
                 {/* Canonical Ref Badge CMP-XXXX */}
-                <span className="px-2 py-0.5 rounded font-mono text-[11px] font-bold bg-slate-100 dark:bg-slate-800 text-blue-700 dark:text-blue-300 border border-slate-200 dark:border-slate-700 flex items-center space-x-1 shrink-0">
-                  <Tag className="w-3 h-3 text-blue-500 dark:text-blue-400" />
+                <span className="px-2 py-0.5 rounded font-mono text-[11px] font-bold bg-slate-100 dark:bg-slate-800 text-blue-700 dark:text-blue-300 border border-slate-200 dark:border-slate-700 inline-flex items-center gap-1 whitespace-nowrap shrink-0">
+                  <Tag className="w-3 h-3 text-blue-500 dark:text-blue-400 shrink-0" />
                   <span>REF: {getReferenceId('CMP', company, companies)}</span>
                 </span>
 
                 {/* Registered Company Code Badge */}
                 {company.company_code && (
-                  <span className="px-2 py-0.5 rounded font-mono text-[11px] font-bold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/60 uppercase shrink-0" title="Registered Company Code for Quote References">
+                  <span className="px-2 py-0.5 rounded font-mono text-[11px] font-bold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/60 uppercase whitespace-nowrap shrink-0" title="Registered Company Code for Quote References">
                     CODE: {company.company_code}
                   </span>
                 )}
-
-                {/* Google Search shortcut */}
-                <GoogleSearchButton
-                  companyName={company.canonical_name || company.display_name}
-                  location={company.city}
-                  size="sm"
-                />
 
                 {/* Interactive Temperature / DNC Badge */}
                 <TemperatureBadge
@@ -798,8 +843,8 @@ export default function Company360Modal({
                 />
 
                 {/* Relationship Badge */}
-                <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 flex items-center space-x-1 shrink-0">
-                  <span className="w-1.5 h-1.5 rounded-full bg-blue-500 inline-block"></span>
+                <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 inline-flex items-center gap-1 whitespace-nowrap shrink-0">
+                  <span className="w-1.5 h-1.5 rounded-full bg-blue-500 inline-block shrink-0"></span>
                   <span>{relationshipVal}</span>
                 </span>
 
@@ -838,8 +883,8 @@ export default function Company360Modal({
 
                 {/* Internal / Subsidiary Badge */}
                 {company.isInternalCompany && (
-                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60 flex items-center space-x-1 shrink-0">
-                    <span>🏢</span>
+                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/60 inline-flex items-center gap-1 whitespace-nowrap shrink-0">
+                    <Building2 className="w-3 h-3 shrink-0" />
                     <span>Our Company</span>
                   </span>
                 )}
@@ -847,29 +892,27 @@ export default function Company360Modal({
                 {company.legal_suffix &&
                   !/none/i.test(company.legal_suffix) &&
                   !/to be added later/i.test(company.legal_suffix) && (
-                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/60 shrink-0">
+                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/60 whitespace-nowrap shrink-0">
                     {company.legal_suffix}
                   </span>
                 )}
               </div>
 
-              {/* City & Country Jurisdiction */}
-              <div className="flex items-center space-x-1.5 text-xs text-slate-500 dark:text-slate-400 mt-1">
+              {/* Line 3: City & Country Jurisdiction */}
+              <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 min-w-0">
                 <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                <span className="truncate">
-                  {company.city ? `${company.city}, ` : ''}{company.country || 'Global Account'}
-                </span>
-                {company.aliases && company.aliases.length > 0 && (
-                  <span className="hidden sm:inline text-slate-400 dark:text-slate-500 text-[11px]">
-                    • Aliases: {company.aliases.join(', ')}
-                  </span>
-                )}
+                <HoverScrollText
+                  text={`${company.city ? `${company.city}, ` : ''}${company.country || 'Global Account'}${
+                    company.aliases && company.aliases.length > 0 ? ` • Aliases: ${company.aliases.join(', ')}` : ''
+                  }`}
+                  containerClassName="min-w-0 flex-1"
+                />
               </div>
             </div>
           </div>
 
           {/* Action Toolbar */}
-          <div className="flex items-center space-x-2 shrink-0 self-end md:self-center">
+          <div className="flex items-center gap-2 shrink-0 self-end md:self-start">
             <button
               type="button"
               onClick={(e) => {
@@ -882,9 +925,10 @@ export default function Company360Modal({
                   e
                 });
               }}
-              className="bg-blue-600 hover:bg-blue-700 text-white px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-xl text-xs font-bold shadow-xs flex items-center gap-1.5 transition cursor-pointer"
+              className="bg-blue-600 hover:bg-blue-700 text-white px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-xl text-xs font-bold shadow-xs inline-flex items-center gap-1.5 transition cursor-pointer whitespace-nowrap shrink-0"
             >
-              <span>⚡ Log Activity</span>
+              <PhoneCall className="w-3.5 h-3.5 shrink-0" />
+              <span>Log Activity</span>
             </button>
 
             <button
@@ -897,18 +941,19 @@ export default function Company360Modal({
                   setInternalEditModalOpen(true);
                 }
               }}
-              className="bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl text-xs font-bold shadow-2xs flex items-center gap-1.5 transition cursor-pointer"
+              className="bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl text-xs font-bold shadow-2xs inline-flex items-center gap-1.5 transition cursor-pointer whitespace-nowrap shrink-0"
               title="Edit Company Profile in Registry"
             >
-              <Edit2 className="w-3.5 h-3.5 text-blue-500 dark:text-blue-400" />
+              <Edit2 className="w-3.5 h-3.5 text-blue-500 dark:text-blue-400 shrink-0" />
               <span className="hidden sm:inline">Edit Profile</span>
             </button>
 
             <button
               type="button"
               onClick={onClose}
-              className="p-1.5 sm:p-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-300 transition cursor-pointer"
+              className="p-1.5 sm:p-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-300 transition cursor-pointer shrink-0"
               aria-label="Close dossier"
+              title="Close (Esc)"
             >
               <X className="w-5 h-5" />
             </button>
@@ -917,32 +962,32 @@ export default function Company360Modal({
 
         {/* INTELLIGENT RELATIONSHIP MODE BAR (Commercial & CRM vs. Vendor & Payables Ledger) */}
         {vendorPayablesSummary && (
-          <div className="px-4 py-2.5 bg-indigo-950/95 text-white border-b border-indigo-900 flex flex-wrap items-center justify-between gap-2 shrink-0">
-            <div className="flex items-center gap-1.5">
+          <div className="px-4 py-2.5 bg-slate-900 text-white border-b border-slate-800 flex flex-wrap items-center justify-between gap-2 shrink-0">
+            <div className="flex items-center gap-1.5 flex-wrap">
               <button
                 type="button"
                 onClick={() => setActive360Mode('commercial')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
                   active360Mode === 'commercial'
                     ? 'bg-white text-slate-900 shadow-2xs'
-                    : 'bg-indigo-900/70 hover:bg-indigo-800 text-indigo-100'
+                    : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
                 }`}
               >
-                <Building2 className="w-3.5 h-3.5" />
+                <Building2 className="w-3.5 h-3.5 shrink-0" />
                 <span>Commercial & CRM Overview</span>
               </button>
               <button
                 type="button"
                 onClick={() => setActive360Mode('vendor')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
                   active360Mode === 'vendor'
-                    ? 'bg-amber-400 text-slate-950 shadow-2xs'
-                    : 'bg-indigo-900/70 hover:bg-indigo-800 text-indigo-100'
+                    ? 'bg-blue-600 text-white shadow-2xs'
+                    : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
                 }`}
               >
-                <ShoppingCart className="w-3.5 h-3.5" />
+                <ShoppingCart className="w-3.5 h-3.5 shrink-0" />
                 <span>Procurement & Payables Statement</span>
-                <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-slate-900/20">
+                <span className="px-1.5 py-0.5 rounded-full text-[10px] font-mono tabular-nums bg-slate-950/30 leading-none">
                   {vendorPayablesSummary.poList.length} POs • {vendorPayablesSummary.bills.length} Bills
                 </span>
               </button>
@@ -959,9 +1004,9 @@ export default function Company360Modal({
                     vendorName: company.display_name
                   });
                 }}
-                className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-bold inline-flex items-center gap-1 transition cursor-pointer"
+                className="px-2.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold inline-flex items-center gap-1 whitespace-nowrap shrink-0 transition cursor-pointer"
               >
-                <ShoppingCart className="w-3 h-3" />
+                <ShoppingCart className="w-3 h-3 shrink-0" />
                 <span>Issue Supplier PO</span>
               </button>
               <button
@@ -974,9 +1019,9 @@ export default function Company360Modal({
                     vendorName: company.display_name
                   });
                 }}
-                className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold inline-flex items-center gap-1 transition cursor-pointer"
+                className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 text-[11px] font-bold inline-flex items-center gap-1 whitespace-nowrap shrink-0 transition cursor-pointer"
               >
-                <PackageCheck className="w-3 h-3" />
+                <PackageCheck className="w-3 h-3 text-emerald-400 shrink-0" />
                 <span>Receive GRN</span>
               </button>
               <button
@@ -989,9 +1034,9 @@ export default function Company360Modal({
                     vendorName: company.display_name
                   });
                 }}
-                className="px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-[11px] font-bold inline-flex items-center gap-1 transition cursor-pointer"
+                className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 text-[11px] font-bold inline-flex items-center gap-1 whitespace-nowrap shrink-0 transition cursor-pointer"
               >
-                <Receipt className="w-3 h-3" />
+                <Receipt className="w-3 h-3 text-amber-400 shrink-0" />
                 <span>Record Bill</span>
               </button>
               <button
@@ -1004,9 +1049,9 @@ export default function Company360Modal({
                     vendorName: company.display_name
                   });
                 }}
-                className="px-2.5 py-1 rounded-lg bg-white/15 hover:bg-white/25 text-white text-[11px] font-bold inline-flex items-center gap-1 transition cursor-pointer"
+                className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 text-[11px] font-bold inline-flex items-center gap-1 whitespace-nowrap shrink-0 transition cursor-pointer"
               >
-                <CreditCard className="w-3 h-3" />
+                <CreditCard className="w-3 h-3 text-blue-400 shrink-0" />
                 <span>Record Payment</span>
               </button>
             </div>
@@ -1410,7 +1455,7 @@ export default function Company360Modal({
                                     vendorName: company.display_name
                                   });
                                 }}
-                                className="px-2 py-1 rounded bg-indigo-600 hover:bg-indigo-700 text-white text-[10.5px] font-bold cursor-pointer"
+                                className="px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[10.5px] font-bold whitespace-nowrap cursor-pointer transition"
                               >
                                 Settle
                               </button>
@@ -1439,38 +1484,51 @@ export default function Company360Modal({
                 </span>
               </div>
               <div className="overflow-x-auto max-h-64">
-                <table className="w-full text-left border-collapse text-xs">
-                  <thead>
-                    <tr className="bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 text-[10px] font-bold uppercase text-slate-500">
-                      <th className="py-2 px-3">Date</th>
-                      <th className="py-2 px-3">Type</th>
-                      <th className="py-2 px-3">Ref #</th>
-                      <th className="py-2 px-3">Description</th>
-                      <th className="py-2 px-3 text-right">Billed (Credit)</th>
-                      <th className="py-2 px-3 text-right">Paid / DN (Debit)</th>
-                      <th className="py-2 px-3 text-right">Running Balance</th>
+                <table className="w-full lg:table-fixed min-w-[780px] text-left border-collapse text-xs">
+                  <colgroup>
+                    <col className="w-[98px]" />
+                    <col className="w-[104px]" />
+                    <col className="w-[136px]" />
+                    <col className="w-auto" />
+                    <col className="w-[124px]" />
+                    <col className="w-[128px]" />
+                    <col className="w-[136px]" />
+                  </colgroup>
+                  <thead className="sticky top-0 z-10">
+                    <tr className="bg-slate-50/95 dark:bg-slate-800/95 border-b border-slate-200 dark:border-slate-800 text-[10px] font-mono font-bold uppercase tracking-wider text-slate-500">
+                      <th className="py-2.5 pl-4 pr-3 whitespace-nowrap">Date</th>
+                      <th className="py-2.5 px-3 whitespace-nowrap">Type</th>
+                      <th className="py-2.5 px-3 whitespace-nowrap">Ref #</th>
+                      <th className="py-2.5 px-3 whitespace-nowrap">Description</th>
+                      <th className="py-2.5 px-3 text-right whitespace-nowrap">Billed (Credit)</th>
+                      <th className="py-2.5 px-3 text-right whitespace-nowrap">Paid / DN (Debit)</th>
+                      <th className="py-2.5 pl-3 pr-4 text-right whitespace-nowrap">Running Balance</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                     {vendorPayablesSummary.ledgerEntries.map((row) => (
-                      <tr key={row.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40">
-                        <td className="py-2 px-3 font-mono text-slate-600 whitespace-nowrap">{row.date}</td>
-                        <td className="py-2 px-3">
-                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700">
+                      <tr key={row.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors">
+                        <td className="py-2.5 pl-4 pr-3 font-mono tabular-nums text-slate-600 dark:text-slate-400 whitespace-nowrap align-middle">
+                          {row.date}
+                        </td>
+                        <td className="py-2.5 px-3 align-middle whitespace-nowrap">
+                          <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200">
                             {row.type}
                           </span>
                         </td>
-                        <td className="py-2 px-3 font-mono font-bold text-indigo-700 whitespace-nowrap">
-                          {row.ref}
+                        <td className="py-2.5 px-3 font-mono font-bold text-blue-700 dark:text-blue-400 align-middle overflow-hidden">
+                          <HoverScrollText text={row.ref || '—'} />
                         </td>
-                        <td className="py-2 px-3 text-slate-700 dark:text-slate-300">{row.description}</td>
-                        <td className="py-2 px-3 text-right font-mono text-slate-800">
+                        <td className="py-2.5 px-3 text-slate-700 dark:text-slate-300 align-middle overflow-hidden">
+                          <HoverScrollText text={row.description || '—'} />
+                        </td>
+                        <td className="py-2.5 px-3 text-right font-mono tabular-nums text-slate-800 dark:text-slate-200 whitespace-nowrap align-middle">
                           {row.credit > 0 ? `AED ${row.credit.toFixed(2)}` : '—'}
                         </td>
-                        <td className="py-2 px-3 text-right font-mono text-emerald-700">
+                        <td className="py-2.5 px-3 text-right font-mono tabular-nums text-emerald-700 dark:text-emerald-400 whitespace-nowrap align-middle">
                           {row.debit > 0 ? `AED ${row.debit.toFixed(2)}` : '—'}
                         </td>
-                        <td className="py-2 px-3 text-right font-mono font-bold text-slate-900 dark:text-white">
+                        <td className="py-2.5 pl-3 pr-4 text-right font-mono tabular-nums font-bold text-slate-900 dark:text-white whitespace-nowrap align-middle">
                           AED {row.runningBalance.toFixed(2)}
                         </td>
                       </tr>
@@ -1548,25 +1606,28 @@ export default function Company360Modal({
                         className="p-2.5 rounded-lg border border-slate-200/80 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/50 hover:bg-slate-100/70 dark:hover:bg-slate-800/80 transition space-y-1.5"
                       >
                         <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0">
-                            <div className="flex items-center space-x-1.5 flex-wrap">
-                              <span className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate">
-                                {contact.full_name}
-                              </span>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <HoverScrollText
+                                text={contact.full_name}
+                                containerClassName="min-w-0 max-w-full"
+                                className="text-xs font-bold text-slate-900 dark:text-slate-100"
+                              />
                               {contact.is_primary && (
-                                <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                                <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 whitespace-nowrap shrink-0 leading-none">
                                   Primary
                                 </span>
                               )}
                               {isDnc && (
-                                <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-rose-100 dark:bg-rose-950 text-rose-800 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
+                                <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-rose-100 dark:bg-rose-950 text-rose-800 dark:text-rose-300 border border-rose-200 dark:border-rose-800 whitespace-nowrap shrink-0 leading-none">
                                   DNC
                                 </span>
                               )}
                             </div>
-                            <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                              {contact.designation || 'Decision Maker'}
-                            </p>
+                            <HoverScrollText
+                              text={contact.designation || 'Decision Maker'}
+                              className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5"
+                            />
                           </div>
 
                           <div className="flex items-center space-x-1 shrink-0">

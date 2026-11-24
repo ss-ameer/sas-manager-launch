@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { CallLogEntry, Company, Contact, Enquiry, UserProfile, Workspace, getCompanyPhones } from '../types';
 import { isContactUnassigned, resolveContactByPhoneNumber, resolveGeographyFromCompany } from '../utils/activityLogic';
 import LeadConversionModal from './LeadConversionModal';
@@ -88,6 +88,26 @@ export default function CallLogDetailModal({
   const [isDeleting, setIsDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const { openEditCompany, openEditContact } = useEntityEdit();
+
+  // Guarded Escape key dismissal: dismiss delete confirmation first, or close modal when no nested dialog is open
+  useEffect(() => {
+    if (!entry) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (isDeleting || showConvertModal) return;
+      if (showDeleteConfirm) {
+        e.preventDefault();
+        e.stopPropagation();
+        setShowDeleteConfirm(false);
+        return;
+      }
+      e.preventDefault();
+      e.stopPropagation();
+      onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [entry, isDeleting, showConvertModal, showDeleteConfirm, onClose]);
 
   if (!entry) return null;
 
@@ -412,6 +432,8 @@ export default function CallLogDetailModal({
           <button
             type="button"
             onClick={onClose}
+            aria-label="Close activity detail"
+            title="Close (Esc)"
             className="w-8 h-8 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center transition cursor-pointer shrink-0 ml-2"
           >
             <X className="w-5 h-5" />

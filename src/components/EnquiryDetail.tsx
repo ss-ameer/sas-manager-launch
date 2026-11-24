@@ -3649,20 +3649,6 @@ export default function EnquiryDetail({
   const [companySearchTerm, setCompanySearchTerm] = useState('');
   const [isMoreActionsOpen, setIsMoreActionsOpen] = useState(false);
 
-  // UX-M5: Close More Actions menu on Escape key in capture phase before parent drawer closes
-  useEffect(() => {
-    if (!isMoreActionsOpen) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.stopPropagation();
-        e.preventDefault();
-        setIsMoreActionsOpen(false);
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown, true);
-    return () => window.removeEventListener('keydown', handleKeyDown, true);
-  }, [isMoreActionsOpen]);
-
   // Unpaired company duplicate match check
   const unpairedCompanyName = currentEnquiry.company_name || (currentEnquiry as any)?.company || enquiry.company_name || '';
   const candidateCompanyMatch = useMemo(() => {
@@ -4204,6 +4190,128 @@ export default function EnquiryDetail({
   const [isReassignRepOpen, setIsReassignRepOpen] = useState(false);
   const [isSavingRepAssignment, setIsSavingRepAssignment] = useState(false);
 
+  // Guarded layered Escape dismissal: dismiss topmost open sub-modal/popover/dropdown first,
+  // defer to self-managed child modals, and close the EnquiryDetail drawer only when clear.
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+
+      // Defer to child modals that manage their own Escape dismissal
+      if (
+        isQuotationStudioOpen ||
+        isCreateCompanyModalOpen ||
+        saveToCatalogState.isOpen ||
+        isShareModalOpen ||
+        Boolean(lightboxItemState) ||
+        (Boolean(previewAttachment) && !isDocxOrTextAttachment)
+      ) {
+        return;
+      }
+
+      if (declineModalState.isOpen) {
+        e.preventDefault();
+        e.stopPropagation();
+        setDeclineModalState((prev) => ({ ...prev, isOpen: false }));
+        return;
+      }
+      if (confirmDialog.isOpen) {
+        e.preventDefault();
+        e.stopPropagation();
+        setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
+        return;
+      }
+      if (isMoreActionsOpen) {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsMoreActionsOpen(false);
+        return;
+      }
+      if (isReassignRepOpen) {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsReassignRepOpen(false);
+        return;
+      }
+      if (isPairCompanyDropdownOpen) {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsPairCompanyDropdownOpen(false);
+        return;
+      }
+      if (showBulkApplyPopover) {
+        e.preventDefault();
+        e.stopPropagation();
+        setShowBulkApplyPopover(false);
+        return;
+      }
+      if (previewAttachment && isDocxOrTextAttachment) {
+        e.preventDefault();
+        e.stopPropagation();
+        setPreviewAttachment(null);
+        return;
+      }
+      if (viewingQuotation) {
+        e.preventDefault();
+        e.stopPropagation();
+        setViewingQuotation(null);
+        return;
+      }
+      if (poModalState.isOpen) {
+        e.preventDefault();
+        e.stopPropagation();
+        setPoModalState((prev) => ({ ...prev, isOpen: false }));
+        return;
+      }
+      if (showConvertModal) {
+        if (isCreatingProject) return;
+        e.preventDefault();
+        e.stopPropagation();
+        setShowConvertModal(false);
+        return;
+      }
+      if (showQuickCatalogPicker) {
+        e.preventDefault();
+        e.stopPropagation();
+        setShowQuickCatalogPicker(false);
+        return;
+      }
+
+      const activeEl = document.activeElement as HTMLElement | null;
+      if (
+        activeEl &&
+        (activeEl.getAttribute('aria-expanded') === 'true' ||
+          activeEl.closest('[role="listbox"], [role="menu"], [data-dropdown-open="true"]'))
+      ) {
+        return;
+      }
+
+      e.preventDefault();
+      onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
+  }, [
+    isQuotationStudioOpen,
+    isCreateCompanyModalOpen,
+    saveToCatalogState.isOpen,
+    isShareModalOpen,
+    lightboxItemState,
+    previewAttachment,
+    isDocxOrTextAttachment,
+    declineModalState.isOpen,
+    confirmDialog.isOpen,
+    isMoreActionsOpen,
+    isReassignRepOpen,
+    isPairCompanyDropdownOpen,
+    showBulkApplyPopover,
+    viewingQuotation,
+    poModalState.isOpen,
+    showConvertModal,
+    isCreatingProject,
+    showQuickCatalogPicker,
+    onClose
+  ]);
+
   const resolvedAssignedRepInfo = useMemo(() => {
     const targetEq = currentEnquiry || enquiry;
     const spId = resolveSalespersonIdentifier(targetEq);
@@ -4647,7 +4755,7 @@ export default function EnquiryDetail({
                 type="button"
                 disabled={isSavingCommercialTerms}
                 onClick={handleSaveInlineCommercialTerms}
-                className="px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shadow-2xs"
+                className="px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-bold flex items-center gap-1.5 whitespace-nowrap transition cursor-pointer shadow-2xs"
               >
                 <Save className="w-3.5 h-3.5" />
                 <span>{isSavingCommercialTerms ? 'Saving...' : 'Save Commercial Terms'}</span>
@@ -5017,7 +5125,7 @@ export default function EnquiryDetail({
               onClick={() => {
                 void openQuotationStudioWithAutoSave(resolvePrimarySavedQuotation());
               }}
-              className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg transition cursor-pointer flex items-center gap-1.5 shadow-2xs"
+              className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap shadow-2xs"
             >
               <FileText className="w-3.5 h-3.5" />
               <span>Open Quotation Studio</span>
@@ -5168,16 +5276,25 @@ export default function EnquiryDetail({
       {filteredHubDocuments.length > 0 ? (
         <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-2xs">
           <div className="w-full overflow-x-auto">
-            <table className="w-full text-left border-collapse text-xs">
+            <table className="w-full table-fixed min-w-[780px] text-left border-collapse text-xs">
+              <colgroup>
+                <col className="w-[62px]" />
+                <col className="w-auto" />
+                <col className="w-[58px]" />
+                <col className="w-[104px]" />
+                <col className="w-[136px]" />
+                <col className="w-[104px]" />
+                <col className="w-[244px]" />
+              </colgroup>
               <thead>
                 <tr className="bg-slate-100/80 border-b border-slate-200 text-[10px] font-mono uppercase tracking-wider text-slate-500">
-                  <th className="py-2.5 px-2.5 font-bold whitespace-nowrap">Type</th>
-                  <th className="py-2.5 px-3 font-bold">Reference Code</th>
+                  <th className="py-2.5 pl-4 pr-2 font-bold whitespace-nowrap">Type</th>
+                  <th className="py-2.5 px-3 font-bold whitespace-nowrap">Reference Code</th>
                   <th className="py-2.5 px-2 font-bold whitespace-nowrap">Rev #</th>
                   <th className="py-2.5 px-2.5 font-bold whitespace-nowrap">Created Date</th>
                   <th className="py-2.5 px-2.5 font-bold text-right whitespace-nowrap">Total Amount</th>
                   <th className="py-2.5 px-2 font-bold whitespace-nowrap">Status</th>
-                  <th className="py-2.5 px-3 font-bold text-right whitespace-nowrap">Actions</th>
+                  <th className="py-2.5 pl-2 pr-4 font-bold text-right whitespace-nowrap">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -5241,7 +5358,7 @@ export default function EnquiryDetail({
                           : ''
                       }`}
                     >
-                      <td className="py-2.5 px-2.5 whitespace-nowrap">
+                      <td className="py-2.5 pl-4 pr-2 whitespace-nowrap align-middle">
                         <span
                           className={`inline-flex items-center px-1.5 py-0.5 rounded border text-[10px] font-mono font-bold ${badgeClass}`}
                         >
@@ -5249,30 +5366,34 @@ export default function EnquiryDetail({
                         </span>
                       </td>
 
-                      <td className="py-2.5 px-3 min-w-0">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <span className="font-mono font-bold text-slate-900 text-[11.5px] break-all sm:break-normal">
-                            {q.formatted_quote_ref}
-                          </span>
+                      <td className="py-2.5 px-3 align-middle overflow-hidden">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <HoverScrollText
+                            text={q.formatted_quote_ref || '—'}
+                            containerClassName="min-w-0 flex-1"
+                            className="font-mono font-bold text-slate-900 text-[11.5px]"
+                          />
                           {isBaselineVirtual && (
-                            <span className="text-[9.5px] font-mono px-1.5 py-0.2 rounded bg-slate-100 text-slate-600 border border-slate-200">
-                              Baseline Proposal
+                            <span className="text-[9.5px] font-mono px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200 whitespace-nowrap shrink-0 leading-none">
+                              Baseline
                             </span>
                           )}
                         </div>
                         {docType === 'purchase_order' && q.purchase_order_metadata?.supplier_name && (
-                          <span className="text-[10px] text-slate-400 block">
-                            Vendor: {q.purchase_order_metadata.supplier_name}
-                          </span>
+                          <HoverScrollText
+                            text={`Vendor: ${q.purchase_order_metadata.supplier_name}`}
+                            className="text-[10px] text-slate-400 mt-0.5"
+                          />
                         )}
                         {docType === 'delivery_note' && q.delivery_metadata?.dispatch_mode && (
-                          <span className="text-[10px] text-slate-400 block">
-                            Dispatch: {q.delivery_metadata.dispatch_mode}
-                          </span>
+                          <HoverScrollText
+                            text={`Dispatch: ${q.delivery_metadata.dispatch_mode}`}
+                            className="text-[10px] text-slate-400 mt-0.5"
+                          />
                         )}
                       </td>
 
-                      <td className="py-2.5 px-2 whitespace-nowrap font-mono">
+                      <td className="py-2.5 px-2 whitespace-nowrap font-mono tabular-nums align-middle">
                         {isQuoteDoc ? (
                           <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200 text-[10px] font-bold">
                             R{q.revision_number || 1}
@@ -5282,11 +5403,11 @@ export default function EnquiryDetail({
                         )}
                       </td>
 
-                      <td className="py-2.5 px-2.5 whitespace-nowrap font-mono text-[11px] text-slate-600">
+                      <td className="py-2.5 px-2.5 whitespace-nowrap font-mono tabular-nums text-[11px] text-slate-600 align-middle">
                         {formattedDate}
                       </td>
 
-                      <td className="py-2.5 px-2.5 whitespace-nowrap text-right font-mono">
+                      <td className="py-2.5 px-2.5 whitespace-nowrap text-right font-mono tabular-nums align-middle">
                         {docType === 'delivery_note' || docType === 'material_return_note' ? (
                           <span className="text-[10.5px] font-semibold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200">
                             Unpriced • {(q.line_items || []).length} item(s)
@@ -5336,7 +5457,7 @@ export default function EnquiryDetail({
                         )}
                       </td>
 
-                      <td className="py-2.5 px-3 whitespace-nowrap text-right">
+                      <td className="py-2.5 pl-2 pr-4 whitespace-nowrap text-right align-middle">
                         <div className="inline-flex items-center justify-end gap-1">
                           {linkedEnqId && linkedEnqId !== currentEnquiry.id && onSelectEnquiry ? (
                             <button
@@ -5511,7 +5632,8 @@ export default function EnquiryDetail({
                   type="button"
                   onClick={onClose}
                   className="p-1.5 hover:bg-slate-100 text-slate-400 hover:text-slate-800 rounded-lg transition shrink-0 cursor-pointer"
-                  title="Close"
+                  aria-label="Close enquiry detail"
+                  title="Close (Esc)"
                 >
                   <X className="w-5 h-5 text-slate-600" />
                 </button>
@@ -5549,7 +5671,7 @@ export default function EnquiryDetail({
                       ? `Assigned Sales Representative: ${resolvedAssignedRepInfo.fullName} (Click to reassign)`
                       : `Assigned Sales Representative: ${resolvedAssignedRepInfo.fullName}`
                   }
-                  className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-[11px] font-sans font-bold border transition shadow-2xs ${
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-[11px] font-sans font-bold border transition shadow-2xs whitespace-nowrap shrink-0 ${
                     resolvedAssignedRepInfo.isUnassigned
                       ? 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
                       : 'bg-blue-50 text-blue-800 border-blue-200 hover:bg-blue-100'
@@ -5618,20 +5740,20 @@ export default function EnquiryDetail({
               </div>
 
               {(currentEnquiry.customer_reference_code || enquiry.customer_reference_code) && (
-                <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-mono font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 shrink-0" title="Customer Reference Code">
+                <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-mono font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 whitespace-nowrap shrink-0" title="Customer Reference Code">
                   Ref: {currentEnquiry.customer_reference_code || enquiry.customer_reference_code}
                 </span>
               )}
 
               {shouldShowProposalOptionBadge(currentEnquiry.proposal_option || enquiry.proposal_option) && (
-                <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-sans font-semibold bg-purple-50 text-purple-700 border border-purple-200 shrink-0" title="Proposal Option">
+                <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-sans font-semibold bg-purple-50 text-purple-700 border border-purple-200 whitespace-nowrap shrink-0" title="Proposal Option">
                   {currentEnquiry.proposal_option || enquiry.proposal_option}
                 </span>
               )}
 
               {isCreatorOnly && (
                 <span
-                  className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-sans font-medium bg-amber-50/90 text-amber-700 border border-amber-200/80 shrink-0"
+                  className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-sans font-medium bg-amber-50/90 text-amber-700 border border-amber-200/80 whitespace-nowrap shrink-0"
                   title="Visible to you because you logged this enquiry on behalf of the assigned salesperson"
                 >
                   Logged by You
@@ -5649,12 +5771,12 @@ export default function EnquiryDetail({
                 onClick={() => {
                   void openQuotationStudioWithAutoSave(resolvePrimarySavedQuotation());
                 }}
-                className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 shadow-2xs transition cursor-pointer whitespace-nowrap shrink-0"
+                className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 shadow-2xs transition cursor-pointer whitespace-nowrap shrink-0"
                 title="Open Document Studio to generate or customize Quotations, Delivery Notes, POs, Receipts & Vouchers"
               >
-                <FileText className="w-3.5 h-3.5" />
+                <FileText className="w-3.5 h-3.5 shrink-0" />
                 <span>Document Studio</span>
-                <span className="px-1.5 py-0.5 rounded-full bg-white/20 text-white text-[10px] font-mono font-bold leading-none">
+                <span className="px-1.5 py-0.5 rounded-full bg-white/20 text-white text-[10px] font-mono tabular-nums font-bold leading-none">
                   {unifiedHubDocuments.length || quotations.length || 1}
                 </span>
               </button>
@@ -7157,7 +7279,7 @@ export default function EnquiryDetail({
                       type="button"
                       disabled={isSyncingQuoteItems}
                       onClick={() => handleSyncLineItemsToQuote('new_revision')}
-                      className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition cursor-pointer whitespace-nowrap disabled:opacity-50 flex items-center gap-1.5"
+                      className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition cursor-pointer whitespace-nowrap disabled:opacity-50 flex items-center gap-1.5"
                     >
                       <GitFork className="w-3.5 h-3.5" />
                       <span>Create Revision R{quotations.reduce((m, q) => Math.max(m, q.revision_number || 1), 1) + 1}</span>
@@ -7450,7 +7572,7 @@ export default function EnquiryDetail({
                                         handleBulkApplyFieldToLineItems('delivery', bulkDeliveryInput);
                                         setBulkDeliveryInput('');
                                       }}
-                                      className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[10px] font-bold cursor-pointer"
+                                      className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[10px] font-bold cursor-pointer"
                                     >
                                       Apply
                                     </button>
@@ -7486,7 +7608,7 @@ export default function EnquiryDetail({
                                         handleBulkApplyFieldToLineItems('origin', bulkOriginInput);
                                         setBulkOriginInput('');
                                       }}
-                                      className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[10px] font-bold cursor-pointer"
+                                      className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[10px] font-bold cursor-pointer"
                                     >
                                       Apply
                                     </button>
@@ -8957,43 +9079,55 @@ export default function EnquiryDetail({
                                     </span>
                                   </div>
                                   <div className="w-full max-w-full overflow-x-auto rounded-lg border border-slate-200">
-                                    <table className="w-full text-left border-collapse text-xs">
+                                    <table className="w-full table-fixed min-w-[600px] text-left border-collapse text-xs">
+                                      <colgroup>
+                                        <col className="w-[48px]" />
+                                        <col className="w-auto" />
+                                        <col className="w-[64px]" />
+                                        <col className="w-[68px]" />
+                                        <col className="w-[112px]" />
+                                        <col className="w-[120px]" />
+                                      </colgroup>
                                       <thead>
                                         <tr className="bg-slate-50 border-b border-slate-200 text-[10px] font-mono uppercase text-slate-500">
-                                          <th className="py-1.5 px-2 w-10 text-center">#</th>
-                                          <th className="py-1.5 px-2">Included Item / Sub-Component</th>
-                                          <th className="py-1.5 px-2 w-16 text-center">Qty</th>
-                                          <th className="py-1.5 px-2 w-16 text-center">UOM</th>
-                                          <th className="py-1.5 px-2 w-28 text-right">Unit Price</th>
-                                          <th className="py-1.5 px-2 w-28 text-right">Total</th>
+                                          <th className="py-1.5 pl-3 pr-2 text-center whitespace-nowrap">#</th>
+                                          <th className="py-1.5 px-2.5 whitespace-nowrap">Included Item / Sub-Component</th>
+                                          <th className="py-1.5 px-2 text-center whitespace-nowrap">Qty</th>
+                                          <th className="py-1.5 px-2 text-center whitespace-nowrap">UOM</th>
+                                          <th className="py-1.5 px-2 text-right whitespace-nowrap">Unit Price</th>
+                                          <th className="py-1.5 pl-2 pr-4 text-right whitespace-nowrap">Total</th>
                                         </tr>
                                       </thead>
                                       <tbody className="divide-y divide-slate-100">
                                         {item.sub_components.map((sub, sIdx) => {
                                           const isIncludedSub = Boolean(sub.is_included_accessory) || !(Number(sub.unit_price) > 0);
                                           return (
-                                            <tr key={sub.id || sIdx} className={isIncludedSub ? 'bg-slate-50/60 text-slate-600' : 'bg-white'}>
-                                              <td className="py-1.5 px-2 text-center font-mono text-[11px] text-slate-400">
+                                            <tr key={sub.id || sIdx} className={`transition-colors hover:bg-slate-50/90 ${isIncludedSub ? 'bg-slate-50/60 text-slate-600' : 'bg-white'}`}>
+                                              <td className="py-1.5 pl-3 pr-2 text-center font-mono tabular-nums text-[11px] text-slate-400 align-middle">
                                                 {idx + 1}.{sIdx + 1}
                                               </td>
-                                              <td className="py-1.5 px-2">
-                                                <div className="font-medium text-slate-800 break-words">{sub.item_name}</div>
+                                              <td className="py-1.5 px-2.5 align-middle overflow-hidden">
+                                                <HoverScrollText
+                                                  text={sub.item_name || 'Sub-Component'}
+                                                  className="font-medium text-slate-800"
+                                                />
                                                 {sub.remark && (
-                                                  <div className="text-[11px] font-bold text-slate-600 break-words">
-                                                    Remark: {sub.remark}
-                                                  </div>
+                                                  <HoverScrollText
+                                                    text={`Remark: ${sub.remark}`}
+                                                    className="text-[11px] font-semibold text-slate-500 mt-0.5"
+                                                  />
                                                 )}
                                               </td>
-                                              <td className="py-1.5 px-2 text-center font-mono font-bold text-slate-800">
+                                              <td className="py-1.5 px-2 text-center font-mono tabular-nums font-bold text-slate-800 align-middle">
                                                 {sub.quantity}
                                               </td>
-                                              <td className="py-1.5 px-2 text-center font-mono text-slate-600 uppercase">
+                                              <td className="py-1.5 px-2 text-center font-mono text-slate-600 uppercase align-middle">
                                                 {sub.unit || 'NOS'}
                                               </td>
-                                              <td className="py-1.5 px-2 text-right font-mono text-slate-700 whitespace-nowrap">
+                                              <td className="py-1.5 px-2 text-right font-mono tabular-nums text-slate-700 whitespace-nowrap align-middle">
                                                 {isIncludedSub ? '—' : formatCurrency(sub.unit_price)}
                                               </td>
-                                              <td className="py-1.5 px-2 text-right font-mono font-bold text-slate-900 whitespace-nowrap">
+                                              <td className="py-1.5 pl-2 pr-4 text-right font-mono tabular-nums font-bold text-slate-900 whitespace-nowrap align-middle">
                                                 {isIncludedSub ? (
                                                   <span className="text-[10px] font-semibold text-emerald-700">Included</span>
                                                 ) : (
@@ -9680,50 +9814,59 @@ export default function EnquiryDetail({
                         Contract Value: {formatCurrency(scopedContractValue)}
                       </span>
                     </div>
-                    <div className="border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden max-h-40 overflow-y-auto">
-                      <table className="w-full text-left text-xs border-collapse">
-                        <thead className="bg-slate-50 dark:bg-slate-800/80 text-[10px] font-mono text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
+                    <div className="border border-slate-200 dark:border-slate-700 rounded-xl overflow-x-auto max-h-40 overflow-y-auto">
+                      <table className="w-full table-fixed min-w-[520px] text-left text-xs border-collapse">
+                        <colgroup>
+                          <col className="w-[44px]" />
+                          <col className="w-auto" />
+                          <col className="w-[96px]" />
+                          <col className="w-[136px]" />
+                        </colgroup>
+                        <thead className="sticky top-0 z-10 bg-slate-50/95 dark:bg-slate-800/95 text-[10px] font-mono text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
                           <tr>
-                            <th className="py-2 px-3">#</th>
-                            <th className="py-2 px-3">Description</th>
-                            <th className="py-2 px-3 text-right">Qty</th>
-                            <th className="py-2 px-3 text-center">Inventory Type</th>
+                            <th className="py-2 pl-4 pr-2 whitespace-nowrap">#</th>
+                            <th className="py-2 px-3 whitespace-nowrap">Description</th>
+                            <th className="py-2 px-3 text-right whitespace-nowrap">Qty</th>
+                            <th className="py-2 pl-3 pr-4 text-right whitespace-nowrap">Inventory Type</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                           {scopedItems.length > 0 ? (
                             scopedItems.map((item, idx) => (
-                              <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40">
-                                <td className="py-2 px-3 font-mono text-slate-400 text-[11px]">
+                              <tr key={idx} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors">
+                                <td className="py-2 pl-4 pr-2 font-mono tabular-nums text-slate-400 text-[11px] align-middle">
                                   {idx + 1}
                                 </td>
-                                <td className="py-2 px-3">
-                                  <div className="font-semibold text-slate-800 dark:text-slate-100">
-                                    {item.item_name || item.description || 'Line Item'}
-                                  </div>
+                                <td className="py-2 px-3 align-middle overflow-hidden">
+                                  <HoverScrollText
+                                    text={item.item_name || item.description || 'Line Item'}
+                                    className="font-semibold text-slate-800 dark:text-slate-100"
+                                  />
                                   {item.item_name && item.description && item.description !== item.item_name && (
-                                    <div className="text-xs text-slate-500 dark:text-slate-400">
-                                      {item.description}
-                                    </div>
+                                    <HoverScrollText
+                                      text={item.description}
+                                      className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5"
+                                    />
                                   )}
                                   {item.product_type && (
-                                    <div className="text-[10px] text-slate-400 font-mono">
-                                      {item.product_type}
-                                    </div>
+                                    <HoverScrollText
+                                      text={item.product_type}
+                                      className="text-[10px] text-slate-400 font-mono mt-0.5"
+                                    />
                                   )}
                                 </td>
-                                <td className="py-2 px-3 text-right font-mono font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap">
+                                <td className="py-2 px-3 text-right font-mono tabular-nums font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap align-middle">
                                   {item.quantity || 1} {item.unit || 'EA'}
                                 </td>
-                                <td className="py-2 px-3 text-center whitespace-nowrap">
+                                <td className="py-2 pl-3 pr-4 text-right whitespace-nowrap align-middle">
                                   {item.product_id || (item.is_composite_set && Array.isArray(item.sub_components) && item.sub_components.some((sc) => sc.product_id)) ? (
-                                    <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[10px] font-medium bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
-                                      <Package className="w-3 h-3 text-emerald-600" />
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                                      <Package className="w-3 h-3 text-emerald-600 shrink-0" />
                                       <span>Catalog Stock</span>
                                     </span>
                                   ) : (
-                                    <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[10px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700">
-                                      <Wrench className="w-3 h-3 text-slate-400" />
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700">
+                                      <Wrench className="w-3 h-3 text-slate-400 shrink-0" />
                                       <span>Custom / Scope</span>
                                     </span>
                                   )}
@@ -9732,7 +9875,7 @@ export default function EnquiryDetail({
                             ))
                           ) : (
                             <tr>
-                              <td colSpan={4} className="py-3 px-3 text-center text-slate-400 italic text-[11px]">
+                              <td colSpan={4} className="py-3 px-4 text-center text-slate-400 italic text-[11px]">
                                 No line items registered for this option.
                               </td>
                             </tr>
@@ -10246,7 +10389,7 @@ export default function EnquiryDetail({
               <button
                 type="button"
                 onClick={() => handleConfirmLaunchSupplierPo(true)}
-                className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-xs cursor-pointer flex items-center gap-1.5"
+                className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-xs cursor-pointer flex items-center gap-1.5 whitespace-nowrap transition"
               >
                 <FileText className="w-3.5 h-3.5" />
                 <span>Save &amp; Open in Studio</span>

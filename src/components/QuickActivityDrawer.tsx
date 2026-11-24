@@ -3300,6 +3300,41 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
   const [showDraftAndPurposeToggle, setShowDraftAndPurposeToggle] = useState(false);
   const [showGovernanceToggle, setShowGovernanceToggle] = useState(false);
 
+  // Guarded Escape key dismissal: dismiss topmost popover/panel before closing drawer
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      // Guard: let nested modals handle their own Escape and avoid closing mid-submission
+      if (showGeminiKeyModal || isSubmitting) return;
+      if (isComboboxOpen) {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsComboboxOpen(false);
+        return;
+      }
+      if (isHistoryDrawerOpen) {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsHistoryDrawerOpen(false);
+        return;
+      }
+      const activeEl = document.activeElement as HTMLElement | null;
+      if (
+        activeEl &&
+        (activeEl.getAttribute('aria-expanded') === 'true' ||
+          activeEl.closest('[role="listbox"], [role="menu"], [data-dropdown-open="true"]'))
+      ) {
+        return;
+      }
+      e.preventDefault();
+      e.stopPropagation();
+      onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, showGeminiKeyModal, isSubmitting, isComboboxOpen, isHistoryDrawerOpen, onClose]);
+
   if (!isOpen) return null;
 
   return (
@@ -3347,26 +3382,25 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 shrink-0">
               {!isInternalOps && selectedCompanyId && (
                 <button
                   type="button"
                   onClick={() => setIsHistoryDrawerOpen((prev) => !prev)}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-50 hover:bg-blue-100 text-blue-700 hover:text-blue-800 border border-blue-200 transition shadow-2xs cursor-pointer group"
-                  title={isHistoryDrawerOpen ? "Close past activity timeline" : "View past activity timeline"}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-blue-50 hover:bg-blue-100 text-blue-700 hover:text-blue-800 border border-blue-200 transition shadow-2xs whitespace-nowrap shrink-0 cursor-pointer"
+                  title={isHistoryDrawerOpen ? 'Close past activity timeline' : 'View past activity timeline'}
                 >
-                  <span>⏱️</span>
+                  <Clock className="w-3.5 h-3.5 text-blue-600 shrink-0" />
                   <span>Activity History</span>
-                  <span className="font-bold">({combinedHistoryCount})</span>
-                  <span className="text-blue-300 font-light mx-0.5">|</span>
-                  <span className="text-blue-600 group-hover:translate-x-0.5 transition-transform text-xs">
-                    {isHistoryDrawerOpen ? '⇱' : '⇲'}
-                  </span>
+                  <span className="font-mono tabular-nums font-bold">({combinedHistoryCount})</span>
                 </button>
               )}
               <button
+                type="button"
                 onClick={onClose}
-                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+                aria-label="Close Activity Logger"
+                title="Close (Esc)"
+                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer shrink-0"
               >
                 <X className="h-5 w-5" />
               </button>
