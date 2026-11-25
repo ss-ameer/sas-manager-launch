@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
+import { Z_NESTED_MODAL, Z_BLOCKING_DIALOG } from '../constants/zIndex';
 import { CallLogEntry, Company, Contact, Enquiry, UserProfile, Workspace, getCompanyPhones } from '../types';
 import { isContactUnassigned, resolveContactByPhoneNumber, resolveGeographyFromCompany } from '../utils/activityLogic';
 import LeadConversionModal from './LeadConversionModal';
@@ -109,13 +111,13 @@ export default function CallLogDetailModal({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [entry, isDeleting, showConvertModal, showDeleteConfirm, onClose]);
 
-  if (!entry) return null;
+  if (!entry || typeof document === 'undefined') return null;
 
   const hasAccess = canAccessActivityDetail(currentUser, entry, enquiries, activeWorkspace);
 
   if (!hasAccess) {
-    return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+    return createPortal(
+      <div className={`fixed inset-0 ${Z_NESTED_MODAL} flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs`}>
         <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 max-w-sm w-full border border-amber-200 dark:border-amber-800 shadow-xl text-center space-y-4">
           <div className="w-12 h-12 rounded-full bg-amber-100 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 mx-auto flex items-center justify-center">
             <Lock className="w-6 h-6" />
@@ -134,7 +136,8 @@ export default function CallLogDetailModal({
             Close
           </button>
         </div>
-      </div>
+      </div>,
+      document.body
     );
   }
 
@@ -391,8 +394,8 @@ export default function CallLogDetailModal({
       })
     : 'N/A';
 
-  return (
-    <div className="fixed inset-0 z-60 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 sm:p-6 overflow-hidden animate-fade-in">
+  return createPortal(
+    <div className={`fixed inset-0 ${Z_NESTED_MODAL} bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 sm:p-6 overflow-hidden animate-fade-in`}>
       <div className="bg-white text-slate-900 border border-slate-200 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden my-auto">
         {/* Modal Header */}
         <div className="bg-white text-slate-900 border-b border-slate-200 px-6 py-4 flex items-center justify-between shrink-0">
@@ -1022,8 +1025,8 @@ export default function CallLogDetailModal({
       </div>
 
       {/* Delete Confirmation Modal */}
-      {showDeleteConfirm && (
-        <div className="fixed inset-0 z-70 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+      {showDeleteConfirm && createPortal(
+        <div className={`fixed inset-0 ${Z_BLOCKING_DIALOG} bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4`}>
           <div className="bg-white text-slate-900 border border-slate-200 rounded-2xl shadow-2xl p-6 max-w-sm w-full space-y-4">
             <div className="flex items-center space-x-3 text-rose-600">
               <div className="w-10 h-10 rounded-xl bg-rose-50 border border-rose-200 flex items-center justify-center shrink-0">
@@ -1066,7 +1069,8 @@ export default function CallLogDetailModal({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {showConvertModal && activeWorkspace && (
@@ -1085,7 +1089,8 @@ export default function CallLogDetailModal({
           }}
         />
       )}
-    </div>
+    </div>,
+    document.body
   );
 }
 

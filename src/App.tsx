@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { auth, db, safeDeleteDoc, safeAddDoc, safeUpdateDoc, safeSetDoc, safeGetDoc, safeGetDocs, isQuotaCircuitBroken } from './firebase';
+import { Z_TOAST } from './constants/zIndex';
 import { onAuthStateChanged } from 'firebase/auth';
 import { collection, onSnapshot, query, orderBy, doc, writeBatch, updateDoc, where, or, documentId, limit } from 'firebase/firestore';
 import { Company, Contact, Enquiry, Invite, AuditLog, Salesperson, UserProfile, Product, Project, DropdownOption, Workspace, CallLogEntry, CallStatus, WORKSPACE_STORAGE_KEY } from './types';
@@ -2693,53 +2695,59 @@ export default function App() {
         triggerToast={triggerToast}
       />
 
-      {/* Toast Notification Container */}
-      <AnimatePresence>
-        {toast && (
-          <motion.div
-            key={toast.id}
-            initial={{ opacity: 0, y: 50, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 20, scale: 0.95 }}
-            transition={{ duration: 0.2, ease: "easeOut" }}
-            className="fixed bottom-6 right-6 z-50 flex items-center p-4 rounded-xl shadow-lg border bg-white border-slate-100 max-w-sm w-full font-sans"
-          >
-            <div className="flex items-start space-x-3 w-full">
-              {toast.type === 'success' && (
-                <div className="flex-shrink-0 p-1 bg-emerald-50 text-emerald-600 rounded-lg">
-                  <CheckCircle2 className="w-5 h-5" />
-                </div>
-              )}
-              {toast.type === 'error' && (
-                <div className="flex-shrink-0 p-1 bg-red-50 text-red-600 rounded-lg">
-                  <AlertCircle className="w-5 h-5" />
-                </div>
-              )}
-              {toast.type === 'info' && (
-                <div className="flex-shrink-0 p-1 bg-blue-50 text-blue-600 rounded-lg">
-                  <Info className="w-5 h-5" />
-                </div>
-              )}
-              
-              <div className="flex-1 min-w-0 pt-0.5">
-                <p className="text-sm font-semibold text-slate-800">
-                  {toast.type === 'success' ? 'Success' : toast.type === 'error' ? 'Error' : 'Notice'}
-                </p>
-                <p className="text-xs text-slate-500 mt-0.5 font-medium leading-relaxed">
-                  {toast.message}
-                </p>
-              </div>
+      {/* Global Toast Notification Viewport (Portal-Mounted above all drawers, modals & lightboxes) */}
+      {typeof document !== 'undefined' &&
+        createPortal(
+          <div className={`fixed bottom-6 right-6 ${Z_TOAST} pointer-events-none max-w-sm w-[calc(100vw-3rem)] font-sans print:hidden`}>
+            <AnimatePresence>
+              {toast && (
+                <motion.div
+                  key={toast.id}
+                  initial={{ opacity: 0, y: 50, scale: 0.95 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 20, scale: 0.95 }}
+                  transition={{ duration: 0.2, ease: "easeOut" }}
+                  className="pointer-events-auto flex items-center p-4 rounded-xl shadow-lg border bg-white border-slate-100 w-full font-sans"
+                >
+                  <div className="flex items-start space-x-3 w-full">
+                    {toast.type === 'success' && (
+                      <div className="flex-shrink-0 p-1 bg-emerald-50 text-emerald-600 rounded-lg">
+                        <CheckCircle2 className="w-5 h-5" />
+                      </div>
+                    )}
+                    {toast.type === 'error' && (
+                      <div className="flex-shrink-0 p-1 bg-red-50 text-red-600 rounded-lg">
+                        <AlertCircle className="w-5 h-5" />
+                      </div>
+                    )}
+                    {toast.type === 'info' && (
+                      <div className="flex-shrink-0 p-1 bg-blue-50 text-blue-600 rounded-lg">
+                        <Info className="w-5 h-5" />
+                      </div>
+                    )}
 
-              <button
-                onClick={() => setToast(null)}
-                className="flex-shrink-0 text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-50 transition"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-          </motion.div>
+                    <div className="flex-1 min-w-0 pt-0.5">
+                      <p className="text-sm font-semibold text-slate-800">
+                        {toast.type === 'success' ? 'Success' : toast.type === 'error' ? 'Error' : 'Notice'}
+                      </p>
+                      <p className="text-xs text-slate-500 mt-0.5 font-medium leading-relaxed">
+                        {toast.message}
+                      </p>
+                    </div>
+
+                    <button
+                      onClick={() => setToast(null)}
+                      className="flex-shrink-0 text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-50 transition cursor-pointer"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>,
+          document.body
         )}
-      </AnimatePresence>
 
       {/* User Profile & Onboarding Modal */}
       {user && (

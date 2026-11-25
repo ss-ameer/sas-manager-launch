@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { createPortal } from 'react-dom';
+import { Z_NESTED_MODAL } from '../constants/zIndex';
 import {
   Company,
   Workspace,
@@ -549,12 +551,12 @@ export default function CompanyEditModal({
     }
   };
 
-  if (!isOpen) return null;
+  if (!isOpen || typeof document === 'undefined') return null;
 
-  return (
+  return createPortal(
     <div
       id="global-company-edit-modal-overlay"
-      className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-[120] flex items-center justify-center p-2 sm:p-4 animate-in fade-in duration-150"
+      className={`fixed inset-0 bg-slate-950/60 backdrop-blur-xs ${Z_NESTED_MODAL} flex items-center justify-center p-2 sm:p-4 animate-in fade-in duration-150`}
       onClick={(e) => {
         e.stopPropagation();
         if (isSaving || canonicalName.trim()) return;
@@ -1305,6 +1307,7 @@ export default function CompanyEditModal({
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

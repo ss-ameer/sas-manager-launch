@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import mammoth from 'mammoth';
+import { Z_BLOCKING_DIALOG } from '../../constants/zIndex';
 import { Attachment } from '../../types';
 import { resolveAttachmentUrl } from '../../services/attachmentStorage';
 import {
@@ -270,7 +272,7 @@ export default function FilePreviewModal({
     return effectiveUrl.includes('#') ? effectiveUrl : `${effectiveUrl}#view=FitH`;
   }, [effectiveUrl]);
 
-  if (!isOpen || !file) return null;
+  if (!isOpen || !file || typeof document === 'undefined') return null;
 
   const handleDownload = () => {
     if (onDownload) {
@@ -300,9 +302,9 @@ export default function FilePreviewModal({
     }
   };
 
-  return (
+  return createPortal(
     <div 
-      className="fixed inset-0 z-50 flex flex-col bg-slate-950/85 backdrop-blur-md animate-in fade-in duration-200"
+      className={`fixed inset-0 ${Z_BLOCKING_DIALOG} flex flex-col bg-slate-950/85 backdrop-blur-md animate-in fade-in duration-200`}
       role="dialog"
       aria-modal="true"
       aria-labelledby="file-preview-title"
@@ -599,6 +601,7 @@ export default function FilePreviewModal({
           </div>
         ) : null}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

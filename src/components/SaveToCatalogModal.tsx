@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { createPortal } from 'react-dom';
+import { Z_NESTED_MODAL } from '../constants/zIndex';
 import {
   Product,
   ProductAttribute,
@@ -3182,9 +3184,11 @@ export default function SaveToCatalogModal({
       (Array.isArray(lineItem.sub_components) && lineItem.sub_components.length > 0)
   );
 
-  return (
+  if (typeof document === 'undefined') return null;
+
+  return createPortal(
     <div
-      className="fixed inset-0 z-[260] bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4"
+      className={`fixed inset-0 ${Z_NESTED_MODAL} bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4`}
       onClick={onClose}
     >
       <form
@@ -4032,6 +4036,7 @@ export default function SaveToCatalogModal({
           </button>
         </div>
       </form>
-    </div>
+    </div>,
+    document.body
   );
 }

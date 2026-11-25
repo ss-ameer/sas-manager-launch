@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { createPortal } from 'react-dom';
+import { Z_STUDIO, Z_BLOCKING_DIALOG } from '../constants/zIndex';
 import {
   X,
   Phone,
@@ -2980,7 +2982,7 @@ export default function LiveExecutionModal({
   // Clean empty queue or completed queue state
   if (!currentTask || (activeQueue.length > 0 && currentIndex >= activeQueue.length)) {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs animate-in fade-in duration-150">
+      <div className={`fixed inset-0 ${Z_STUDIO} flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs animate-in fade-in duration-150`}>
         <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full border border-slate-200 dark:border-slate-800 shadow-2xl p-6 text-center space-y-4">
           <div className="w-14 h-14 bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 rounded-full flex items-center justify-center mx-auto">
             <CheckCircle2 className="w-8 h-8" />
@@ -3004,7 +3006,7 @@ export default function LiveExecutionModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/50 backdrop-blur-xs flex items-center justify-center p-4">
+    <div className={`fixed inset-0 ${Z_STUDIO} bg-slate-950/50 backdrop-blur-xs flex items-center justify-center p-4`}>
       <div className={`relative w-full ${isHistoryExpanded ? 'max-w-6xl' : 'max-w-3xl'} bg-white border border-slate-200 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] transition-all duration-200`}>
         {/* Modal Header */}
         <div className="px-6 py-4 border-b border-slate-200 bg-white flex items-center justify-between shrink-0">
@@ -5269,8 +5271,8 @@ export default function LiveExecutionModal({
       )}
 
       {/* Cancellation Confirmation Dialog Modal */}
-      {isCancelModalOpen && (
-        <div className="fixed inset-0 z-60 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+      {isCancelModalOpen && typeof document !== 'undefined' && createPortal(
+        <div className={`fixed inset-0 ${Z_BLOCKING_DIALOG} bg-black/60 backdrop-blur-xs flex items-center justify-center p-4`}>
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-md w-full p-5 shadow-2xl space-y-4">
             <div className="flex items-center space-x-2.5 text-rose-600 dark:text-rose-400">
               <Ban className="w-5 h-5 shrink-0" />
@@ -5322,7 +5324,8 @@ export default function LiveExecutionModal({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

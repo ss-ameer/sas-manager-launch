@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { Z_DRAWER, Z_NESTED_MODAL, Z_BLOCKING_DIALOG } from '../constants/zIndex';
 import { Enquiry, Company, Contact, AuditLog, UserProfile, Salesperson, Workspace, Attachment, Project, ProjectMilestone, Product, LineItem, QuotationLineItem, DropdownOption, ENQUIRY_STATUS_OPTIONS, normalizeEnquiryStatus, resolveSalespersonIdentifier, resolveSalespersonName, normalizeEnquirySource, PIPELINE_STATUS_GROUPS } from '../types';
 import { sanitizeAuditPayload } from '../utils/sanitizeAuditLog';
 import { safeUpdateDoc, safeAddDoc } from '../firebase';
@@ -5568,7 +5569,7 @@ export default function EnquiryDetail({
   );
 
   return (
-    <div id="enquiry-detail-drawer" className="fixed inset-0 bg-slate-950/40 backdrop-blur-xs z-[90] flex justify-end">
+    <div id="enquiry-detail-drawer" className={`fixed inset-0 bg-slate-950/40 backdrop-blur-xs ${Z_DRAWER} flex justify-end`}>
       <div className={`w-full ${isExpandedWidth ? 'max-w-6xl xl:max-w-7xl' : 'max-w-4xl lg:max-w-5xl'} bg-white border-l border-slate-200 h-[100dvh] flex flex-col shadow-2xl relative transition-all duration-300 animate-in slide-in-from-right`}>
         
         {/* Two-Tier Sticky Header Block — z-40 so dropdowns always paint above the Tabs bar (z-20) and content (z-10) */}
@@ -9363,8 +9364,8 @@ export default function EnquiryDetail({
       </div>
 
       {/* Custom Confirmation Dialog Overlay */}
-      {confirmDialog.isOpen && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-150">
+      {confirmDialog.isOpen && typeof document !== 'undefined' && createPortal(
+        <div className={`fixed inset-0 ${Z_BLOCKING_DIALOG} flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-150`}>
           <div className="bg-white rounded-2xl max-w-md w-full border border-slate-200 shadow-2xl p-6 overflow-hidden animate-in zoom-in-95 duration-150">
             <h3 className="text-lg font-bold text-slate-900 font-sans mb-2">{confirmDialog.title}</h3>
             <p className="text-sm text-slate-500 font-sans mb-4">{confirmDialog.message}</p>
@@ -9424,13 +9425,15 @@ export default function EnquiryDetail({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* In-App Attachment Preview Modal (with rich in-app .docx / text rendering) */}
       {previewAttachment && isDocxOrTextAttachment ? (
+        typeof document !== 'undefined' && createPortal(
         <div
-          className="fixed inset-0 z-50 flex flex-col bg-slate-950/85 backdrop-blur-md animate-in fade-in duration-200"
+          className={`fixed inset-0 ${Z_BLOCKING_DIALOG} flex flex-col bg-slate-950/85 backdrop-blur-md animate-in fade-in duration-200`}
           role="dialog"
           aria-modal="true"
         >
@@ -9499,7 +9502,9 @@ export default function EnquiryDetail({
               )}
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
+        )
       ) : (
         <FilePreviewModal
           isOpen={Boolean(previewAttachment)}
@@ -9522,8 +9527,8 @@ export default function EnquiryDetail({
       />
 
       {/* Operational Handoff & Project Conversion Modal */}
-      {showConvertModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in duration-200">
+      {showConvertModal && typeof document !== 'undefined' && createPortal(
+        <div className={`fixed inset-0 ${Z_NESTED_MODAL} flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in duration-200`}>
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden text-slate-900 dark:text-white">
             {/* Modal Header */}
             <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-800/30">
@@ -9918,7 +9923,8 @@ export default function EnquiryDetail({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Quotation Studio Drawer / Modal */}
@@ -10112,8 +10118,8 @@ export default function EnquiryDetail({
       })()}
 
       {/* Supplier Purchase Order (PO) Builder Modal */}
-      {poModalState.isOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+      {poModalState.isOpen && typeof document !== 'undefined' && createPortal(
+        <div className={`fixed inset-0 ${Z_NESTED_MODAL} bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4`}>
           <div className="bg-white w-full max-w-xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
             <div className="px-5 py-3.5 bg-indigo-50/70 border-b border-indigo-100 flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -10396,12 +10402,13 @@ export default function EnquiryDetail({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Standalone Quotation Document View Modal (Inspection) */}
-      {viewingQuotation && (
-        <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-hidden print:hidden">
+      {viewingQuotation && typeof document !== 'undefined' && createPortal(
+        <div className={`fixed inset-0 ${Z_NESTED_MODAL} bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-hidden print:hidden`}>
           <div className="bg-slate-100 w-full max-w-[1000px] h-[92vh] rounded-2xl shadow-2xl flex flex-col border border-slate-300 overflow-hidden">
             <header className="px-5 py-3 bg-white border-b border-slate-200 flex items-center justify-between shrink-0">
               <div className="flex items-center space-x-2.5">
@@ -10542,7 +10549,8 @@ export default function EnquiryDetail({
               </div>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Dedicated Root-Level Print Portal for Saved Quotations */}
@@ -10638,8 +10646,8 @@ export default function EnquiryDetail({
       )}
 
       {/* Decline Quotation / Mark as Lost Modal */}
-      {declineModalState.isOpen && declineModalState.quotation && (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in duration-150">
+      {declineModalState.isOpen && declineModalState.quotation && typeof document !== 'undefined' && createPortal(
+        <div className={`fixed inset-0 ${Z_BLOCKING_DIALOG} flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in duration-150`}>
           <div className="bg-white rounded-2xl max-w-lg w-full border border-slate-200 shadow-2xl p-6 overflow-hidden animate-in zoom-in-95 duration-150 space-y-4">
             <div className="flex items-start justify-between">
               <div className="flex items-center space-x-3">
@@ -10737,7 +10745,8 @@ export default function EnquiryDetail({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Create Company & Quick-Pair Modal */}

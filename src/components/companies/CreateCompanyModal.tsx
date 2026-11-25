@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { createPortal } from 'react-dom';
+import { Z_NESTED_MODAL } from '../../constants/zIndex';
 import { Company, UserProfile, Workspace, LegalSuffix, ContactMethod, resolveCountryCode, sanitizeCompanyCode } from '../../types';
 import { safeAddDoc, safeUpdateDoc } from '../../firebase';
 import { CompanyRepository } from '../../services/repositories/CompanyRepository';
@@ -405,8 +407,10 @@ export const CreateCompanyModal: React.FC<CreateCompanyModalProps> = ({
     return sanitizeCompanyNameAndSuffix(canonicalName, legalSuffix);
   }, [canonicalName, legalSuffix]);
 
-  return (
-    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto animate-in fade-in duration-200">
+  if (typeof document === 'undefined') return null;
+
+  return createPortal(
+    <div className={`fixed inset-0 ${Z_NESTED_MODAL} bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto animate-in fade-in duration-200`}>
       <div className="bg-white rounded-2xl max-w-xl w-full shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh]">
         {/* Modal Header */}
         <div className="px-6 py-4.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between shrink-0">
@@ -735,7 +739,8 @@ export const CreateCompanyModal: React.FC<CreateCompanyModalProps> = ({
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
 

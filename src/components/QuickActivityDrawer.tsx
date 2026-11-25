@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { Z_STUDIO } from '../constants/zIndex';
 import {
   X,
   Mic,
@@ -3340,7 +3341,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
   return (
     <AnimatePresence>
       <div
-        className={`fixed inset-0 w-screen h-screen min-h-[100dvh] z-[110] overflow-hidden ${
+        className={`fixed inset-0 w-screen h-screen min-h-[100dvh] ${Z_STUDIO} overflow-hidden ${
           isLayeredAboveModal
             ? 'bg-slate-950/30 backdrop-blur-[1px]'
             : 'bg-slate-950/40 backdrop-blur-xs'
@@ -3356,7 +3357,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
           transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
           className={`relative w-full ${
             isHistoryDrawerOpen ? 'max-w-5xl' : 'max-w-xl'
-          } bg-white border-l border-slate-200 text-slate-900 shadow-2xl flex flex-col h-[90vh] sm:h-full max-h-[90vh] sm:max-h-full rounded-t-2xl sm:rounded-none z-[110] transform-gpu will-change-transform`}
+          } bg-white border-l border-slate-200 text-slate-900 shadow-2xl flex flex-col h-[90vh] sm:h-full max-h-[90vh] sm:max-h-full rounded-t-2xl sm:rounded-none ${Z_STUDIO} transform-gpu will-change-transform`}
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header */}

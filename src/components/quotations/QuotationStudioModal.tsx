@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { createPortal, flushSync } from 'react-dom';
+import { Z_STUDIO } from '../../constants/zIndex';
 import {
   resolveStudioHydrationTargetKey,
   shouldRunStudioHydration,
@@ -10276,7 +10277,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
   };
 
   return (
-    <div className="quotation-modal-container fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-hidden print:hidden">
+    <div className={`quotation-modal-container fixed inset-0 ${Z_STUDIO} bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-hidden print:hidden`}>
       {/* Top-Level Hidden File Inputs (Always mounted regardless of which Left Tab or Right Inspector is open) */}
       <input
         ref={logoFileInputRef}

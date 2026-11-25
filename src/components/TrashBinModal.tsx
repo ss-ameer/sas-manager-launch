@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
+import { Z_DRAWER, Z_BLOCKING_DIALOG } from '../constants/zIndex';
 import { Trash2, AlertTriangle, Search, ShieldAlert, CheckCircle2, RotateCcw, X } from 'lucide-react';
 import HoverScrollText from './common/HoverScrollText';
 import { Enquiry, Company, Contact, Product, CallLogEntry, UserProfile, Workspace, Attachment, Quotation, Project, SupplierBill } from '../types';
@@ -499,9 +501,11 @@ export const TrashBinModal: React.FC<TrashBinModalProps> = ({
     }
   };
 
-  return (
+  if (typeof document === 'undefined') return null;
+
+  return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4 animate-in fade-in duration-200"
+      className={`fixed inset-0 ${Z_DRAWER} flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4 animate-in fade-in duration-200`}
       role="dialog"
       aria-modal="true"
       aria-labelledby="recycle-bin-modal-title"
@@ -702,8 +706,8 @@ export const TrashBinModal: React.FC<TrashBinModalProps> = ({
         </div>
 
         {/* Individual Item Purge Confirmation Modal */}
-        {itemToPurge && (
-          <div className="fixed inset-0 z-60 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4 animate-in fade-in duration-150">
+        {itemToPurge && createPortal(
+          <div className={`fixed inset-0 ${Z_BLOCKING_DIALOG} flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4 animate-in fade-in duration-150`}>
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 max-w-md w-full shadow-2xl animate-in zoom-in-95 duration-150">
               <div className="flex items-center gap-3 text-rose-600 dark:text-rose-400 mb-3">
                 <AlertTriangle className="w-6 h-6 shrink-0" />
@@ -737,12 +741,13 @@ export const TrashBinModal: React.FC<TrashBinModalProps> = ({
                 </button>
               </div>
             </div>
-          </div>
+          </div>,
+          document.body
         )}
 
         {/* Empty Trash Confirmation Modal */}
-        {showEmptyTrashConfirm && (
-          <div className="fixed inset-0 z-60 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4 animate-in fade-in duration-150">
+        {showEmptyTrashConfirm && createPortal(
+          <div className={`fixed inset-0 ${Z_BLOCKING_DIALOG} flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4 animate-in fade-in duration-150`}>
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 max-w-md w-full shadow-2xl animate-in zoom-in-95 duration-150">
               <div className="flex items-center gap-3 text-rose-600 dark:text-rose-400 mb-3">
                 <AlertTriangle className="w-6 h-6 shrink-0" />
@@ -770,7 +775,8 @@ export const TrashBinModal: React.FC<TrashBinModalProps> = ({
                 </button>
               </div>
             </div>
-          </div>
+          </div>,
+          document.body
         )}
 
         {/* Footer */}
@@ -788,7 +794,8 @@ export const TrashBinModal: React.FC<TrashBinModalProps> = ({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
 

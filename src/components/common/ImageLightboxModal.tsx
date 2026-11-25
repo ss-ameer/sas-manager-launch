@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
+import { Z_BLOCKING_DIALOG } from '../../constants/zIndex';
 import {
   X,
   RotateCw,
@@ -139,7 +141,7 @@ export const ImageLightboxModal: React.FC<ImageLightboxModalProps> = ({
     };
   }, [isOpen, activeSlot, isEditable]);
 
-  if (!isOpen) return null;
+  if (!isOpen || typeof document === 'undefined') return null;
 
   const currentUrl = activeSlot === 'primary' ? localPrimaryUrl : localSecondaryUrl;
   const currentCaption = activeSlot === 'primary' ? localCaption : localSecondaryCaption;
@@ -305,9 +307,9 @@ export const ImageLightboxModal: React.FC<ImageLightboxModalProps> = ({
       ? 'bg-slate-100'
       : 'bg-white';
 
-  return (
+  return createPortal(
     <div
-      className="fixed inset-0 z-[120] bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-4 print:hidden animate-in fade-in duration-150"
+      className={`fixed inset-0 ${Z_BLOCKING_DIALOG} bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-4 print:hidden animate-in fade-in duration-150`}
       onClick={onClose}
     >
       <div
@@ -623,7 +625,8 @@ export const ImageLightboxModal: React.FC<ImageLightboxModalProps> = ({
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
 
