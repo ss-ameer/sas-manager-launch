@@ -683,6 +683,9 @@ export async function syncLineItemToCatalogProduct(
     ...(item.is_composite_set !== undefined ? { is_composite_set: Boolean(item.is_composite_set) } : {}),
     ...(updatedSubComponents ? { sub_components: updatedSubComponents } : {}),
     ...(item.package_pricing_mode ? { package_pricing_mode: item.package_pricing_mode } : {}),
+    ...(item.scale_sub_components_with_parent !== undefined
+      ? { scale_sub_components_with_parent: Boolean(item.scale_sub_components_with_parent) }
+      : {}),
     ...(item.option_scope_notes !== undefined ? { option_scope_notes: item.option_scope_notes } : {}),
     search_terms: searchTerms,
     updatedAt: new Date().toISOString()
@@ -1079,6 +1082,13 @@ export function linkLineItemToCatalogProductNonDestructive(
             is_composite_set: Boolean(catalogProduct.is_composite_set),
             sub_components: scaledCatalogSubs,
             package_pricing_mode: catalogProduct.package_pricing_mode || existingItem.package_pricing_mode,
+            ...(catalogProduct.scale_sub_components_with_parent !== undefined
+              ? {
+                  scale_sub_components_with_parent:
+                    existingItem.scale_sub_components_with_parent ??
+                    catalogProduct.scale_sub_components_with_parent
+                }
+              : {}),
             option_scope_notes: existingItem.option_scope_notes || catalogProduct.option_scope_notes
           }
         : {})
@@ -1126,6 +1136,7 @@ export function linkLineItemToCatalogProductNonDestructive(
     ...(catalogProduct.is_composite_set ? { is_composite_set: true } : {}),
     ...(scaledCatalogSubs ? { sub_components: scaledCatalogSubs } : {}),
     ...(catalogProduct.package_pricing_mode ? { package_pricing_mode: catalogProduct.package_pricing_mode } : {}),
+    ...(catalogProduct.scale_sub_components_with_parent ? { scale_sub_components_with_parent: true } : {}),
     ...(catalogProduct.option_scope_notes ? { option_scope_notes: catalogProduct.option_scope_notes } : {})
   };
 
@@ -2504,6 +2515,7 @@ export interface SaveToCatalogLineItemInput {
   is_composite_set?: boolean;
   sub_components?: any[];
   package_pricing_mode?: 'itemized' | 'lump_sum';
+  scale_sub_components_with_parent?: boolean;
   option_scope_notes?: string;
   currency?: string;
 }
@@ -3070,6 +3082,9 @@ export default function SaveToCatalogModal({
           ...(isComposite ? { is_composite_set: true } : {}),
           ...(scaledSubComponents ? { sub_components: scaledSubComponents } : {}),
           ...(lineItem.package_pricing_mode ? { package_pricing_mode: lineItem.package_pricing_mode } : {}),
+          ...(lineItem.scale_sub_components_with_parent !== undefined
+            ? { scale_sub_components_with_parent: Boolean(lineItem.scale_sub_components_with_parent) }
+            : {}),
           ...(lineItem.option_scope_notes ? { option_scope_notes: lineItem.option_scope_notes } : {}),
           search_terms: searchTerms,
           updatedAt: new Date().toISOString()
@@ -3130,6 +3145,9 @@ export default function SaveToCatalogModal({
         ...(isComposite ? { is_composite_set: true } : {}),
         ...(scaledSubComponents ? { sub_components: scaledSubComponents } : {}),
         ...(lineItem.package_pricing_mode ? { package_pricing_mode: lineItem.package_pricing_mode } : {}),
+        ...(lineItem.scale_sub_components_with_parent !== undefined
+          ? { scale_sub_components_with_parent: Boolean(lineItem.scale_sub_components_with_parent) }
+          : {}),
         ...(lineItem.option_scope_notes ? { option_scope_notes: lineItem.option_scope_notes } : {}),
         search_terms: searchTerms,
         is_inventoried: false,

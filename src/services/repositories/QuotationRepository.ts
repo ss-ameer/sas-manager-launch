@@ -1475,7 +1475,8 @@ export class QuotationRepository {
             include_datasheet_in_quote: qi.include_datasheet_in_quote !== false,
             is_composite_set: qi.is_composite_set,
             sub_components: qi.sub_components,
-            package_pricing_mode: qi.package_pricing_mode
+            package_pricing_mode: qi.package_pricing_mode,
+            scale_sub_components_with_parent: qi.scale_sub_components_with_parent
           };
         })
       : undefined;

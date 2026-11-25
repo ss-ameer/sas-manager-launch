@@ -1387,6 +1387,7 @@ export function mergeFreshSubComponentsIntoStudioSubs(
       ...freshSub,
       id: prevSub.id || freshSub.id,
       // Preserve Studio presentation & layout overrides when not explicitly set on fresh Enquiry sub-item
+      qty_mode: freshSub.qty_mode ?? prevSub.qty_mode,
       show_attributes: freshSub.show_attributes ?? prevSub.show_attributes,
       show_image: freshSub.show_image ?? prevSub.show_image,
       remark: trimOrUndefined(freshSub.remark) ?? prevSub.remark,

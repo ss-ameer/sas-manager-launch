@@ -135,7 +135,10 @@ import {
   hasDynamicAtTag,
   sanitizePresetDynamicTemplate
 } from '../../utils/quotationTokenResolver';
-import { formatSlashSeparatedDescription } from '../../utils/compositeBomUtils';
+import {
+  formatSlashSeparatedDescription,
+  recalculateCompositeItemTotals
+} from '../../utils/compositeBomUtils';
 import { SpecAttributeSortableList } from './SpecAttributeSortableList';
 import {
   CORE_SPEC_ATTRIBUTES,
@@ -3362,7 +3365,9 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                   include_datasheet_in_quote: prevIt?.include_datasheet_in_quote ?? li.include_datasheet_in_quote ?? true,
                   is_composite_set: prevIt?.is_composite_set ?? li.is_composite_set,
                   sub_components: Array.isArray(prevIt?.sub_components) ? prevIt.sub_components : li.sub_components,
-                  package_pricing_mode: prevIt?.package_pricing_mode ?? li.package_pricing_mode
+                  package_pricing_mode: prevIt?.package_pricing_mode ?? li.package_pricing_mode,
+                  scale_sub_components_with_parent:
+                    prevIt?.scale_sub_components_with_parent ?? li.scale_sub_components_with_parent
                 };
               })
             : Array.isArray(targetQuote.line_items)
@@ -3582,7 +3587,8 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
               include_datasheet_in_quote: li.include_datasheet_in_quote !== false,
               is_composite_set: li.is_composite_set,
               sub_components: li.sub_components,
-              package_pricing_mode: li.package_pricing_mode
+              package_pricing_mode: li.package_pricing_mode,
+              scale_sub_components_with_parent: li.scale_sub_components_with_parent
             };
           });
           const hydratedCatalogNewItems = rehydrateLineItemsFromCatalog(
@@ -5166,6 +5172,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
             is_composite_set: li.is_composite_set,
             sub_components: li.sub_components,
             package_pricing_mode: li.package_pricing_mode,
+            scale_sub_components_with_parent: li.scale_sub_components_with_parent,
             attributes: itemAttrs,
             technical_attributes: (li as any).technical_attributes,
             visible_attributes: (li as any).visible_attributes,
@@ -5420,24 +5427,66 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
           compOverride.is_composite_set ??
           item.is_composite_set ??
           matchedCatalogProduct?.is_composite_set,
-        sub_components: normalizedSubComponents,
-        package_pricing_mode:
-          compOverride.package_pricing_mode ??
-          item.package_pricing_mode ??
-          matchedCatalogProduct?.package_pricing_mode,
-        option_scope_notes:
-          compOverride.option_scope_notes ??
-          item.option_scope_notes ??
-          matchedCatalogProduct?.option_scope_notes,
-        ...(compOverride.unit_price !== undefined && (compOverride.unit_price > 0 || !(Number(item.unit_price) > 0))
-          ? { unit_price: compOverride.unit_price }
-          : {}),
-        ...(compOverride.cost_price !== undefined && (compOverride.cost_price > 0 || !(Number(item.cost_price) > 0))
-          ? { cost_price: compOverride.cost_price }
-          : {}),
-        ...(compOverride.total_price !== undefined && (compOverride.total_price > 0 || !(Number(item.total_price) > 0))
-          ? { total_price: compOverride.total_price }
-          : {}),
+        ...(() => {
+          const resolvedPackagePricingMode =
+            compOverride.package_pricing_mode ??
+            item.package_pricing_mode ??
+            matchedCatalogProduct?.package_pricing_mode;
+          const resolvedScaleSubComponentsWithParent =
+            compOverride.scale_sub_components_with_parent ??
+            item.scale_sub_components_with_parent ??
+            matchedCatalogProduct?.scale_sub_components_with_parent;
+          const effectiveParentQty = Math.max(1, Number(compOverride.quantity ?? item.quantity) || 1);
+          const hasPricedScaledSubs =
+            Boolean(resolvedScaleSubComponentsWithParent) &&
+            resolvedPackagePricingMode === 'itemized' &&
+            Array.isArray(normalizedSubComponents) &&
+            normalizedSubComponents.some(
+              (sc) => !sc.is_included_accessory && Number(sc.unit_price || 0) > 0
+            );
+          const scaledItemizedTotals = hasPricedScaledSubs
+            ? recalculateCompositeItemTotals(
+                normalizedSubComponents!,
+                effectiveParentQty,
+                undefined,
+                undefined,
+                true
+              )
+            : null;
+          return {
+            sub_components: scaledItemizedTotals
+              ? scaledItemizedTotals.normalizedComponents
+              : normalizedSubComponents,
+            package_pricing_mode: resolvedPackagePricingMode,
+            scale_sub_components_with_parent: resolvedScaleSubComponentsWithParent,
+            option_scope_notes:
+              compOverride.option_scope_notes ??
+              item.option_scope_notes ??
+              matchedCatalogProduct?.option_scope_notes,
+            ...(scaledItemizedTotals
+              ? {
+                  unit_price: scaledItemizedTotals.unit_price,
+                  total_price: scaledItemizedTotals.total_price,
+                  ...(scaledItemizedTotals.cost_price > 0
+                    ? { cost_price: scaledItemizedTotals.cost_price }
+                    : {})
+                }
+              : {
+                  ...(compOverride.unit_price !== undefined &&
+                  (compOverride.unit_price > 0 || !(Number(item.unit_price) > 0))
+                    ? { unit_price: compOverride.unit_price }
+                    : {}),
+                  ...(compOverride.cost_price !== undefined &&
+                  (compOverride.cost_price > 0 || !(Number(item.cost_price) > 0))
+                    ? { cost_price: compOverride.cost_price }
+                    : {}),
+                  ...(compOverride.total_price !== undefined &&
+                  (compOverride.total_price > 0 || !(Number(item.total_price) > 0))
+                    ? { total_price: compOverride.total_price }
+                    : {})
+                })
+          };
+        })(),
         ...(compOverride.item_name !== undefined ? { item_name: compOverride.item_name } : {}),
         ...(compOverride.description !== undefined ? { description: compOverride.description } : {}),
         ...(compOverride.qty_ordered !== undefined
@@ -5991,6 +6040,8 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         is_composite_set: li.is_composite_set ?? prevIt?.is_composite_set,
         sub_components: li.sub_components ?? prevIt?.sub_components,
         package_pricing_mode: li.package_pricing_mode ?? prevIt?.package_pricing_mode,
+        scale_sub_components_with_parent:
+          li.scale_sub_components_with_parent ?? prevIt?.scale_sub_components_with_parent,
         attributes: mergedAttrs,
         technical_attributes: (li as any).technical_attributes ?? (prevIt as any)?.technical_attributes,
         visible_attributes: (li as any).visible_attributes ?? prevIt?.visible_attributes,
@@ -15470,275 +15521,293 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
 
           {/* Center Column: Live A4 Document Preview */}
           <div className="flex-1 min-w-0 bg-slate-200/80 flex flex-col overflow-hidden print:bg-transparent print:overflow-visible print:w-full print:block">
-            {/* Preview Toolbar */}
-            <div className="px-3 py-1.5 bg-slate-100 border-b border-slate-300/80 flex items-center gap-1.5 text-xs text-slate-600 shrink-0 print:hidden min-w-0">
-              {/* Left Zoom & Scale Controls (never overlap or collide) */}
-              <div className="flex items-center gap-1.5 shrink-0">
-                <span
-                  className="hidden 2xl:inline-flex items-center font-mono text-[11px] bg-white px-2 py-0.5 rounded border border-slate-300 text-slate-600 whitespace-nowrap shrink-0"
-                  title="A4 Physical Sheet (210mm × 297mm)"
-                >
-                  A4
-                </span>
+            {/* Preview Toolbar — Strict Two-Zone Header so Right Pre-Flight & Print CTA NEVER clip */}
+            {(() => {
+              const bothDrawersOpen = isLeftDrawerOpen && isRightDrawerOpen;
+              return (
+                <div className="px-2.5 py-1.5 bg-slate-100 border-b border-slate-300/80 flex items-center justify-between gap-2 text-xs text-slate-600 shrink-0 print:hidden min-w-0">
+                  {/* Zone 1: Left/Middle Scrollable Controls (Zoom, Fit, Quick Edit, Filename) */}
+                  <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-x-auto [&::-webkit-scrollbar]:hidden [scrollbar-width:none]">
+                    <span
+                      className="hidden 2xl:inline-flex items-center font-mono text-[11px] bg-white px-2 py-0.5 rounded border border-slate-300 text-slate-600 whitespace-nowrap shrink-0"
+                      title="A4 Physical Sheet (210mm × 297mm)"
+                    >
+                      A4
+                    </span>
 
-                {/* Scale Dropdown: 50%, 75%, 85%, 100%, Fit Page */}
-                <select
-                  value={
-                    isFitModeActive
-                      ? 'fit'
-                      : [0.5, 0.75, 0.85, 1.0].includes(Number(zoomScale.toFixed(2)))
-                      ? String(zoomScale.toFixed(2))
-                      : 'custom'
-                  }
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    if (val === 'fit') {
-                      handleFitPage();
-                    } else if (val !== 'custom') {
-                      setIsFitModeActive(false);
-                      setZoomScale(parseFloat(val));
-                    }
-                  }}
-                  aria-label="Preview Scale"
-                  className="bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-mono text-slate-700 cursor-pointer focus:ring-1 focus:ring-blue-500 focus:outline-hidden shrink-0"
-                >
-                  <option value="0.50">50%</option>
-                  <option value="0.75">75%</option>
-                  <option value="0.85">85%</option>
-                  <option value="1.00">100%</option>
-                  <option value="fit">Fit Page</option>
-                  {!isFitModeActive && ![0.5, 0.75, 0.85, 1.0].includes(Number(zoomScale.toFixed(2))) && (
-                    <option value="custom">{Math.round(zoomScale * 100)}%</option>
-                  )}
-                </select>
+                    {/* Scale Dropdown: 50%, 75%, 85%, 100%, Fit Page */}
+                    <select
+                      value={
+                        isFitModeActive
+                          ? 'fit'
+                          : [0.5, 0.75, 0.85, 1.0].includes(Number(zoomScale.toFixed(2)))
+                          ? String(zoomScale.toFixed(2))
+                          : 'custom'
+                      }
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val === 'fit') {
+                          handleFitPage();
+                        } else if (val !== 'custom') {
+                          setIsFitModeActive(false);
+                          setZoomScale(parseFloat(val));
+                        }
+                      }}
+                      aria-label="Preview Scale"
+                      className="bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-mono text-slate-700 cursor-pointer focus:ring-1 focus:ring-blue-500 focus:outline-hidden shrink-0"
+                    >
+                      <option value="0.50">50%</option>
+                      <option value="0.75">75%</option>
+                      <option value="0.85">85%</option>
+                      <option value="1.00">100%</option>
+                      <option value="fit">Fit Page</option>
+                      {!isFitModeActive && ![0.5, 0.75, 0.85, 1.0].includes(Number(zoomScale.toFixed(2))) && (
+                        <option value="custom">{Math.round(zoomScale * 100)}%</option>
+                      )}
+                    </select>
 
-                {/* Zoom Out */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsFitModeActive(false);
-                    setZoomScale((prev) => Math.max(0.4, Number((prev - 0.1).toFixed(2))));
-                  }}
-                  className="p-1.5 hover:bg-white rounded-lg border border-slate-300/60 text-slate-700 transition cursor-pointer shrink-0"
-                  title="Zoom Out"
-                >
-                  <ZoomOut className="w-3.5 h-3.5" />
-                </button>
-                {/* Reset Zoom */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsFitModeActive(false);
-                    setZoomScale(0.85);
-                  }}
-                  className="p-1.5 hover:bg-white rounded-lg border border-slate-300/60 text-slate-700 transition cursor-pointer shrink-0"
-                  title="Reset Zoom (85%)"
-                >
-                  <RotateCcw className="w-3.5 h-3.5" />
-                </button>
-                {/* Zoom In */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsFitModeActive(false);
-                    setZoomScale((prev) => Math.min(1.4, Number((prev + 0.1).toFixed(2))));
-                  }}
-                  className="p-1.5 hover:bg-white rounded-lg border border-slate-300/60 text-slate-700 transition cursor-pointer shrink-0"
-                  title="Zoom In"
-                >
-                  <ZoomIn className="w-3.5 h-3.5" />
-                </button>
-                {/* Fit Page Button */}
-                <button
-                  type="button"
-                  onClick={handleFitPage}
-                  className="px-2 py-1 bg-white hover:bg-slate-50 border border-slate-300/80 rounded-lg text-slate-700 font-medium text-xs transition cursor-pointer hidden sm:flex items-center gap-1 whitespace-nowrap shrink-0"
-                  title="Fit to Available Canvas Width & Height"
-                >
-                  <span>Fit Page</span>
-                </button>
+                    {/* Zoom Out */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsFitModeActive(false);
+                        setZoomScale((prev) => Math.max(0.4, Number((prev - 0.1).toFixed(2))));
+                      }}
+                      className="p-1.5 hover:bg-white rounded-lg border border-slate-300/60 text-slate-700 transition cursor-pointer shrink-0"
+                      title="Zoom Out"
+                    >
+                      <ZoomOut className="w-3.5 h-3.5" />
+                    </button>
+                    {/* Reset Zoom */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsFitModeActive(false);
+                        setZoomScale(0.85);
+                      }}
+                      className="p-1.5 hover:bg-white rounded-lg border border-slate-300/60 text-slate-700 transition cursor-pointer shrink-0"
+                      title="Reset Zoom (85%)"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                    </button>
+                    {/* Zoom In */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsFitModeActive(false);
+                        setZoomScale((prev) => Math.min(1.4, Number((prev + 0.1).toFixed(2))));
+                      }}
+                      className="p-1.5 hover:bg-white rounded-lg border border-slate-300/60 text-slate-700 transition cursor-pointer shrink-0"
+                      title="Zoom In"
+                    >
+                      <ZoomIn className="w-3.5 h-3.5" />
+                    </button>
+                    {/* Fit Page Button */}
+                    <button
+                      type="button"
+                      onClick={handleFitPage}
+                      className="px-2 py-1 bg-white hover:bg-slate-50 border border-slate-300/80 rounded-lg text-slate-700 font-medium text-xs transition cursor-pointer hidden sm:flex items-center gap-1 whitespace-nowrap shrink-0"
+                      title="Fit to Available Canvas Width & Height"
+                    >
+                      <span>Fit Page</span>
+                    </button>
 
-                {/* Inline Canvas Quick-Edit Toggle */}
-                <button
-                  type="button"
-                  onClick={() => setInlineQuickEditEnabled((prev) => !prev)}
-                  aria-pressed={inlineQuickEditEnabled}
-                  className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border text-xs font-semibold transition cursor-pointer whitespace-nowrap shrink-0 ${
-                    inlineQuickEditEnabled
-                      ? 'bg-indigo-600 hover:bg-indigo-700 border-indigo-700 text-white shadow-2xs'
-                      : 'bg-white hover:bg-indigo-50/70 border-slate-300/80 text-slate-700 hover:text-indigo-700 hover:border-indigo-300'
-                  }`}
-                  title={
-                    inlineQuickEditEnabled
-                      ? 'Quick Edit is ON — click highlighted text or numbers on the A4 preview to edit directly (Esc to cancel)'
-                      : 'Turn on Quick Edit to click and edit text, quantities, and rates directly on the A4 preview'
-                  }
-                >
-                  <Edit3 className="w-3 h-3 shrink-0" />
-                  <span>Quick Edit: {inlineQuickEditEnabled ? 'On' : 'Off'}</span>
-                </button>
-              </div>
+                    {/* Inline Canvas Quick-Edit Toggle */}
+                    <button
+                      type="button"
+                      onClick={() => setInlineQuickEditEnabled((prev) => !prev)}
+                      aria-pressed={inlineQuickEditEnabled}
+                      className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border text-xs font-semibold transition cursor-pointer whitespace-nowrap shrink-0 ${
+                        inlineQuickEditEnabled
+                          ? 'bg-indigo-600 hover:bg-indigo-700 border-indigo-700 text-white shadow-2xs'
+                          : 'bg-white hover:bg-indigo-50/70 border-slate-300/80 text-slate-700 hover:text-indigo-700 hover:border-indigo-300'
+                      }`}
+                      title={
+                        inlineQuickEditEnabled
+                          ? 'Quick Edit is ON — click highlighted text or numbers on the A4 preview to edit directly (Esc to cancel)'
+                          : 'Turn on Quick Edit to click and edit text, quantities, and rates directly on the A4 preview'
+                      }
+                    >
+                      <Edit3 className="w-3 h-3 shrink-0" />
+                      <span>Quick Edit: {inlineQuickEditEnabled ? 'On' : 'Off'}</span>
+                    </button>
 
-              {/* Live PDF Filename Bar (guaranteed readable width even when both sidebars are open) */}
-              <div
-                onClick={() => setActiveLeftTab('structure')}
-                className="hidden md:flex items-center gap-1.5 px-2.5 py-1 bg-white hover:bg-blue-50 border border-slate-300 rounded-lg text-slate-700 text-xs transition cursor-pointer min-w-[130px] sm:min-w-[170px] flex-1 max-w-[340px] shadow-2xs group"
-                title={`PDF Filename: ${resolvedPdfFilename}.pdf (Click to configure preset pattern)`}
-              >
-                <FileText className="w-3.5 h-3.5 text-blue-600 shrink-0 group-hover:scale-110 transition-transform" />
-                <span className="font-mono text-[11px] truncate min-w-0 flex-1 text-slate-700 select-all font-medium">
-                  {resolvedPdfFilename}.pdf
-                </span>
-              </div>
+                    {/* Live PDF Filename Bar (collapses cleanly to icon trigger when both drawers are open) */}
+                    {bothDrawersOpen ? (
+                      <button
+                        type="button"
+                        onClick={() => setActiveLeftTab('structure')}
+                        className="hidden md:inline-flex items-center justify-center p-1.5 bg-white hover:bg-blue-50 border border-slate-300 rounded-lg text-blue-600 transition cursor-pointer shrink-0 shadow-2xs"
+                        title={`PDF Filename: ${resolvedPdfFilename}.pdf (Click to configure preset pattern)`}
+                      >
+                        <FileText className="w-3.5 h-3.5 shrink-0" />
+                      </button>
+                    ) : (
+                      <div
+                        onClick={() => setActiveLeftTab('structure')}
+                        className="hidden md:flex items-center gap-1.5 px-2.5 py-1 bg-white hover:bg-blue-50 border border-slate-300 rounded-lg text-slate-700 text-xs transition cursor-pointer min-w-0 flex-1 max-w-[140px] 2xl:max-w-[260px] shadow-2xs group"
+                        title={`PDF Filename: ${resolvedPdfFilename}.pdf (Click to configure preset pattern)`}
+                      >
+                        <FileText className="w-3.5 h-3.5 text-blue-600 shrink-0 group-hover:scale-110 transition-transform" />
+                        <span className="font-mono text-[11px] truncate min-w-0 flex-1 text-slate-700 select-all font-medium">
+                          {resolvedPdfFilename}.pdf
+                        </span>
+                      </div>
+                    )}
+                  </div>
 
-              {/* Right-Pinned Pre-Flight & Print Controls (never clip off-screen) */}
-              <div className="flex items-center gap-1.5 shrink-0 ml-auto">
-                {/* Pre-Flight Check Pill */}
-                  {(() => {
-                    const todayStr = new Date().toISOString().split('T')[0];
-                    const isUnpricedMode =
-                      documentType === 'delivery_note' ||
-                      documentType === 'material_return_note' ||
-                      visibleColumns.unit_price === false ||
-                      visibleColumns.showUnitPrice === false;
-                    const zeroPriceItems = isUnpricedMode
-                      ? []
-                      : quotationLineItems
-                          .map((it, idx) => ({ it, idx }))
-                          .filter(
-                            ({ it }) =>
-                              !it.is_optional &&
-                              !it.hide_row_price &&
-                              Number(it.unit_price || 0) <= 0
-                          );
-                    const isStaleDraftDate =
-                      (quotationStatus || 'Draft') === 'Draft' &&
-                      Boolean(quotationIssueDate && quotationIssueDate < todayStr);
-                    const unresolvedTags = unresolvedAtTagTokens;
+                  {/* Zone 2: Right-Pinned Pre-Flight & Print Controls (ALWAYS outside scrolling region, never clip) */}
+                  <div className="flex items-center gap-1.5 shrink-0 pl-2 border-l border-slate-200/80">
+                    {/* Pre-Flight Check Pill */}
+                    {(() => {
+                      const todayStr = new Date().toISOString().split('T')[0];
+                      const isUnpricedMode =
+                        documentType === 'delivery_note' ||
+                        documentType === 'material_return_note' ||
+                        visibleColumns.unit_price === false ||
+                        visibleColumns.showUnitPrice === false;
+                      const zeroPriceItems = isUnpricedMode
+                        ? []
+                        : quotationLineItems
+                            .map((it, idx) => ({ it, idx }))
+                            .filter(
+                              ({ it }) =>
+                                !it.is_optional &&
+                                !it.hide_row_price &&
+                                Number(it.unit_price || 0) <= 0
+                            );
+                      const isStaleDraftDate =
+                        (quotationStatus || 'Draft') === 'Draft' &&
+                        Boolean(quotationIssueDate && quotationIssueDate < todayStr);
+                      const unresolvedTags = unresolvedAtTagTokens;
 
-                    const totalIssues =
-                      zeroPriceItems.length +
-                      (isStaleDraftDate ? 1 : 0) +
-                      (unresolvedTags.length > 0 ? 1 : 0);
+                      const totalIssues =
+                        zeroPriceItems.length +
+                        (isStaleDraftDate ? 1 : 0) +
+                        (unresolvedTags.length > 0 ? 1 : 0);
 
-                    if (totalIssues === 0) {
+                      if (totalIssues === 0) {
+                        return (
+                          <div
+                            className="hidden sm:inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 text-[11px] font-semibold whitespace-nowrap shrink-0"
+                            title="Pre-Flight Check Passed: All items priced, current date, and all @tags resolved"
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                            <span>{bothDrawersOpen ? 'Ready' : 'Ready to Print'}</span>
+                          </div>
+                        );
+                      }
+
                       return (
-                        <div
-                          className="hidden sm:inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 text-[11px] font-semibold whitespace-nowrap shrink-0"
-                          title="Pre-Flight Check Passed: All items priced, current date, and all @tags resolved"
-                        >
-                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                          <span>Ready to Print</span>
+                        <div className="relative shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => setShowPreFlightPopover((prev) => !prev)}
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-800 text-[11px] font-bold transition cursor-pointer whitespace-nowrap shadow-2xs"
+                            title="Click to review Pre-Flight checks before printing"
+                          >
+                            <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                            <span>
+                              {bothDrawersOpen
+                                ? `${totalIssues} Check${totalIssues > 1 ? 's' : ''}`
+                                : `${totalIssues} Pre-Flight Check${totalIssues > 1 ? 's' : ''}`}
+                            </span>
+                          </button>
+                          {showPreFlightPopover && (
+                            <div className="absolute right-0 mt-1.5 w-80 bg-white border border-slate-200 rounded-xl shadow-xl p-3 z-50 space-y-2.5 text-left">
+                              <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
+                                <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                                  <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                                  Pre-Flight Document Checks
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => setShowPreFlightPopover(false)}
+                                  className="text-slate-400 hover:text-slate-600 text-xs font-bold px-1"
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                              {isStaleDraftDate && (
+                                <div className="p-2 rounded-lg bg-amber-50/80 border border-amber-200 flex items-center justify-between gap-2">
+                                  <div className="text-[11px] text-amber-900">
+                                    <span className="font-bold block">Draft Date is {quotationIssueDate}</span>
+                                    <span className="text-[10px] text-amber-700">Update to today ({todayStr})?</span>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setQuotationIssueDate(todayStr);
+                                      setShowPreFlightPopover(false);
+                                    }}
+                                    className="px-2 py-1 rounded bg-amber-600 hover:bg-amber-700 text-white text-[10px] font-bold shrink-0 cursor-pointer"
+                                  >
+                                    Set to Today
+                                  </button>
+                                </div>
+                              )}
+                              {zeroPriceItems.length > 0 && (
+                                <div className="p-2 rounded-lg bg-amber-50/80 border border-amber-200 space-y-1.5">
+                                  <div className="text-[11px] font-bold text-amber-900">
+                                    {zeroPriceItems.length} Item{zeroPriceItems.length > 1 ? 's' : ''} with 0.00 Rate:
+                                  </div>
+                                  <div className="flex flex-wrap gap-1">
+                                    {zeroPriceItems.slice(0, 5).map(({ it, idx }) => (
+                                      <button
+                                        key={it.id || idx}
+                                        type="button"
+                                        onClick={() => {
+                                          handleCanvasSelectSection('items_table', `item:${idx}`);
+                                          setShowPreFlightPopover(false);
+                                        }}
+                                        className="px-2 py-0.5 rounded bg-white hover:bg-amber-100 border border-amber-300 text-amber-900 text-[10px] font-semibold cursor-pointer"
+                                      >
+                                        Inspect Item #{idx + 1}
+                                      </button>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                              {unresolvedTags.length > 0 && (
+                                <div className="p-2 rounded-lg bg-amber-50/80 border border-amber-200 flex items-center justify-between gap-2">
+                                  <div className="text-[11px] text-amber-900">
+                                    <span className="font-bold block">Unknown @Tag(s)</span>
+                                    <span className="text-[10px] font-mono text-amber-700">
+                                      {unresolvedTags.join(', ')}
+                                    </span>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setActiveLeftTab('deal');
+                                      setShowPreFlightPopover(false);
+                                    }}
+                                    className="px-2 py-1 rounded bg-amber-600 hover:bg-amber-700 text-white text-[10px] font-bold shrink-0 cursor-pointer"
+                                  >
+                                    Edit Deal Data
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
                       );
-                    }
+                    })()}
 
-                    return (
-                      <div className="relative shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => setShowPreFlightPopover((prev) => !prev)}
-                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-800 text-[11px] font-bold transition cursor-pointer whitespace-nowrap shadow-2xs"
-                          title="Click to review Pre-Flight checks before printing"
-                        >
-                          <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                          <span>
-                            {totalIssues} Pre-Flight Check{totalIssues > 1 ? 's' : ''}
-                          </span>
-                        </button>
-                        {showPreFlightPopover && (
-                          <div className="absolute right-0 mt-1.5 w-80 bg-white border border-slate-200 rounded-xl shadow-xl p-3 z-50 space-y-2.5 text-left">
-                            <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
-                              <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
-                                <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
-                                Pre-Flight Document Checks
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() => setShowPreFlightPopover(false)}
-                                className="text-slate-400 hover:text-slate-600 text-xs font-bold px-1"
-                              >
-                                ✕
-                              </button>
-                            </div>
-                            {isStaleDraftDate && (
-                              <div className="p-2 rounded-lg bg-amber-50/80 border border-amber-200 flex items-center justify-between gap-2">
-                                <div className="text-[11px] text-amber-900">
-                                  <span className="font-bold block">Draft Date is {quotationIssueDate}</span>
-                                  <span className="text-[10px] text-amber-700">Update to today ({todayStr})?</span>
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setQuotationIssueDate(todayStr);
-                                    setShowPreFlightPopover(false);
-                                  }}
-                                  className="px-2 py-1 rounded bg-amber-600 hover:bg-amber-700 text-white text-[10px] font-bold shrink-0 cursor-pointer"
-                                >
-                                  Set to Today
-                                </button>
-                              </div>
-                            )}
-                            {zeroPriceItems.length > 0 && (
-                              <div className="p-2 rounded-lg bg-amber-50/80 border border-amber-200 space-y-1.5">
-                                <div className="text-[11px] font-bold text-amber-900">
-                                  {zeroPriceItems.length} Item{zeroPriceItems.length > 1 ? 's' : ''} with 0.00 Rate:
-                                </div>
-                                <div className="flex flex-wrap gap-1">
-                                  {zeroPriceItems.slice(0, 5).map(({ it, idx }) => (
-                                    <button
-                                      key={it.id || idx}
-                                      type="button"
-                                      onClick={() => {
-                                        handleCanvasSelectSection('items_table', `item:${idx}`);
-                                        setShowPreFlightPopover(false);
-                                      }}
-                                      className="px-2 py-0.5 rounded bg-white hover:bg-amber-100 border border-amber-300 text-amber-900 text-[10px] font-semibold cursor-pointer"
-                                    >
-                                      Inspect Item #{idx + 1}
-                                    </button>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-                            {unresolvedTags.length > 0 && (
-                              <div className="p-2 rounded-lg bg-amber-50/80 border border-amber-200 flex items-center justify-between gap-2">
-                                <div className="text-[11px] text-amber-900">
-                                  <span className="font-bold block">Unknown @Tag(s)</span>
-                                  <span className="text-[10px] font-mono text-amber-700">
-                                    {unresolvedTags.join(', ')}
-                                  </span>
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setActiveLeftTab('deal');
-                                    setShowPreFlightPopover(false);
-                                  }}
-                                  className="px-2 py-1 rounded bg-amber-600 hover:bg-amber-700 text-white text-[10px] font-bold shrink-0 cursor-pointer"
-                                >
-                                  Edit Deal Data
-                                </button>
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })()}
-
-                  {/* Print Document */}
-                  <button
-                    type="button"
-                    onClick={handleRequestPrint}
-                    className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg text-xs flex items-center gap-1.5 transition shadow-2xs cursor-pointer whitespace-nowrap shrink-0"
-                    title={`Print or Save as PDF (${resolvedPdfFilename}.pdf)`}
-                  >
-                    <Printer className="w-3.5 h-3.5 text-white shrink-0" />
-                    <span>Print Document</span>
-                  </button>
+                    {/* Print Document (Pinned Primary CTA) */}
+                    <button
+                      type="button"
+                      onClick={handleRequestPrint}
+                      className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg text-xs flex items-center gap-1.5 transition shadow-2xs cursor-pointer whitespace-nowrap shrink-0"
+                      title={`Print Document — ${resolvedPdfFilename}.pdf`}
+                    >
+                      <Printer className="w-3.5 h-3.5 text-white shrink-0" />
+                      <span>{bothDrawersOpen ? 'Print' : 'Print Document'}</span>
+                    </button>
+                  </div>
                 </div>
-            </div>
+              );
+            })()}
 
             {/* Non-intrusive Quick-Edit Hint Strip (Print-Hidden) */}
             {inlineQuickEditEnabled && (
@@ -21495,6 +21564,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                     isCompositeSet={isCompositeActive}
                                     subComponents={curItem.sub_components || []}
                                     packagePricingMode={curItem.package_pricing_mode || 'lump_sum'}
+                                    scaleSubComponentsWithParent={Boolean(curItem.scale_sub_components_with_parent)}
                                     optionScopeNotes={curItem.option_scope_notes || ''}
                                     parentQuantity={curItem.quantity || 1}
                                     currency={liveQuotation.currency || 'AED'}
@@ -22724,6 +22794,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                         )}
                                         subComponents={item.sub_components || []}
                                         packagePricingMode={item.package_pricing_mode || 'lump_sum'}
+                                        scaleSubComponentsWithParent={Boolean(item.scale_sub_components_with_parent)}
                                         optionScopeNotes={item.option_scope_notes || ''}
                                         parentQuantity={item.quantity || 1}
                                         currency={liveQuotation.currency || (enquiry?.currency as string) || 'AED'}

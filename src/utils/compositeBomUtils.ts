@@ -1,14 +1,20 @@
 import { LineItem, LineItemComponent } from '../types';
+import { resolveSubComponentDisplayQty } from './subComponentQty';
 
 /**
  * Recalculates parent composite item totals (unit_price, cost_price, total_price)
  * from its sub_components list and parent quantity.
+ *
+ * When `scaleWithParent` is true, each sub-component's effective quantity is resolved via
+ * `resolveSubComponentDisplayQty` (multiplying `per_unit` rows by `parentQty` and keeping `fixed` rows constant),
+ * ensuring sub-row totals (`effectiveQty × unit_price`) sum cleanly to parent `total_price` with no double-multiplication.
  */
 export const recalculateCompositeItemTotals = (
   components: LineItemComponent[],
   parentQty: number = 1,
   fallbackUnitPrice?: number,
-  fallbackCostPrice?: number
+  fallbackCostPrice?: number,
+  scaleWithParent: boolean = false
 ): {
   unit_price: number;
   cost_price: number;
@@ -20,23 +26,29 @@ export const recalculateCompositeItemTotals = (
   normalizedComponents: LineItemComponent[];
 } => {
   const safeParentQty = Math.max(1, Number(parentQty) || 1);
-  let totalUnitSelling = 0;
-  let totalUnitCost = 0;
+  let accumulatedSelling = 0;
+  let accumulatedCost = 0;
 
   let pricedSn = 1;
   const normalizedComponents: LineItemComponent[] = (components || []).map((comp) => {
     const rawUnitPrice = Number(comp.unit_price) || 0;
     const isAcc = rawUnitPrice <= 0 ? true : Boolean(comp.is_included_accessory && rawUnitPrice <= 0);
     const compQty = Math.max(0, Number(comp.quantity) || 0);
+    const qtyInfo = resolveSubComponentDisplayQty(
+      { quantity: compQty, qty_mode: comp.qty_mode },
+      safeParentQty,
+      scaleWithParent
+    );
+    const billingQty = scaleWithParent ? qtyInfo.effectiveQty : compQty;
     const compUnitPrice = isAcc ? 0 : rawUnitPrice;
     const compCostPrice = Math.max(0, Number(comp.cost_price) || 0);
-    const compTotal = isAcc ? 0 : Math.round(compQty * compUnitPrice * 100) / 100;
+    const compTotal = isAcc ? 0 : Math.round(billingQty * compUnitPrice * 100) / 100;
 
     if (!isAcc) {
-      totalUnitSelling += compTotal;
+      accumulatedSelling += compTotal;
     }
     if (compCostPrice > 0) {
-      totalUnitCost += compQty * compCostPrice;
+      accumulatedCost += billingQty * compCostPrice;
     }
 
     return {
@@ -51,8 +63,45 @@ export const recalculateCompositeItemTotals = (
     };
   });
 
-  const computedUnitSelling = Math.round(totalUnitSelling * 100) / 100;
-  const computedUnitCost = Math.round(totalUnitCost * 100) / 100;
+  if (scaleWithParent) {
+    const computedTotalSelling = Math.round(accumulatedSelling * 100) / 100;
+    const computedTotalCost = Math.round(accumulatedCost * 100) / 100;
+
+    const totalPrice =
+      computedTotalSelling > 0
+        ? computedTotalSelling
+        : Number(fallbackUnitPrice) > 0
+        ? Math.round(Number(fallbackUnitPrice) * safeParentQty * 100) / 100
+        : 0;
+
+    const roundedUnitSelling =
+      computedTotalSelling > 0
+        ? Math.round((computedTotalSelling / safeParentQty) * 100) / 100
+        : Number(fallbackUnitPrice) > 0
+        ? Math.round(Number(fallbackUnitPrice) * 100) / 100
+        : 0;
+
+    const roundedUnitCost =
+      computedTotalCost > 0
+        ? Math.round((computedTotalCost / safeParentQty) * 100) / 100
+        : Number(fallbackCostPrice) > 0
+        ? Math.round(Number(fallbackCostPrice) * 100) / 100
+        : 0;
+
+    return {
+      unit_price: roundedUnitSelling,
+      cost_price: roundedUnitCost,
+      total_price: totalPrice,
+      line_total: totalPrice,
+      unitSellingPrice: roundedUnitSelling,
+      unitCostPrice: roundedUnitCost,
+      totalSellingPrice: totalPrice,
+      normalizedComponents,
+    };
+  }
+
+  const computedUnitSelling = Math.round(accumulatedSelling * 100) / 100;
+  const computedUnitCost = Math.round(accumulatedCost * 100) / 100;
 
   const roundedUnitSelling =
     computedUnitSelling > 0

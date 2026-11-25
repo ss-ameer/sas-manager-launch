@@ -412,6 +412,7 @@ export interface LineItemComponent {
   remark?: string;
   description?: string;
   quantity: number;
+  qty_mode?: 'per_unit' | 'fixed';
   unit: string;
   cost_price?: number;
   unit_price: number;
@@ -464,6 +465,7 @@ export interface ProductSpecVariant {
   sub_components?: LineItemComponent[];
   is_composite_set?: boolean;
   package_pricing_mode?: 'itemized' | 'lump_sum';
+  scale_sub_components_with_parent?: boolean;
   option_scope_notes?: string;
   image_url?: string;
   createdAt?: string;
@@ -513,6 +515,7 @@ export interface LineItem {
   is_composite_set?: boolean;
   sub_components?: LineItemComponent[];
   package_pricing_mode?: 'itemized' | 'lump_sum';
+  scale_sub_components_with_parent?: boolean;
   specifications?: Record<string, string>;
   page_break_after?: boolean;
   row_spacer_after_mm?: number;
@@ -1027,6 +1030,7 @@ export interface Product extends SoftDeleteFields {
   is_composite_set?: boolean;
   sub_components?: LineItemComponent[];
   package_pricing_mode?: 'itemized' | 'lump_sum';
+  scale_sub_components_with_parent?: boolean;
   option_scope_notes?: string;
   variant_parent_id?: string | null;
   product_family?: string | null;
@@ -1488,6 +1492,7 @@ export interface QuotationLineItem {
   is_composite_set?: boolean;
   sub_components?: LineItemComponent[];
   package_pricing_mode?: 'itemized' | 'lump_sum';
+  scale_sub_components_with_parent?: boolean;
   cost_price?: number;
   attributes?: QuotationItemAttribute[];
   technical_attributes?: QuotationItemAttribute[] | Record<string, string>;

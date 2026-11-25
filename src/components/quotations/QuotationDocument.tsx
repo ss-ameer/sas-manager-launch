@@ -45,6 +45,10 @@ import {
 } from '../../utils/numberToWords';
 import { isTechnicalSectionHeaderLine } from '../../utils/compositeBomUtils';
 import {
+  resolveSubComponentDisplayQty,
+  formatSubComponentQty
+} from '../../utils/subComponentQty';
+import {
   buildInlineLineItemFieldKey,
   resolveInlineEditSeedValue
 } from '../../utils/inlineQuickEdit';
@@ -13551,9 +13555,19 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                             : 0;
                         const hasCompositeSubRows =
                           Array.isArray(item.sub_components) && item.sub_components.length > 0;
+                        const parentQtyForSubs = Math.max(1, Number(item.quantity) || 1);
+                        const isAutoScaleSubsEnabled = Boolean(item.scale_sub_components_with_parent);
                         const subComponentsPriceSum = hasCompositeSubRows
                           ? item.sub_components!.reduce((sum, sc) => {
                               if (sc.is_included_accessory) return sum;
+                              if (isAutoScaleSubsEnabled) {
+                                const resolvedSubQty = resolveSubComponentDisplayQty(
+                                  sc,
+                                  parentQtyForSubs,
+                                  true
+                                );
+                                return sum + resolvedSubQty.effectiveQty * (Number(sc.unit_price) || 0);
+                              }
                               const scTotal =
                                 sc.total_price !== undefined && sc.total_price !== null
                                   ? Number(sc.total_price) || 0
@@ -13562,13 +13576,16 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                             }, 0)
                           : 0;
                         const parentUnitPriceNum = Number(item.unit_price) || 0;
+                        const parentTotalPriceNum = parentUnitPriceNum * parentQtyForSubs;
                         const isItemizedSet =
                           hasCompositeSubRows &&
                           (item.package_pricing_mode === 'itemized' ||
                             (item.package_pricing_mode !== 'lump_sum' &&
                               subComponentsPriceSum > 0 &&
                               (parentUnitPriceNum === 0 ||
-                                Math.abs(parentUnitPriceNum - subComponentsPriceSum) <= 0.05)));
+                                Math.abs(parentUnitPriceNum - subComponentsPriceSum) <= 0.05 ||
+                                (isAutoScaleSubsEnabled &&
+                                  Math.abs(parentTotalPriceNum - subComponentsPriceSum) <= 0.05))));
                         const isSetContinuation = Boolean(item.isCompositeContinuation);
                         const itemEffLayout = resolveItemEffectiveLayout(item);
                         const hasAnyItemImage = Boolean(item.image_url || item.secondary_image_url);
@@ -14543,8 +14560,15 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                                               : Number(item.quantity ?? parentOrdSets)
                                           );
                                           const perSetSubQty = Math.max(0, Number(sub.quantity ?? 0));
+                                          const isFixedSubInAutoScale =
+                                            Boolean(item.scale_sub_components_with_parent) &&
+                                            sub.qty_mode === 'fixed';
                                           const isAlreadyMultiplied = Boolean((sub as any)._do_qty_multiplied);
-                                          const subOrd = isAlreadyMultiplied && sub.qty_ordered !== undefined
+                                          const subOrd = isFixedSubInAutoScale
+                                            ? sub.qty_ordered !== undefined
+                                              ? Number(sub.qty_ordered)
+                                              : perSetSubQty
+                                            : isAlreadyMultiplied && sub.qty_ordered !== undefined
                                             ? Number(sub.qty_ordered)
                                             : sub.qty_ordered !== undefined &&
                                               !(
@@ -14553,7 +14577,13 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                                               )
                                             ? Number(sub.qty_ordered)
                                             : Math.round(perSetSubQty * parentOrdSets * 100) / 100;
-                                          const subDel = isAlreadyMultiplied && sub.qty_delivered !== undefined
+                                          const subDel = isFixedSubInAutoScale
+                                            ? sub.qty_delivered !== undefined
+                                              ? Number(sub.qty_delivered)
+                                              : parentDelSets > 0
+                                              ? perSetSubQty
+                                              : 0
+                                            : isAlreadyMultiplied && sub.qty_delivered !== undefined
                                             ? Number(sub.qty_delivered)
                                             : sub.qty_delivered !== undefined &&
                                               !(
@@ -14562,7 +14592,11 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                                               )
                                             ? Number(sub.qty_delivered)
                                             : Math.round(perSetSubQty * parentDelSets * 100) / 100;
-                                          const subBal = isAlreadyMultiplied && sub.qty_balance !== undefined
+                                          const subBal = isFixedSubInAutoScale
+                                            ? sub.qty_balance !== undefined
+                                              ? Number(sub.qty_balance)
+                                              : Math.max(0, Math.round((subOrd - subDel) * 100) / 100)
+                                            : isAlreadyMultiplied && sub.qty_balance !== undefined
                                             ? Number(sub.qty_balance)
                                             : sub.qty_balance !== undefined &&
                                               !(
@@ -14575,7 +14609,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                                             <>
                                               <td className={`py-1.5 px-1 text-center font-mono text-slate-600 align-top ${tableFontSize} whitespace-nowrap`}>
                                                 <div>{subOrd}</div>
-                                                {parentOrdSets > 1 && perSetSubQty > 0 && (
+                                                {!isFixedSubInAutoScale && parentOrdSets > 1 && perSetSubQty > 0 && (
                                                   <div className="text-[7.5px] text-slate-400 leading-none mt-0.5">
                                                     ({perSetSubQty}/set)
                                                   </div>
@@ -14583,7 +14617,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                                               </td>
                                               <td className={`py-1.5 px-1 text-center font-mono font-bold text-slate-800 align-top ${tableFontSize} whitespace-nowrap`}>
                                                 <div>{subDel}</div>
-                                                {parentDelSets > 1 && perSetSubQty > 0 && (
+                                                {!isFixedSubInAutoScale && parentDelSets > 1 && perSetSubQty > 0 && (
                                                   <div className="text-[7.5px] font-normal text-slate-400 leading-none mt-0.5">
                                                     ({perSetSubQty}/set)
                                                   </div>
@@ -14601,57 +14635,73 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                                           );
                                         })()
                                       ) : (
-                                        <>
-                                          <td className={`py-1.5 px-1 text-center font-mono font-bold text-slate-800 align-top ${tableFontSize} whitespace-nowrap`}>
-                                            {Number(sub.quantity || 0).toLocaleString('en-US', {
-                                              minimumFractionDigits: sub.quantity % 1 === 0 ? 0 : 2,
-                                              maximumFractionDigits: 2
-                                            })}
-                                          </td>
-                                          {showUom && (
-                                            <td className={`${tableFontSize} font-mono text-center py-1.5 px-1 leading-tight text-slate-700 uppercase align-top`}>
-                                              {sub.unit || 'NOS'}
-                                            </td>
-                                          )}
-                                          {showUnitPrice && (
-                                            <td
-                                              className={`py-1.5 pl-2 pr-3.5 text-right font-mono text-slate-700 align-top ${tableFontSize} tabular-nums whitespace-nowrap`}
-                                              style={{ paddingRight: !showLineTotal ? '16px' : undefined }}
-                                            >
-                                              {isAcc || sub.hide_row_price ? (
-                                                <span className={`${typoScale.micro} text-slate-400 italic`}>—</span>
-                                              ) : !isItemizedSet ? (
-                                                <span className={`${typoScale.micro} text-slate-400 italic`}>Included</span>
-                                              ) : (
-                                                Number(sub.unit_price || 0).toLocaleString('en-US', {
-                                                  minimumFractionDigits: 2,
-                                                  maximumFractionDigits: 2
-                                                })
+                                        (() => {
+                                          const subQtyInfo = resolveSubComponentDisplayQty(
+                                            sub,
+                                            Number(item.quantity ?? 1),
+                                            Boolean(item.scale_sub_components_with_parent)
+                                          );
+                                          const displayedSubLineTotal = item.scale_sub_components_with_parent
+                                            ? Math.round(
+                                                subQtyInfo.effectiveQty * Number(sub.unit_price || 0) * 100
+                                              ) / 100
+                                            : Number(sub.total_price || 0);
+                                          return (
+                                            <>
+                                              <td className={`py-1.5 px-1 text-center font-mono font-bold text-slate-800 align-top ${tableFontSize} whitespace-nowrap`}>
+                                                <div>{formatSubComponentQty(subQtyInfo.effectiveQty)}</div>
+                                                {subQtyInfo.isScaled && subQtyInfo.perUnitQty > 0 && (
+                                                  <div className="text-[7.5px] font-normal text-slate-400 leading-none mt-0.5">
+                                                    {formatSubComponentQty(subQtyInfo.perUnitQty)}/unit
+                                                  </div>
+                                                )}
+                                              </td>
+                                              {showUom && (
+                                                <td className={`${tableFontSize} font-mono text-center py-1.5 px-1 leading-tight text-slate-700 uppercase align-top`}>
+                                                  {sub.unit || 'NOS'}
+                                                </td>
                                               )}
-                                            </td>
-                                          )}
-                                          {showLineTotal && (
-                                            <td
-                                              className={`py-1.5 pl-3 pr-4 text-right font-mono font-semibold text-slate-900 align-top ${tableFontSize} tabular-nums whitespace-nowrap`}
-                                              style={{ paddingRight: '16px' }}
-                                            >
-                                              {isAcc || sub.hide_row_price ? (
-                                                <span className={`${typoScale.micro} text-emerald-700 font-sans font-medium`}>
-                                                  Included
-                                                </span>
-                                              ) : !isItemizedSet ? (
-                                                <span className={`${typoScale.micro} text-slate-400 italic`}>
-                                                  Included in Set
-                                                </span>
-                                              ) : (
-                                                Number(sub.total_price || 0).toLocaleString('en-US', {
-                                                  minimumFractionDigits: 2,
-                                                  maximumFractionDigits: 2
-                                                })
+                                              {showUnitPrice && (
+                                                <td
+                                                  className={`py-1.5 pl-2 pr-3.5 text-right font-mono text-slate-700 align-top ${tableFontSize} tabular-nums whitespace-nowrap`}
+                                                  style={{ paddingRight: !showLineTotal ? '16px' : undefined }}
+                                                >
+                                                  {isAcc || sub.hide_row_price ? (
+                                                    <span className={`${typoScale.micro} text-slate-400 italic`}>—</span>
+                                                  ) : !isItemizedSet ? (
+                                                    <span className={`${typoScale.micro} text-slate-400 italic`}>Included</span>
+                                                  ) : (
+                                                    Number(sub.unit_price || 0).toLocaleString('en-US', {
+                                                      minimumFractionDigits: 2,
+                                                      maximumFractionDigits: 2
+                                                    })
+                                                  )}
+                                                </td>
                                               )}
-                                            </td>
-                                          )}
-                                        </>
+                                              {showLineTotal && (
+                                                <td
+                                                  className={`py-1.5 pl-3 pr-4 text-right font-mono font-semibold text-slate-900 align-top ${tableFontSize} tabular-nums whitespace-nowrap`}
+                                                  style={{ paddingRight: '16px' }}
+                                                >
+                                                  {isAcc || sub.hide_row_price ? (
+                                                    <span className={`${typoScale.micro} text-emerald-700 font-sans font-medium`}>
+                                                      Included
+                                                    </span>
+                                                  ) : !isItemizedSet ? (
+                                                    <span className={`${typoScale.micro} text-slate-400 italic`}>
+                                                      Included in Set
+                                                    </span>
+                                                  ) : (
+                                                    displayedSubLineTotal.toLocaleString('en-US', {
+                                                      minimumFractionDigits: 2,
+                                                      maximumFractionDigits: 2
+                                                    })
+                                                  )}
+                                                </td>
+                                              )}
+                                            </>
+                                          );
+                                        })()
                                       )}
                                     </tr>
                                     {subSpacerMm > 0 && (

@@ -5,6 +5,10 @@ import {
   parseBulkSubComponentsText,
 } from '../../utils/compositeBomUtils';
 import {
+  resolveSubComponentDisplayQty,
+  formatSubComponentQty,
+} from '../../utils/subComponentQty';
+import {
   resolveToAedMultiplier,
   resolveEffectiveCatalogProduct,
   deriveSuggestedVariantLabel,
@@ -71,11 +75,13 @@ interface CompositePackageEditorProps {
     is_composite_set?: boolean;
     sub_components?: LineItemComponent[];
     package_pricing_mode?: 'itemized' | 'lump_sum';
+    scale_sub_components_with_parent?: boolean;
     option_scope_notes?: string;
   };
   isCompositeSet?: boolean;
   subComponents?: LineItemComponent[];
   packagePricingMode?: 'itemized' | 'lump_sum';
+  scaleSubComponentsWithParent?: boolean;
   optionScopeNotes?: string;
   parentQuantity?: number;
   currency?: string;
@@ -87,6 +93,7 @@ interface CompositePackageEditorProps {
     is_composite_set: boolean;
     sub_components: LineItemComponent[];
     package_pricing_mode: 'itemized' | 'lump_sum';
+    scale_sub_components_with_parent?: boolean;
     option_scope_notes?: string;
     quantity?: number;
     unit?: string;
@@ -105,6 +112,7 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
   isCompositeSet: propIsCompositeSet,
   subComponents: propSubComponents,
   packagePricingMode: propPackagePricingMode,
+  scaleSubComponentsWithParent: propScaleSubComponentsWithParent,
   optionScopeNotes: propOptionScopeNotes,
   parentQuantity: propParentQuantity,
   currency = 'AED',
@@ -119,6 +127,8 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
   const isCompositeSet = propIsCompositeSet ?? Boolean(item?.is_composite_set);
   const subComponents = propSubComponents ?? item?.sub_components ?? [];
   const packagePricingMode = propPackagePricingMode ?? item?.package_pricing_mode ?? 'lump_sum';
+  const scaleSubComponentsWithParent =
+    propScaleSubComponentsWithParent ?? Boolean(item?.scale_sub_components_with_parent);
   const optionScopeNotes = propOptionScopeNotes ?? item?.option_scope_notes ?? '';
   const parentQuantity = propParentQuantity ?? item?.quantity ?? 1;
 
@@ -384,11 +394,22 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
     nextCompositeFlag: boolean = true,
     overrideParentQty?: number,
     overrideParentUnit?: string,
-    forceSyncParentPrice: boolean = false
+    forceSyncParentPrice: boolean = false,
+    overrideScaleWithParent?: boolean
   ) => {
     const effectiveParentQty =
       overrideParentQty !== undefined ? overrideParentQty : Math.max(1, Number(parentQuantity) || 1);
-    const totals = recalculateCompositeItemTotals(nextComponents, effectiveParentQty);
+    const effectiveScaleWithParent =
+      overrideScaleWithParent !== undefined
+        ? overrideScaleWithParent
+        : scaleSubComponentsWithParent;
+    const totals = recalculateCompositeItemTotals(
+      nextComponents,
+      effectiveParentQty,
+      undefined,
+      undefined,
+      effectiveScaleWithParent
+    );
 
     const hasPricedSubItems = totals.unitSellingPrice > 0;
     const allSubsExplicitIncluded =
@@ -410,7 +431,10 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
       (hasPricedSubItems && (currentParentUnitPrice <= 0 || packagePricingMode === 'itemized'));
 
     const nextUnitPrice = shouldUpdateParentPrice ? totals.unitSellingPrice : currentParentUnitPrice;
-    const nextTotalPrice = Math.round(effectiveParentQty * nextUnitPrice * 100) / 100;
+    const nextTotalPrice =
+      shouldUpdateParentPrice && effectiveScaleWithParent
+        ? totals.totalSellingPrice
+        : Math.round(effectiveParentQty * nextUnitPrice * 100) / 100;
     const shouldUpdateParentCost =
       totals.unitCostPrice > 0 || (resolvedMode === 'itemized' && !allSubsExplicitIncluded);
     const nextCostPrice = shouldUpdateParentCost ? totals.unitCostPrice : currentParentCostPrice;
@@ -419,6 +443,7 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
       is_composite_set: nextCompositeFlag,
       sub_components: totals.normalizedComponents,
       package_pricing_mode: resolvedMode,
+      scale_sub_components_with_parent: effectiveScaleWithParent,
       option_scope_notes: nextNotes,
       ...(overrideParentQty !== undefined ? { quantity: overrideParentQty } : {}),
       ...(overrideParentUnit !== undefined ? { unit: overrideParentUnit } : {}),
@@ -457,6 +482,7 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
         is_composite_set: false,
         sub_components: [],
         package_pricing_mode: 'lump_sum',
+        scale_sub_components_with_parent: false,
         option_scope_notes: optionScopeNotes,
       });
       return;
@@ -913,7 +939,13 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
     });
   }, [activeCatalogProducts, catalogSearchQuery]);
 
-  const totals = recalculateCompositeItemTotals(subComponents, parentQuantity);
+  const totals = recalculateCompositeItemTotals(
+    subComponents,
+    parentQuantity,
+    undefined,
+    undefined,
+    scaleSubComponentsWithParent
+  );
   const pricedCount = subComponents.filter((c) => !c.is_included_accessory && (Number(c.unit_price) || 0) > 0).length;
   const includedCount = subComponents.length - pricedCount;
   const parentUnitPrice = Number(item?.unit_price) || 0;
@@ -974,6 +1006,37 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
                 })}{' '}
                 — Apply to Item Price
               </span>
+            </button>
+          )}
+
+          {subComponents.length > 0 && (
+            <button
+              type="button"
+              onClick={() =>
+                commitComponents(
+                  subComponents,
+                  packagePricingMode,
+                  optionScopeNotes,
+                  true,
+                  undefined,
+                  undefined,
+                  false,
+                  !scaleSubComponentsWithParent
+                )
+              }
+              aria-pressed={scaleSubComponentsWithParent}
+              className={`px-2 py-1 rounded-md border text-[10.5px] font-semibold flex items-center gap-1 transition cursor-pointer whitespace-nowrap ${
+                scaleSubComponentsWithParent
+                  ? 'bg-blue-600 text-white border-blue-600 shadow-2xs hover:bg-blue-700'
+                  : 'bg-white dark:bg-slate-800 hover:bg-blue-50 text-slate-600 dark:text-slate-300 hover:text-blue-700 border-slate-200 dark:border-slate-700'
+              }`}
+              title={
+                scaleSubComponentsWithParent
+                  ? 'Auto-Scale is ON — sub-item quantities marked Per Unit multiply by parent quantity on the document'
+                  : 'Turn on to automatically multiply sub-item quantities by parent quantity (opt-in)'
+              }
+            >
+              <span>Auto-Scale Qty (×Parent)</span>
             </button>
           )}
 
@@ -1344,6 +1407,11 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
               comp.image_url.startsWith('idb:'));
           const rowSyncBadge = syncStatusByRow[comp.id];
           const isRowSyncBusy = Boolean(syncBusyByRow[comp.id]);
+          const subQtyInfo = resolveSubComponentDisplayQty(
+            comp,
+            Number(parentQuantity) || 1,
+            scaleSubComponentsWithParent
+          );
 
           return (
             <div
@@ -1351,7 +1419,7 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
               className="px-3 py-2.5 hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors space-y-2"
             >
               {/* LINE 1: Index, Thumbnail, Qty, Unit, Sub-Item Name, Cost (optional), Price / Included */}
-              <div className="flex flex-wrap @[520px]:flex-nowrap items-center gap-1.5">
+              <div className={`flex flex-wrap ${scaleSubComponentsWithParent ? '@[660px]:flex-nowrap' : '@[520px]:flex-nowrap'} items-center gap-1.5`}>
                 {/* # Index */}
                 <span className="w-5 text-[10.5px] font-mono tabular-nums font-bold text-slate-400 text-center shrink-0">
                   {idx + 1}.
@@ -1411,7 +1479,13 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
                   value={comp.quantity ?? ''}
                   onChange={(e) => handleUpdateSub(comp.id, 'quantity', e.target.value)}
                   placeholder="Qty"
-                  title="Quantity"
+                  title={
+                    scaleSubComponentsWithParent
+                      ? subQtyInfo.isFixed
+                        ? 'Fixed total quantity (does not multiply with parent qty)'
+                        : 'Quantity per parent unit (multiplies by parent qty)'
+                      : 'Quantity'
+                  }
                   className="w-13 h-7 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md px-1.5 text-xs font-mono tabular-nums text-center font-bold text-slate-900 dark:text-white focus:border-blue-500 focus:bg-white focus:outline-none shrink-0"
                 />
 
@@ -1424,6 +1498,42 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
                   title="Unit (e.g. Nos, Set, Lot)"
                   className="w-13 h-7 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md px-1.5 text-xs font-mono text-center text-slate-700 dark:text-slate-300 focus:border-blue-500 focus:bg-white focus:outline-none shrink-0"
                 />
+
+                {/* Per-Row Auto-Scale Mode Toggle & Live Readout (shown when Auto-Scale Qty is active) */}
+                {scaleSubComponentsWithParent && (
+                  <div className="inline-flex items-center gap-1 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        handleUpdateSub(
+                          comp.id,
+                          'qty_mode',
+                          subQtyInfo.isFixed ? 'per_unit' : 'fixed'
+                        )
+                      }
+                      className={`h-7 px-1.5 rounded-md border text-[10px] font-semibold transition cursor-pointer whitespace-nowrap shrink-0 ${
+                        subQtyInfo.isFixed
+                          ? 'bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-700'
+                          : 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 dark:bg-blue-950/50 dark:text-blue-300 dark:border-blue-800'
+                      }`}
+                      title={
+                        subQtyInfo.isFixed
+                          ? 'Fixed: stays at stored quantity regardless of parent qty (click to switch to Per Unit)'
+                          : 'Per Unit: multiplies by parent quantity (click to lock as Fixed)'
+                      }
+                    >
+                      {subQtyInfo.isFixed ? 'Fixed' : 'Per Unit'}
+                    </button>
+                    {Number(parentQuantity) > 1 && subQtyInfo.isScaled && (
+                      <span
+                        className="px-1.5 py-0.5 rounded bg-blue-50/90 dark:bg-blue-950/60 border border-blue-200/80 dark:border-blue-800 text-blue-700 dark:text-blue-300 font-mono text-[10px] font-bold whitespace-nowrap tabular-nums shrink-0"
+                        title={`${formatSubComponentQty(subQtyInfo.perUnitQty)} × ${parentQuantity} parent units = ${formatSubComponentQty(subQtyInfo.effectiveQty)} total`}
+                      >
+                        → {formatSubComponentQty(subQtyInfo.effectiveQty)} total
+                      </span>
+                    )}
+                  </div>
+                )}
 
                 {/* Sub-Item Name */}
                 <input

@@ -1177,7 +1177,8 @@ export default function EnquiryDetail({
         include_datasheet_in_quote: li.include_datasheet_in_quote !== false,
         is_composite_set: li.is_composite_set,
         sub_components: li.sub_components,
-        package_pricing_mode: li.package_pricing_mode
+        package_pricing_mode: li.package_pricing_mode,
+        scale_sub_components_with_parent: li.scale_sub_components_with_parent
       } as QuotationLineItem;
     });
   };
@@ -1288,7 +1289,9 @@ export default function EnquiryDetail({
         freshIt.sub_components,
         prevIt?.sub_components
       ),
-      package_pricing_mode: freshIt.package_pricing_mode ?? prevIt?.package_pricing_mode
+      package_pricing_mode: freshIt.package_pricing_mode ?? prevIt?.package_pricing_mode,
+      scale_sub_components_with_parent:
+        freshIt.scale_sub_components_with_parent ?? prevIt?.scale_sub_components_with_parent
     } as QuotationLineItem;
   };
 
@@ -2965,6 +2968,7 @@ export default function EnquiryDetail({
       ...(p.is_composite_set ? { is_composite_set: true } : {}),
       ...(bomRollup ? { sub_components: bomRollup.normalizedComponents } : {}),
       ...(p.package_pricing_mode ? { package_pricing_mode: p.package_pricing_mode } : {}),
+      ...(p.scale_sub_components_with_parent ? { scale_sub_components_with_parent: true } : {}),
       ...(p.option_scope_notes ? { option_scope_notes: p.option_scope_notes } : {}),
       ...(isBaseTemplate && p.id ? ({ template_parent_id: p.id } as any) : {})
     };
@@ -8674,6 +8678,7 @@ export default function EnquiryDetail({
                               isCompositeSet={true}
                               subComponents={item.sub_components || []}
                               packagePricingMode={item.package_pricing_mode || 'lump_sum'}
+                              scaleSubComponentsWithParent={Boolean(item.scale_sub_components_with_parent)}
                               optionScopeNotes={item.option_scope_notes || ''}
                               parentQuantity={item.quantity || 1}
                               currency={(currentEnquiry.currency as string) || 'USD'}
@@ -10851,6 +10856,8 @@ export default function EnquiryDetail({
                 : sourceItems[idx].include_datasheet_in_quote,
             is_composite_set: newProduct.is_composite_set ?? sourceItems[idx].is_composite_set,
             package_pricing_mode: newProduct.package_pricing_mode || sourceItems[idx].package_pricing_mode,
+            scale_sub_components_with_parent:
+              newProduct.scale_sub_components_with_parent ?? sourceItems[idx].scale_sub_components_with_parent,
             sub_components: convertedSubComponents || sourceItems[idx].sub_components,
             attributes:
               newProduct.attributes && newProduct.attributes.length > 0
