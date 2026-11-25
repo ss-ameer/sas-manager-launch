@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, Suspense } from 'react';
+import { lazyWithRetry, ModalLoadingFallback } from '../utils/lazyWithRetry';
 import { Enquiry, Company, Salesperson, Contact, getInitials, Workspace, EnquiryStatusHistoryEntry, Project, ENQUIRY_STATUS_OPTIONS, normalizeEnquiryStatus, EnquiryStatus, resolveSalespersonIdentifier, resolveSalespersonName, normalizeEnquirySource, Quotation, PIPELINE_STATUS_GROUPS } from '../types';
 import { BRAND_CONFIG } from '../config';
 import EnquiryExportModal from './EnquiryExportModal';
@@ -52,7 +53,7 @@ import {
 import GoogleSearchButton from './common/GoogleSearchButton';
 import HoverScrollText from './common/HoverScrollText';
 import { InitiateActivityOptions, useActivityLauncher } from '../context/ActivityLauncherContext';
-import Company360Modal from './Company360Modal';
+const Company360Modal = lazyWithRetry(() => import('./Company360Modal'));
 import { QuickClaimModal } from './QuickClaimModal';
 import { syncSequenceHighWaterMark } from '../services/enquirySequences';
 
@@ -3466,19 +3467,21 @@ export default function EnquiryList({
 
       {/* Fallback 360 Modal if not intercepted by parent handler */}
       {selected360CompanyId && !onOpenCompany360 && (
-        <Company360Modal
-          companyId={selected360CompanyId}
-          companies={companies}
-          setCompanies={setCompanies}
-          contacts={contacts}
-          salespersons={salespersons}
-          enquiries={enquiries}
-          callLogs={[]}
-          user={user}
-          onClose={() => setSelected360CompanyId(null)}
-          onOpenActivityDrawer={onOpenActivityDrawer}
-          onInitiateActivity={onInitiateActivity}
-        />
+        <Suspense fallback={<ModalLoadingFallback />}>
+          <Company360Modal
+            companyId={selected360CompanyId}
+            companies={companies}
+            setCompanies={setCompanies}
+            contacts={contacts}
+            salespersons={salespersons}
+            enquiries={enquiries}
+            callLogs={[]}
+            user={user}
+            onClose={() => setSelected360CompanyId(null)}
+            onOpenActivityDrawer={onOpenActivityDrawer}
+            onInitiateActivity={onInitiateActivity}
+          />
+        </Suspense>
       )}
 
       {/* Audited Enquiry Export Modal with Scope & Format Configuration */}

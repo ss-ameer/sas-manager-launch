@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, Suspense } from 'react';
 import { createPortal } from 'react-dom';
+import { lazyWithRetry, TabLoadingFallback, ModalLoadingFallback } from './utils/lazyWithRetry';
 import { auth, db, safeDeleteDoc, safeAddDoc, safeUpdateDoc, safeSetDoc, safeGetDoc, safeGetDocs, isQuotaCircuitBroken } from './firebase';
 import { Z_TOAST } from './constants/zIndex';
 import { onAuthStateChanged } from 'firebase/auth';
@@ -16,28 +17,33 @@ import { INITIAL_COMPANIES, INITIAL_CONTACTS, INITIAL_ENQUIRIES, INITIAL_SALESPE
 import Login from './components/Login';
 import Sidebar from './components/Sidebar';
 import Dashboard from './components/Dashboard';
-import EnquiryList from './components/EnquiryList';
-import CompanyModal from './components/CompanyModal';
-import SalespersonProfiles from './components/SalespersonProfiles';
-import InviteManager from './components/InviteManager';
-import EnquiryForm from './components/EnquiryForm';
-import EnquiryDetail from './components/EnquiryDetail';
-import ProductManager from './components/ProductManager';
-import ProjectRegistry from './components/ProjectRegistry';
-import ProcurementPayablesHub, { ProcurementLaunchContext } from './components/ProcurementPayablesHub';
-import SettingsHub from './components/SettingsHub';
-import CloudSyncHub from './components/CloudSyncHub';
+import type { ProcurementLaunchContext } from './components/ProcurementPayablesHub';
 import WorkspaceManagerModal from './components/WorkspaceManagerModal';
-import CallLogManager from './components/CallLogManager';
 import UserProfileModal from './components/UserProfileModal';
-import TrashBinModal from './components/TrashBinModal';
-import Company360Modal from './components/Company360Modal';
 import { UNIVERSAL_UNITS, UNIVERSAL_CATEGORIES } from './constants';
 import FreshAccountOnboardingModal from './components/FreshAccountOnboardingModal';
-import { SuperAdminConsoleModal } from './components/SuperAdminConsoleModal';
-import { QuickActivityDrawer } from './components/QuickActivityDrawer';
 import CompanyEditModal from './components/CompanyEditModal';
 import ContactModal from './components/ContactModal';
+
+const EnquiryList = lazyWithRetry(() => import('./components/EnquiryList'));
+const CompanyModal = lazyWithRetry(() => import('./components/CompanyModal'));
+const SalespersonProfiles = lazyWithRetry(() => import('./components/SalespersonProfiles'));
+const EnquiryForm = lazyWithRetry(() => import('./components/EnquiryForm'));
+const EnquiryDetail = lazyWithRetry(() => import('./components/EnquiryDetail'));
+const ProductManager = lazyWithRetry(() => import('./components/ProductManager'));
+const ProjectRegistry = lazyWithRetry(() => import('./components/ProjectRegistry'));
+const ProcurementPayablesHub = lazyWithRetry(() => import('./components/ProcurementPayablesHub'));
+const SettingsHub = lazyWithRetry(() => import('./components/SettingsHub'));
+const CloudSyncHub = lazyWithRetry(() => import('./components/CloudSyncHub'));
+const CallLogManager = lazyWithRetry(() => import('./components/CallLogManager'));
+const TrashBinModal = lazyWithRetry(() => import('./components/TrashBinModal'));
+const Company360Modal = lazyWithRetry(() => import('./components/Company360Modal'));
+const SuperAdminConsoleModal = lazyWithRetry(() =>
+  import('./components/SuperAdminConsoleModal').then((m) => ({ default: m.SuperAdminConsoleModal }))
+);
+const QuickActivityDrawer = lazyWithRetry(() =>
+  import('./components/QuickActivityDrawer').then((m) => ({ default: m.QuickActivityDrawer }))
+);
 import { EntityEditContext } from './context/EntityEditContext';
 import { EnquiryRepository } from './services/repositories/EnquiryRepository';
 import { CompanyRepository } from './services/repositories/CompanyRepository';
@@ -2245,31 +2251,33 @@ export default function App() {
               </span>
             </button>
 
-            <CloudSyncHub
-              companies={companies}
-              contacts={contacts}
-              enquiries={enquiries}
-              callLogs={callLogs}
-              products={products}
-              salespersons={salespersons}
-              enquirySources={enquirySources}
-              productCategories={productCategories}
-              units={units}
-              user={user}
-              activeWorkspace={activeWorkspace}
-              setCompanies={setCompanies}
-              setContacts={setContacts}
-              setEnquiries={setEnquiries}
-              setCallLogs={setCallLogs}
-              setProducts={setProducts}
-              setSalespersons={setSalespersons}
-              setEnquirySources={setEnquirySources}
-              setProductCategories={setProductCategories}
-              setUnits={setUnits}
-              realtimeSyncEnabled={realtimeSyncEnabled}
-              setRealtimeSyncEnabled={setRealtimeSyncEnabled}
-              showToast={triggerToast}
-            />
+            <Suspense fallback={null}>
+              <CloudSyncHub
+                companies={companies}
+                contacts={contacts}
+                enquiries={enquiries}
+                callLogs={callLogs}
+                products={products}
+                salespersons={salespersons}
+                enquirySources={enquirySources}
+                productCategories={productCategories}
+                units={units}
+                user={user}
+                activeWorkspace={activeWorkspace}
+                setCompanies={setCompanies}
+                setContacts={setContacts}
+                setEnquiries={setEnquiries}
+                setCallLogs={setCallLogs}
+                setProducts={setProducts}
+                setSalespersons={setSalespersons}
+                setEnquirySources={setEnquirySources}
+                setProductCategories={setProductCategories}
+                setUnits={setUnits}
+                realtimeSyncEnabled={realtimeSyncEnabled}
+                setRealtimeSyncEnabled={setRealtimeSyncEnabled}
+                showToast={triggerToast}
+              />
+            </Suspense>
           </div>
         </header>
 
@@ -2300,75 +2308,77 @@ export default function App() {
         )}
 
         <div className="flex-1 overflow-y-auto overflow-x-hidden">
-          {currentTab === 'call_log' && (
-            <CallLogManager
+          {currentTab === 'dashboard' && (
+            <Dashboard
               key={activeWorkspace.id}
-              activeWorkspace={activeWorkspace}
-              callLogs={visibleCallLogs}
-              companies={workspaceCompanies}
-              contacts={workspaceContacts}
               enquiries={visibleEnquiries}
+              companies={workspaceCompanies}
+              contacts={workspaceContacts || contacts}
               salespersons={workspaceSalespersons}
+              callLogs={workspaceCallLogs}
+              onSelectEnquiry={setSelectedEnquiryId}
               user={user}
-              triggerToast={triggerToast}
-              initialSubTab="log"
-              setCallLogs={setCallLogs}
-              setCompanies={setCompanies}
-              setContacts={setContacts}
-              callStatuses={callStatuses}
-              callOutcomes={callOutcomes}
-              callPurposes={callPurposes}
-              setCallStatuses={setCallStatuses}
-              setCallOutcomes={setCallOutcomes}
-              setCallPurposes={setCallPurposes}
-              setEnquiries={setEnquiries}
-              companyRelationships={companyRelationships}
-              industryTypes={industryTypes}
-              companyTemperatures={companyTemperatures}
-              onEditCompany={handleEditCompanyFrom360}
+              activeWorkspace={activeWorkspace}
+              products={workspaceProducts}
+              projects={workspaceProjects}
+              onAddEnquiry={() => {
+                setEnquiryToEdit(null);
+                setShowEnquiryForm(true);
+              }}
               onOpenCompany360={(companyId) => setSelected360CompanyId(companyId)}
+              onLaunchProcurement={handleLaunchProcurement}
               onOpenActivityDrawer={(ctx) => {
                 setActivityDrawerContext(ctx || {});
                 setIsActivityDrawerOpen(true);
               }}
-              onInitiateActivity={initiateActivity}
               onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
+              onNavigate={(targetTab: string) => {
+                if (targetTab === 'call_center' || targetTab === 'calls' || targetTab === 'call_logs' || targetTab === 'call_log') {
+                  setCurrentTab('call_log');
+                } else {
+                  setCurrentTab(targetTab);
+                }
+              }}
             />
           )}
 
-          {currentTab === 'dashboard' && (
-          <Dashboard
-            key={activeWorkspace.id}
-            enquiries={visibleEnquiries}
-            companies={workspaceCompanies}
-            contacts={workspaceContacts || contacts}
-            salespersons={workspaceSalespersons}
-            callLogs={workspaceCallLogs}
-            onSelectEnquiry={setSelectedEnquiryId}
-            user={user}
-            activeWorkspace={activeWorkspace}
-            products={workspaceProducts}
-            projects={workspaceProjects}
-            onAddEnquiry={() => {
-              setEnquiryToEdit(null);
-              setShowEnquiryForm(true);
-            }}
-            onOpenCompany360={(companyId) => setSelected360CompanyId(companyId)}
-            onLaunchProcurement={handleLaunchProcurement}
-            onOpenActivityDrawer={(ctx) => {
-              setActivityDrawerContext(ctx || {});
-              setIsActivityDrawerOpen(true);
-            }}
-            onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
-            onNavigate={(targetTab: string) => {
-              if (targetTab === 'call_center' || targetTab === 'calls' || targetTab === 'call_logs' || targetTab === 'call_log') {
-                setCurrentTab('call_log');
-              } else {
-                setCurrentTab(targetTab);
-              }
-            }}
-          />
-        )}
+          <Suspense fallback={<TabLoadingFallback />}>
+            {currentTab === 'call_log' && (
+              <CallLogManager
+                key={activeWorkspace.id}
+                activeWorkspace={activeWorkspace}
+                callLogs={visibleCallLogs}
+                companies={workspaceCompanies}
+                contacts={workspaceContacts}
+                enquiries={visibleEnquiries}
+                salespersons={workspaceSalespersons}
+                user={user}
+                triggerToast={triggerToast}
+                initialSubTab="log"
+                setCallLogs={setCallLogs}
+                setCompanies={setCompanies}
+                setContacts={setContacts}
+                callStatuses={callStatuses}
+                callOutcomes={callOutcomes}
+                callPurposes={callPurposes}
+                setCallStatuses={setCallStatuses}
+                setCallOutcomes={setCallOutcomes}
+                setCallPurposes={setCallPurposes}
+                setEnquiries={setEnquiries}
+                companyRelationships={companyRelationships}
+                industryTypes={industryTypes}
+                companyTemperatures={companyTemperatures}
+                onEditCompany={handleEditCompanyFrom360}
+                onOpenCompany360={(companyId) => setSelected360CompanyId(companyId)}
+                onOpenActivityDrawer={(ctx) => {
+                  setActivityDrawerContext(ctx || {});
+                  setIsActivityDrawerOpen(true);
+                }}
+                onInitiateActivity={initiateActivity}
+                onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
+              />
+            )}
+
 
         {currentTab === 'enquiries' && (
           <EnquiryList
@@ -2572,111 +2582,118 @@ export default function App() {
             onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
           />
         )}
+          </Suspense>
         </div>
       </main>
 
       {/* Slide-over Enquiry Details Inspection */}
       {selectedEnquiry && (
-        <EnquiryDetail
-          enquiry={selectedEnquiry}
-          activeWorkspace={activeWorkspace}
-          activeWorkspaceId={activeWorkspace?.id}
-          companies={workspaceCompanies}
-          setCompanies={setCompanies}
-          contacts={workspaceContacts}
-          salespersons={workspaceSalespersons}
-          products={workspaceProducts}
-          setProducts={setProducts}
-          productCategories={workspaceProductCategories.map(c => c.name)}
-          units={units.map(u => u.name)}
-          setProductCategories={setProductCategories}
-          auditLogs={auditLogs}
-          user={user}
-          enquiries={visibleEnquiries} // Pass enquiries list to EnquiryDetail so it can show linked revisions!
-          setEnquiries={setEnquiries}
-          onUpdateEnquiry={(updated) =>
-            setEnquiries((prev) =>
-              prev.map((e) => (e.id === updated.id ? normalizeEnquiry(updated, activeWorkspace.id) : e))
-            )
-          }
-          onClose={() => setSelectedEnquiryId(null)}
-          onNavigateToProject={handleNavigateToProject}
-          onDeleteEnquiry={handleDeleteEnquiry}
-          onEditEnquiry={(enq) => {
-            setEnquiryToEdit(enq);
-            setShowEnquiryForm(true);
-          }}
-          onOpenActivityDrawer={(context) => {
-            setActivityDrawerContext(context);
-            setIsActivityDrawerOpen(true);
-          }}
-          onInitiateActivity={initiateActivity}
-          onStockUpdated={refreshProducts}
-          triggerToast={triggerToast}
-          autoOpenStudio={Boolean(selectedEnquiry.id && selectedEnquiry.id === autoOpenStudioForEnquiryId)}
-          onAutoOpenStudioConsumed={() => setAutoOpenStudioForEnquiryId(null)}
-        />
+        <Suspense fallback={<ModalLoadingFallback />}>
+          <EnquiryDetail
+            enquiry={selectedEnquiry}
+            activeWorkspace={activeWorkspace}
+            activeWorkspaceId={activeWorkspace?.id}
+            companies={workspaceCompanies}
+            setCompanies={setCompanies}
+            contacts={workspaceContacts}
+            salespersons={workspaceSalespersons}
+            products={workspaceProducts}
+            setProducts={setProducts}
+            productCategories={workspaceProductCategories.map(c => c.name)}
+            units={units.map(u => u.name)}
+            setProductCategories={setProductCategories}
+            auditLogs={auditLogs}
+            user={user}
+            enquiries={visibleEnquiries} // Pass enquiries list to EnquiryDetail so it can show linked revisions!
+            setEnquiries={setEnquiries}
+            onUpdateEnquiry={(updated) =>
+              setEnquiries((prev) =>
+                prev.map((e) => (e.id === updated.id ? normalizeEnquiry(updated, activeWorkspace.id) : e))
+              )
+            }
+            onClose={() => setSelectedEnquiryId(null)}
+            onNavigateToProject={handleNavigateToProject}
+            onDeleteEnquiry={handleDeleteEnquiry}
+            onEditEnquiry={(enq) => {
+              setEnquiryToEdit(enq);
+              setShowEnquiryForm(true);
+            }}
+            onOpenActivityDrawer={(context) => {
+              setActivityDrawerContext(context);
+              setIsActivityDrawerOpen(true);
+            }}
+            onInitiateActivity={initiateActivity}
+            onStockUpdated={refreshProducts}
+            triggerToast={triggerToast}
+            autoOpenStudio={Boolean(selectedEnquiry.id && selectedEnquiry.id === autoOpenStudioForEnquiryId)}
+            onAutoOpenStudioConsumed={() => setAutoOpenStudioForEnquiryId(null)}
+          />
+        </Suspense>
       )}
 
       {/* 360° Company View Modal */}
       {selected360CompanyId && (
-        <Company360Modal
-          companyId={selected360CompanyId}
-          companies={workspaceCompanies}
-          setCompanies={setCompanies}
-          contacts={workspaceContacts}
-          salespersons={workspaceSalespersons}
-          enquiries={workspaceEnquiries}
-          callLogs={workspaceCallLogs}
-          user={user}
-          activeWorkspace={activeWorkspace}
-          onClose={() => setSelected360CompanyId(null)}
-          onOpenActivityDrawer={(context) => {
-            setActivityDrawerContext(context);
-            setIsActivityDrawerOpen(true);
-          }}
-          onInitiateActivity={initiateActivity}
-          onOpenEnquiry={(enquiryId) => setSelectedEnquiryId(enquiryId)}
-          onEditCompany={handleEditCompanyFrom360}
-          onLaunchProcurement={handleLaunchProcurement}
-        />
+        <Suspense fallback={<ModalLoadingFallback />}>
+          <Company360Modal
+            companyId={selected360CompanyId}
+            companies={workspaceCompanies}
+            setCompanies={setCompanies}
+            contacts={workspaceContacts}
+            salespersons={workspaceSalespersons}
+            enquiries={workspaceEnquiries}
+            callLogs={workspaceCallLogs}
+            user={user}
+            activeWorkspace={activeWorkspace}
+            onClose={() => setSelected360CompanyId(null)}
+            onOpenActivityDrawer={(context) => {
+              setActivityDrawerContext(context);
+              setIsActivityDrawerOpen(true);
+            }}
+            onInitiateActivity={initiateActivity}
+            onOpenEnquiry={(enquiryId) => setSelectedEnquiryId(enquiryId)}
+            onEditCompany={handleEditCompanyFrom360}
+            onLaunchProcurement={handleLaunchProcurement}
+          />
+        </Suspense>
       )}
 
       {/* Full form entry for Add/Edit Enquiry */}
       {showEnquiryForm && (
-        <EnquiryForm
-          enquiries={workspaceEnquiries}
-          companies={workspaceCompanies}
-          contacts={workspaceContacts}
-          salespersons={workspaceSalespersons}
-          products={workspaceProducts}
-          setProducts={setProducts}
-          enquirySources={enquirySources.map(s => s.name)}
-          productCategories={workspaceProductCategories.map(c => c.name)}
-          units={units.map(u => u.name)}
-          enquiryToEdit={enquiryToEdit}
-          onClose={() => setShowEnquiryForm(false)}
-          onSaveAndOpenStudio={(savedEnq) => {
-            setShowEnquiryForm(false);
-            if (savedEnq?.id) {
-              setSelectedEnquiryId(savedEnq.id);
-              setAutoOpenStudioForEnquiryId(savedEnq.id);
-            }
-          }}
-          user={user}
-          nextSn={nextSn}
-          triggerToast={triggerToast}
-          setEnquiries={setEnquiries}
-          setCompanies={setCompanies}
-          setContacts={setContacts}
-          setAuditLogs={setAuditLogs}
-          setProductCategories={setProductCategories}
-          setEnquirySources={setEnquirySources}
-          setUnits={setUnits}
-          setSalespersons={setSalespersons}
-          activeWorkspace={activeWorkspace}
-          allowUserSalespersonSelection={allowUserSalespersonSelection}
-        />
+        <Suspense fallback={<ModalLoadingFallback />}>
+          <EnquiryForm
+            enquiries={workspaceEnquiries}
+            companies={workspaceCompanies}
+            contacts={workspaceContacts}
+            salespersons={workspaceSalespersons}
+            products={workspaceProducts}
+            setProducts={setProducts}
+            enquirySources={enquirySources.map(s => s.name)}
+            productCategories={workspaceProductCategories.map(c => c.name)}
+            units={units.map(u => u.name)}
+            enquiryToEdit={enquiryToEdit}
+            onClose={() => setShowEnquiryForm(false)}
+            onSaveAndOpenStudio={(savedEnq) => {
+              setShowEnquiryForm(false);
+              if (savedEnq?.id) {
+                setSelectedEnquiryId(savedEnq.id);
+                setAutoOpenStudioForEnquiryId(savedEnq.id);
+              }
+            }}
+            user={user}
+            nextSn={nextSn}
+            triggerToast={triggerToast}
+            setEnquiries={setEnquiries}
+            setCompanies={setCompanies}
+            setContacts={setContacts}
+            setAuditLogs={setAuditLogs}
+            setProductCategories={setProductCategories}
+            setEnquirySources={setEnquirySources}
+            setUnits={setUnits}
+            setSalespersons={setSalespersons}
+            activeWorkspace={activeWorkspace}
+            allowUserSalespersonSelection={allowUserSalespersonSelection}
+          />
+        </Suspense>
       )}
 
       {/* Workspace Manager Modal */}
@@ -2768,107 +2785,115 @@ export default function App() {
       )}
 
       {/* Recycle Bin & Data Recovery Modal */}
-      <TrashBinModal
-        isOpen={showTrashBinModal}
-        onClose={() => setShowTrashBinModal(false)}
-        currentUser={user}
-        enquiries={enquiries}
-        companies={companies}
-        contacts={contacts}
-        products={products}
-        callLogs={callLogs}
-        projects={projects}
-        setProjects={setProjects}
-        setEnquiries={setEnquiries}
-        activeWorkspaceId={activeWorkspace?.id}
-        activeWorkspace={activeWorkspace}
-        triggerToast={triggerToast}
-        onRefreshData={async () => {
-          // Re-sync local cache repositories
-          try {
-            const [localEnqs, localComps, localCts, localProds, localLogs] = await Promise.all([
-              EnquiryRepository.getAllLocal(),
-              CompanyRepository.getCompaniesLocal(),
-              CompanyRepository.getContactsLocal(),
-              MetadataRepository.fetchProductsOnce(),
-              CallLogRepository.getAllLocal()
-            ]);
-            setEnquiries(localEnqs);
-            setCompanies(localComps);
-            setContacts(localCts);
-            setProducts(localProds);
-            setCallLogs(localLogs);
-          } catch (e) {
-            console.warn('Refresh data failed:', e);
-          }
-        }}
-      />
+      {showTrashBinModal && (
+        <Suspense fallback={<ModalLoadingFallback />}>
+          <TrashBinModal
+            isOpen={showTrashBinModal}
+            onClose={() => setShowTrashBinModal(false)}
+            currentUser={user}
+            enquiries={enquiries}
+            companies={companies}
+            contacts={contacts}
+            products={products}
+            callLogs={callLogs}
+            projects={projects}
+            setProjects={setProjects}
+            setEnquiries={setEnquiries}
+            activeWorkspaceId={activeWorkspace?.id}
+            activeWorkspace={activeWorkspace}
+            triggerToast={triggerToast}
+            onRefreshData={async () => {
+              // Re-sync local cache repositories
+              try {
+                const [localEnqs, localComps, localCts, localProds, localLogs] = await Promise.all([
+                  EnquiryRepository.getAllLocal(),
+                  CompanyRepository.getCompaniesLocal(),
+                  CompanyRepository.getContactsLocal(),
+                  MetadataRepository.fetchProductsOnce(),
+                  CallLogRepository.getAllLocal()
+                ]);
+                setEnquiries(localEnqs);
+                setCompanies(localComps);
+                setContacts(localCts);
+                setProducts(localProds);
+                setCallLogs(localLogs);
+              } catch (e) {
+                console.warn('Refresh data failed:', e);
+              }
+            }}
+          />
+        </Suspense>
+      )}
 
       {/* Quick Activity Drawer */}
-      <QuickActivityDrawer
-        isOpen={isActivityDrawerOpen}
-        onClose={() => setIsActivityDrawerOpen(false)}
-        drawerMode={activityDrawerContext.drawerMode || (activityDrawerContext.existingLog || activityDrawerContext.logToEdit ? 'edit' : undefined)}
-        existingLog={activityDrawerContext.existingLog || activityDrawerContext.logToEdit}
-        logToEdit={activityDrawerContext.logToEdit || activityDrawerContext.existingLog}
-        targetTaskId={activityDrawerContext.targetTaskId}
-        targetCompanyId={activityDrawerContext.targetCompanyId}
-        initialTaskId={activityDrawerContext.initialTaskId || activityDrawerContext.targetTaskId}
-        companyId={activityDrawerContext.companyId}
-        companyName={activityDrawerContext.companyName}
-        contactId={activityDrawerContext.contactId}
-        contactName={activityDrawerContext.contactName}
-        contactPhone={activityDrawerContext.contactPhone}
-        contactEmail={activityDrawerContext.contactEmail}
-        targetType={activityDrawerContext.targetType}
-        enquiryId={activityDrawerContext.enquiryId}
-        initialChannel={activityDrawerContext.channel}
-        initialStatus={activityDrawerContext.initialStatus}
-        defaultOutcome={activityDrawerContext.defaultOutcome}
-        messageType={activityDrawerContext.messageType}
-        initialIsInternalOps={activityDrawerContext.initialIsInternalOps}
-        hasActiveParentModal={Boolean(activityDrawerContext.companyId || selected360CompanyId)}
-        activeWorkspaceId={activeWorkspace.id}
-        currentSalespersonId={currentSalespersonId}
-        currentUserInitials={currentUserInitials}
-        user={user}
-        currentUserUid={user?.uid}
-        currentUserName={user?.full_name || user?.username || user?.email}
-        companies={visibleCompanies}
-        contacts={contacts}
-        salespersons={workspaceSalespersons}
-        enquiries={visibleEnquiries}
-        setCompanies={setCompanies}
-        setContacts={setContacts}
-        setCallLogs={setCallLogs}
-        callStatuses={callStatuses}
-        callOutcomes={callOutcomes}
-        callPurposes={callPurposes}
-        onOpen360={(companyId) => setSelected360CompanyId(companyId)}
-        onInspectCompany={(companyId) => setSelected360CompanyId(companyId)}
-        onSave={(savedLog) => {
-          setCallLogs((prev) => {
-            const exists = prev.some((l) => l.id === savedLog.id);
-            if (exists) {
-              return prev.map((l) => (l.id === savedLog.id ? { ...l, ...savedLog } : l));
-            }
-            return [savedLog, ...prev];
-          });
-        }}
-        onUpdate={(updatedLog) => {
-          setCallLogs((prev) => {
-            const exists = prev.some((l) => l.id === updatedLog.id);
-            if (exists) {
-              return prev.map((l) => (l.id === updatedLog.id ? { ...l, ...updatedLog } : l));
-            }
-            return [updatedLog, ...prev];
-          });
-        }}
-        onSaveSuccess={() => {
-          setIsActivityDrawerOpen(false);
-          triggerToast('Activity logged successfully!', 'success');
-        }}
-      />
+      {isActivityDrawerOpen && (
+        <Suspense fallback={<ModalLoadingFallback />}>
+          <QuickActivityDrawer
+            isOpen={isActivityDrawerOpen}
+            onClose={() => setIsActivityDrawerOpen(false)}
+            drawerMode={activityDrawerContext.drawerMode || (activityDrawerContext.existingLog || activityDrawerContext.logToEdit ? 'edit' : undefined)}
+            existingLog={activityDrawerContext.existingLog || activityDrawerContext.logToEdit}
+            logToEdit={activityDrawerContext.logToEdit || activityDrawerContext.existingLog}
+            targetTaskId={activityDrawerContext.targetTaskId}
+            targetCompanyId={activityDrawerContext.targetCompanyId}
+            initialTaskId={activityDrawerContext.initialTaskId || activityDrawerContext.targetTaskId}
+            companyId={activityDrawerContext.companyId}
+            companyName={activityDrawerContext.companyName}
+            contactId={activityDrawerContext.contactId}
+            contactName={activityDrawerContext.contactName}
+            contactPhone={activityDrawerContext.contactPhone}
+            contactEmail={activityDrawerContext.contactEmail}
+            targetType={activityDrawerContext.targetType}
+            enquiryId={activityDrawerContext.enquiryId}
+            initialChannel={activityDrawerContext.channel}
+            initialStatus={activityDrawerContext.initialStatus}
+            defaultOutcome={activityDrawerContext.defaultOutcome}
+            messageType={activityDrawerContext.messageType}
+            initialIsInternalOps={activityDrawerContext.initialIsInternalOps}
+            hasActiveParentModal={Boolean(activityDrawerContext.companyId || selected360CompanyId)}
+            activeWorkspaceId={activeWorkspace.id}
+            currentSalespersonId={currentSalespersonId}
+            currentUserInitials={currentUserInitials}
+            user={user}
+            currentUserUid={user?.uid}
+            currentUserName={user?.full_name || user?.username || user?.email}
+            companies={visibleCompanies}
+            contacts={contacts}
+            salespersons={workspaceSalespersons}
+            enquiries={visibleEnquiries}
+            setCompanies={setCompanies}
+            setContacts={setContacts}
+            setCallLogs={setCallLogs}
+            callStatuses={callStatuses}
+            callOutcomes={callOutcomes}
+            callPurposes={callPurposes}
+            onOpen360={(companyId) => setSelected360CompanyId(companyId)}
+            onInspectCompany={(companyId) => setSelected360CompanyId(companyId)}
+            onSave={(savedLog) => {
+              setCallLogs((prev) => {
+                const exists = prev.some((l) => l.id === savedLog.id);
+                if (exists) {
+                  return prev.map((l) => (l.id === savedLog.id ? { ...l, ...savedLog } : l));
+                }
+                return [savedLog, ...prev];
+              });
+            }}
+            onUpdate={(updatedLog) => {
+              setCallLogs((prev) => {
+                const exists = prev.some((l) => l.id === updatedLog.id);
+                if (exists) {
+                  return prev.map((l) => (l.id === updatedLog.id ? { ...l, ...updatedLog } : l));
+                }
+                return [updatedLog, ...prev];
+              });
+            }}
+            onSaveSuccess={() => {
+              setIsActivityDrawerOpen(false);
+              triggerToast('Activity logged successfully!', 'success');
+            }}
+          />
+        </Suspense>
+      )}
 
       {/* Fresh Account Onboarding Wizard */}
       {user && (
@@ -2898,11 +2923,15 @@ export default function App() {
       )}
 
       {/* Super Admin God Mode Database Studio Console */}
-      <SuperAdminConsoleModal
-        isOpen={isSuperAdminConsoleOpen}
-        onClose={() => setIsSuperAdminConsoleOpen(false)}
-        workspaces={workspaces}
-      />
+      {isSuperAdminConsoleOpen && (
+        <Suspense fallback={<ModalLoadingFallback />}>
+          <SuperAdminConsoleModal
+            isOpen={isSuperAdminConsoleOpen}
+            onClose={() => setIsSuperAdminConsoleOpen(false)}
+            workspaces={workspaces}
+          />
+        </Suspense>
+      )}
 
       {/* Universal Global Company Edit Modal */}
       {user && (

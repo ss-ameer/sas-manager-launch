@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, Suspense } from 'react';
+import { lazyWithRetry, ModalLoadingFallback } from '../utils/lazyWithRetry';
 import {
   Product,
   ProductType,
@@ -115,7 +116,7 @@ import {
   extractCatalogProductsWithAI,
   prepareCatalogFileForAiExtraction
 } from '../utils/aiExtractionClient';
-import AICatalogImporterModal from './AICatalogImporterModal';
+const AICatalogImporterModal = lazyWithRetry(() => import('./AICatalogImporterModal'));
 import { canManageWorkspace, isAdmin } from '../utils/permissions';
 
 const UNIVERSAL_QUICK_ATTRIBUTES = [
@@ -7279,31 +7280,35 @@ export default function ProductManager({
         )}
 
         {/* AI Bulk Catalog & Product Importer Modal */}
-        <AICatalogImporterModal
-          isOpen={showAiCatalogModal}
-          onClose={() => setShowAiCatalogModal(false)}
-          products={products}
-          setProducts={setProducts}
-          productCategories={productCategories}
-          setProductCategories={setProductCategories}
-          units={units}
-          activeWorkspace={activeWorkspace}
-          onUpdateWorkspaceGuidelines={(newGuidelines) => {
-            setWorkspaceCatalogGuidelines(newGuidelines);
-            if (setWorkspaces && activeWorkspace?.id) {
-              setWorkspaces((prev) =>
-                prev.map((w) =>
-                  w.id === activeWorkspace.id
-                    ? { ...w, catalog_ai_guidelines: newGuidelines }
-                    : w
-                )
-              );
-            }
-          }}
-          triggerToast={triggerToast}
-          initialExtractedItems={aiModalInitialItems}
-          initialCurrency={aiModalInitialCurrency}
-        />
+        {showAiCatalogModal && (
+          <Suspense fallback={<ModalLoadingFallback />}>
+            <AICatalogImporterModal
+              isOpen={showAiCatalogModal}
+              onClose={() => setShowAiCatalogModal(false)}
+              products={products}
+              setProducts={setProducts}
+              productCategories={productCategories}
+              setProductCategories={setProductCategories}
+              units={units}
+              activeWorkspace={activeWorkspace}
+              onUpdateWorkspaceGuidelines={(newGuidelines) => {
+                setWorkspaceCatalogGuidelines(newGuidelines);
+                if (setWorkspaces && activeWorkspace?.id) {
+                  setWorkspaces((prev) =>
+                    prev.map((w) =>
+                      w.id === activeWorkspace.id
+                        ? { ...w, catalog_ai_guidelines: newGuidelines }
+                        : w
+                    )
+                  );
+                }
+              }}
+              triggerToast={triggerToast}
+              initialExtractedItems={aiModalInitialItems}
+              initialCurrency={aiModalInitialCurrency}
+            />
+          </Suspense>
+        )}
       </PageBody>
     </div>
   );

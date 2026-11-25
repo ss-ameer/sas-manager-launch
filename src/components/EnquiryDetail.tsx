@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, Suspense } from 'react';
 import { createPortal } from 'react-dom';
+import { lazyWithRetry, ModalLoadingFallback } from '../utils/lazyWithRetry';
 import { Z_DRAWER, Z_NESTED_MODAL, Z_BLOCKING_DIALOG } from '../constants/zIndex';
 import { Enquiry, Company, Contact, AuditLog, UserProfile, Salesperson, Workspace, Attachment, Project, ProjectMilestone, Product, LineItem, QuotationLineItem, DropdownOption, ENQUIRY_STATUS_OPTIONS, normalizeEnquiryStatus, resolveSalespersonIdentifier, resolveSalespersonName, normalizeEnquirySource, PIPELINE_STATUS_GROUPS } from '../types';
 import { sanitizeAuditPayload } from '../utils/sanitizeAuditLog';
@@ -39,12 +40,10 @@ import { ActivityLogRepository } from '../services/repositories/CallLogRepositor
 import { QuotationRepository } from '../services/repositories/QuotationRepository';
 import { ProcurementRepository } from '../services/repositories/ProcurementRepository';
 import { Quotation, WorkspaceDocumentProfile, CommercialDocumentType, SupplierBill, QuotationTaxMode } from '../types';
-import { QuotationStudioModal } from './quotations/QuotationStudioModal';
-import { QuotationDocument } from './quotations/QuotationDocument';
 import { resolvePdfFilename } from '../utils/quotationTokenResolver';
 import EnquiryCollaboratorsModal from './EnquiryCollaboratorsModal';
 import { CreateCompanyModal } from './companies/CreateCompanyModal';
-import SaveToCatalogModal, {
+import {
   parseLineItemTitleAndSpec,
   hasCatalogDrift,
   syncLineItemToCatalogProduct,
@@ -58,6 +57,14 @@ import SaveToCatalogModal, {
   deriveSuggestedVariantLabel,
   rehydrateLineItemsFromCatalog
 } from './SaveToCatalogModal';
+
+const QuotationStudioModal = lazyWithRetry(() =>
+  import('./quotations/QuotationStudioModal').then((m) => ({ default: m.QuotationStudioModal }))
+);
+const QuotationDocument = lazyWithRetry(() =>
+  import('./quotations/QuotationDocument').then((m) => ({ default: m.QuotationDocument }))
+);
+const SaveToCatalogModal = lazyWithRetry(() => import('./SaveToCatalogModal'));
 import CompositePackageEditor from './quotations/CompositePackageEditor';
 import { cloneLineItemToNextOption, recalculateCompositeItemTotals, isOptionActiveForInventoryAndBaseline } from '../utils/compositeBomUtils';
 import LineItemImageOptionsPopover from './common/LineItemImageOptionsPopover';
@@ -9932,7 +9939,8 @@ export default function EnquiryDetail({
         const spName = studioSpName;
 
         return (
-          <QuotationStudioModal
+          <Suspense fallback={<ModalLoadingFallback />}>
+            <QuotationStudioModal
             isOpen={isQuotationStudioOpen}
             onClose={() => {
               setIsQuotationStudioOpen(false);
@@ -10114,6 +10122,7 @@ export default function EnquiryDetail({
             }}
             triggerToast={triggerToast}
           />
+          </Suspense>
         );
       })()}
 
@@ -10524,28 +10533,30 @@ export default function EnquiryDetail({
             </header>
             <div className="flex-1 overflow-auto p-4 flex justify-center">
               <div className="w-full max-w-[210mm] shadow-xl">
-                <QuotationDocument
-                  quotation={viewingQuotation}
-                  profile={documentProfile}
-                  user={user}
-                  enquiry={currentEnquiry}
-                  salesRepName={currentEnquiry.assigned_salesperson || resolveSalespersonName(currentEnquiry)}
-                  layoutBlocks={viewingQuotation.layout_blocks}
-                  bankAccount={
-                    viewingQuotation.selectedBank ||
-                    viewingQuotation.selected_bank ||
-                    viewingQuotation.applied_bank_account ||
-                    documentProfile?.bank_accounts?.find(
-                      (b) =>
-                        b.id === (viewingQuotation.remittanceBankId || viewingQuotation.remittance_bank_id) ||
-                        b.is_default
-                    ) ||
-                    documentProfile?.bank_accounts?.[0]
-                  }
-                  salespersons={salespersons}
-                  signatoryName={viewingQuotation.primary_signatory_name}
-                  signatoryTitle={viewingQuotation.primary_signatory_title}
-                />
+                <Suspense fallback={<ModalLoadingFallback />}>
+                  <QuotationDocument
+                    quotation={viewingQuotation}
+                    profile={documentProfile}
+                    user={user}
+                    enquiry={currentEnquiry}
+                    salesRepName={currentEnquiry.assigned_salesperson || resolveSalespersonName(currentEnquiry)}
+                    layoutBlocks={viewingQuotation.layout_blocks}
+                    bankAccount={
+                      viewingQuotation.selectedBank ||
+                      viewingQuotation.selected_bank ||
+                      viewingQuotation.applied_bank_account ||
+                      documentProfile?.bank_accounts?.find(
+                        (b) =>
+                          b.id === (viewingQuotation.remittanceBankId || viewingQuotation.remittance_bank_id) ||
+                          b.is_default
+                      ) ||
+                      documentProfile?.bank_accounts?.[0]
+                    }
+                    salespersons={salespersons}
+                    signatoryName={viewingQuotation.primary_signatory_name}
+                    signatoryTitle={viewingQuotation.primary_signatory_title}
+                  />
+                </Suspense>
               </div>
             </div>
           </div>
@@ -10556,38 +10567,40 @@ export default function EnquiryDetail({
       {/* Dedicated Root-Level Print Portal for Saved Quotations */}
       {viewingQuotation && typeof document !== 'undefined' && createPortal(
         <div id="quotation-print-portal" className="hidden print:block">
-          <QuotationDocument
-            quotation={viewingQuotation}
-            profile={documentProfile}
-            isCompactView={(viewingQuotation as any).presentation_preset?.density === 'compact' || viewingQuotation.table_density === 'compact'}
-            visibleColumns={(viewingQuotation as any).presentation_preset?.columns || viewingQuotation.visible_columns}
-            layoutBlocks={viewingQuotation.layout_blocks}
-            bankAccount={
-              viewingQuotation.selectedBank ||
-              viewingQuotation.selected_bank ||
-              viewingQuotation.applied_bank_account ||
-              documentProfile?.bank_accounts?.find(
-                (b) =>
-                  b.id === (viewingQuotation.remittanceBankId || viewingQuotation.remittance_bank_id) ||
-                  b.is_default
-              ) ||
-              documentProfile?.bank_accounts?.[0]
-            }
-            salespersons={salespersons}
-            salesRepName={currentEnquiry.assigned_salesperson || resolveSalespersonName(currentEnquiry)}
-            user={user}
-            signatoryName={viewingQuotation.primary_signatory_name}
-            signatoryTitle={viewingQuotation.primary_signatory_title}
-            showStampAndSignatures={true}
-            showBankDetails={true}
-            {...({
-              enquiry: currentEnquiry,
-              templatePreset: (viewingQuotation as any).presentation_preset?.theme || 'classic',
-              isPrintMode: true,
-              primarySignatoryName: viewingQuotation.primary_signatory_name,
-              primarySignatoryTitle: viewingQuotation.primary_signatory_title
-            } as any)}
-          />
+          <Suspense fallback={null}>
+            <QuotationDocument
+              quotation={viewingQuotation}
+              profile={documentProfile}
+              isCompactView={(viewingQuotation as any).presentation_preset?.density === 'compact' || viewingQuotation.table_density === 'compact'}
+              visibleColumns={(viewingQuotation as any).presentation_preset?.columns || viewingQuotation.visible_columns}
+              layoutBlocks={viewingQuotation.layout_blocks}
+              bankAccount={
+                viewingQuotation.selectedBank ||
+                viewingQuotation.selected_bank ||
+                viewingQuotation.applied_bank_account ||
+                documentProfile?.bank_accounts?.find(
+                  (b) =>
+                    b.id === (viewingQuotation.remittanceBankId || viewingQuotation.remittance_bank_id) ||
+                    b.is_default
+                ) ||
+                documentProfile?.bank_accounts?.[0]
+              }
+              salespersons={salespersons}
+              salesRepName={currentEnquiry.assigned_salesperson || resolveSalespersonName(currentEnquiry)}
+              user={user}
+              signatoryName={viewingQuotation.primary_signatory_name}
+              signatoryTitle={viewingQuotation.primary_signatory_title}
+              showStampAndSignatures={true}
+              showBankDetails={true}
+              {...({
+                enquiry: currentEnquiry,
+                templatePreset: (viewingQuotation as any).presentation_preset?.theme || 'classic',
+                isPrintMode: true,
+                primarySignatoryName: viewingQuotation.primary_signatory_name,
+                primarySignatoryTitle: viewingQuotation.primary_signatory_title
+              } as any)}
+            />
+          </Suspense>
         </div>,
         document.body
       )}
@@ -10766,7 +10779,9 @@ export default function EnquiryDetail({
       />
 
       {/* Save Custom Line Item to Products Catalog Modal */}
-      <SaveToCatalogModal
+      {saveToCatalogState.isOpen && (
+        <Suspense fallback={<ModalLoadingFallback />}>
+          <SaveToCatalogModal
         isOpen={saveToCatalogState.isOpen}
         onClose={() => setSaveToCatalogState({ isOpen: false, item: null, itemIndex: -1, isFromDraft: false })}
         lineItem={saveToCatalogState.item}
@@ -10849,6 +10864,8 @@ export default function EnquiryDetail({
           });
         }}
       />
+        </Suspense>
+      )}
 
       {lightboxItemState && (
         <ImageLightboxModal

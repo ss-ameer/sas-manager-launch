@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, Suspense } from 'react';
+import { lazyWithRetry, ModalLoadingFallback } from '../utils/lazyWithRetry';
 import {
   Company,
   Enquiry,
@@ -25,7 +26,9 @@ import { PageHeader, PageBody, KpiStatCard } from './layout/UiContainer';
 import HoverScrollText from './common/HoverScrollText';
 import { FieldLabel } from './common/FieldHelpHint';
 import { formatProductVariantSelectorLabel } from '../utils/productVariantFormat';
-import { QuotationStudioModal } from './quotations/QuotationStudioModal';
+const QuotationStudioModal = lazyWithRetry(() =>
+  import('./quotations/QuotationStudioModal').then((m) => ({ default: m.QuotationStudioModal }))
+);
 import {
   ShoppingBag,
   PackageCheck,
@@ -6277,34 +6280,36 @@ export default function ProcurementPayablesHub({
 
       {/* A4 QUOTATION / COMMERCIAL DOCUMENT STUDIO MODAL */}
       {studioOpen && studioEnquiry && (
-        <QuotationStudioModal
-          isOpen={studioOpen}
-          onClose={() => {
-            setStudioOpen(false);
-            setStudioQuotation(null);
-          }}
-          enquiry={studioEnquiry}
-          activeWorkspace={activeWorkspace}
-          activeWorkspaceId={activeWorkspace.id}
-          salespersonName={user.full_name || user.username || user.email || 'Procurement'}
-          user={user}
-          editingQuotation={studioQuotation as any}
-          existingQuotation={studioQuotation as any}
-          products={products}
-          setProducts={setProducts}
-          companies={companies}
-          supplierBills={supplierBills}
-          triggerToast={triggerToast}
-          onQuotationCreated={(savedDoc) => {
-            setStudioQuotation(savedDoc as any);
-            triggerToast?.(`${savedDoc.formatted_quote_ref} saved.`, 'success');
-          }}
-          onSaved={(savedDoc) => {
-            setStudioQuotation(savedDoc as any);
-            triggerToast?.(`${savedDoc.formatted_quote_ref} saved.`, 'success');
-          }}
-          onStockUpdated={async () => {}}
-        />
+        <Suspense fallback={<ModalLoadingFallback />}>
+          <QuotationStudioModal
+            isOpen={studioOpen}
+            onClose={() => {
+              setStudioOpen(false);
+              setStudioQuotation(null);
+            }}
+            enquiry={studioEnquiry}
+            activeWorkspace={activeWorkspace}
+            activeWorkspaceId={activeWorkspace.id}
+            salespersonName={user.full_name || user.username || user.email || 'Procurement'}
+            user={user}
+            editingQuotation={studioQuotation as any}
+            existingQuotation={studioQuotation as any}
+            products={products}
+            setProducts={setProducts}
+            companies={companies}
+            supplierBills={supplierBills}
+            triggerToast={triggerToast}
+            onQuotationCreated={(savedDoc) => {
+              setStudioQuotation(savedDoc as any);
+              triggerToast?.(`${savedDoc.formatted_quote_ref} saved.`, 'success');
+            }}
+            onSaved={(savedDoc) => {
+              setStudioQuotation(savedDoc as any);
+              triggerToast?.(`${savedDoc.formatted_quote_ref} saved.`, 'success');
+            }}
+            onStockUpdated={async () => {}}
+          />
+        </Suspense>
       )}
       {/* UX-H5: Custom Delete Confirmation Modal for Supplier POs, Bills, and Vouchers */}
       {deleteConfirmTarget && (
