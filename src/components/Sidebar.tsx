@@ -3,6 +3,7 @@ import { UserProfile, Workspace, WORKSPACE_STORAGE_KEY } from '../types';
 import { auth } from '../firebase';
 import { signOut } from 'firebase/auth';
 import { BRAND_CONFIG } from '../config';
+import { Z_SIDEBAR } from '../constants/zIndex';
 import { getEffectiveWorkspaceRole, isSuperAdmin, isUserInWorkspace, getUserProfileBadge } from '../utils/permissions';
 import {
   LayoutDashboard,
@@ -300,7 +301,7 @@ export default function Sidebar({
       {isOpen && (
         <div
           id="mobile-sidebar-backdrop"
-          className="md:hidden fixed inset-0 z-[200] bg-slate-900/80 backdrop-blur-sm flex"
+          className={`md:hidden fixed inset-0 ${Z_SIDEBAR} bg-slate-900/80 backdrop-blur-sm flex`}
           onClick={onClose}
         >
           <aside

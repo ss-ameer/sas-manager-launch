@@ -75,6 +75,7 @@ import {
 import HoverScrollText from './common/HoverScrollText';
 import { PageHeader, PageBody, KpiStatCard } from './layout/UiContainer';
 import {
+  filterActiveCatalogProducts,
   getProductStockOnHand,
   getProductAvailableStock,
   getProductReorderLevel,
@@ -437,7 +438,7 @@ export default function ProductManager({
   }, [products, formProductType, formAttributes]);
 
   const activeCatalogProducts = useMemo(() => {
-    return products.filter((p) => !p.is_deleted);
+    return filterActiveCatalogProducts(products);
   }, [products]);
 
   const variantAnalysisMap = useMemo(() => {

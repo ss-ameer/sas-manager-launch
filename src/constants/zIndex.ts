@@ -9,6 +9,9 @@
 /** Sticky table headers, section toolbars, and inline dropdown backdrops */
 export const Z_STICKY = 'z-30';
 
+/** Mobile navigation off-canvas sidebar drawer — strictly above page headers/sticky toolbars (z-10..z-30) and strictly below drawers/modals (z-[60]+) and toasts (z-[200]) */
+export const Z_SIDEBAR = 'z-50';
+
 /** Primary detail drawers & top-level modals (EnquiryDetail, Company360Modal, TrashBinModal) */
 export const Z_DRAWER = 'z-[60]';
 

@@ -6,12 +6,19 @@
  */
 
 import {
+  isCatalogProductActive,
+  filterActiveCatalogProducts,
   getProductStockOnHand,
   getProductAvailableStock,
   getProductReorderLevel,
   isProductLowStock,
   InventoryProductLike
 } from '../utils/inventoryMetrics';
+import {
+  buildCatalogVariantAnalysisMap,
+  countCatalogVariantFamilies
+} from '../utils/productVariantFormat';
+import { Product } from '../types';
 
 interface TestResult {
   name: string;
@@ -117,6 +124,54 @@ it('supports legacy stock_quantity, current_stock, and min_stock_level fallbacks
   assertEqual(getProductStockOnHand(primaryOverridesLegacy), 20, 'stock_on_hand takes precedence');
   assertEqual(getProductReorderLevel(primaryOverridesLegacy), 5, 'reorder_level takes precedence');
   assertEqual(isProductLowStock(primaryOverridesLegacy), false, 'primary fields determine healthy status');
+});
+
+it('filters out both is_deleted and legacy deleted products canonically', () => {
+  const sample: InventoryProductLike[] = [
+    { id: 'p1', name: 'Active Valve', stock_on_hand: 10 },
+    { id: 'p2', name: 'Soft Deleted (is_deleted)', is_deleted: true, stock_on_hand: 5 },
+    { id: 'p3', name: 'Legacy Soft Deleted (deleted)', deleted: true, stock_on_hand: 8 },
+    { id: 'p4', name: 'Explicit Active', is_deleted: false, deleted: false, stock_on_hand: 2 }
+  ];
+  assertEqual(isCatalogProductActive(sample[0]), true, 'p1 active');
+  assertEqual(isCatalogProductActive(sample[1]), false, 'p2 inactive (is_deleted)');
+  assertEqual(isCatalogProductActive(sample[2]), false, 'p3 inactive (legacy deleted)');
+  assertEqual(isCatalogProductActive(sample[3]), true, 'p4 active');
+
+  const active = filterActiveCatalogProducts(sample);
+  assertEqual(active.length, 2, 'only 2 active products remain');
+  assertEqual(active[0].id, 'p1', 'first active id');
+  assertEqual(active[1].id, 'p4', 'second active id');
+});
+
+it('matches variant family count 1:1 between countCatalogVariantFamilies and buildCatalogVariantAnalysisMap', () => {
+  const catalog = [
+    // Family 1: two siblings sharing explicit product_family
+    { id: 'fam1-a', name: 'Disk Diffuser 9in', product_family: 'Disk Diffuser', product_type: 'Diffuser' },
+    { id: 'fam1-b', name: 'Disk Diffuser 12in', product_family: 'Disk Diffuser', product_type: 'Diffuser' },
+    // Family 2: parent + linked child via variant_parent_id
+    { id: 'fam2-parent', name: 'Sand Filter Base', product_type: 'Filter' },
+    { id: 'fam2-child', name: 'Sand Filter FRP 24in', variant_parent_id: 'fam2-parent', product_type: 'Filter' },
+    // Singleton (should NOT count as a variant family)
+    { id: 'solo-1', name: 'Standalone Pressure Gauge', product_type: 'Instrument' },
+    // Family whose second sibling is legacy soft-deleted (only 1 active sibling left -> NOT a variant family)
+    { id: 'fam3-a', name: 'Dosing Pump', product_type: 'Pump' },
+    { id: 'fam3-b', name: 'Dosing Pump', product_type: 'Pump', deleted: true } as any,
+    // Family whose second sibling is is_deleted (only 1 active sibling left -> NOT a variant family)
+    { id: 'fam4-a', name: 'Cartridge Filter', product_type: 'Filter' },
+    { id: 'fam4-b', name: 'Cartridge Filter', product_type: 'Filter', is_deleted: true }
+  ] as Product[];
+
+  const dashboardCount = countCatalogVariantFamilies(catalog);
+  const analysisMap = buildCatalogVariantAnalysisMap(catalog);
+  const productManagerFamilies = new Set<string>();
+  analysisMap.forEach((info) => {
+    if (info.isVariant) productManagerFamilies.add(info.familyKey);
+  });
+
+  assertEqual(dashboardCount, 2, 'countCatalogVariantFamilies returns 2 active families');
+  assertEqual(productManagerFamilies.size, 2, 'ProductManager variantFamilyCount returns 2 active families');
+  assertEqual(dashboardCount, productManagerFamilies.size, '100% Dashboard <-> Catalog parity');
 });
 
 const passed = results.filter((r) => r.passed).length;

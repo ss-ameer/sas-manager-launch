@@ -1,4 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
+import { Z_BLOCKING_DIALOG, Z_TOAST } from '../constants/zIndex';
 import { sanitizeAuditPayload } from '../utils/sanitizeAuditLog';
 import { useActivityLauncher, InitiateActivityOptions } from '../context/ActivityLauncherContext';
 import { CustomLabelSelect, PHONE_LABEL_DEFAULT_OPTIONS, EMAIL_LABEL_DEFAULT_OPTIONS } from './CustomLabelSelect';
@@ -3908,8 +3910,8 @@ export default function CompanyModal({
       />
 
       {/* Delete Contact Confirmation Modal */}
-      {contactToDeleteConfirm && (
-        <div className="fixed inset-0 z-[130] flex items-center justify-center p-2 sm:p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-150">
+      {contactToDeleteConfirm && typeof document !== 'undefined' && createPortal(
+        <div className={`fixed inset-0 ${Z_BLOCKING_DIALOG} flex items-center justify-center p-2 sm:p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-150`}>
           <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full border border-slate-200 dark:border-slate-800 shadow-2xl p-4 sm:p-6 space-y-4 font-sans animate-in zoom-in-95 duration-150">
             <div className="flex items-center space-x-3 text-rose-500 dark:text-rose-400">
               <div className="p-2 bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800/50 rounded-xl">
@@ -3956,7 +3958,8 @@ export default function CompanyModal({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
       {/* Call Log Detail Inspection Modal */}
       {selectedCallLogDetail && (
@@ -4012,11 +4015,12 @@ export default function CompanyModal({
         />
       )}
 
-      {localToast && (
-        <div className="fixed bottom-6 right-6 z-[150] flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-xl border text-sm font-medium bg-emerald-50 dark:bg-emerald-950/90 border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200 animate-in fade-in slide-in-from-bottom-4">
+      {localToast && typeof document !== 'undefined' && createPortal(
+        <div className={`fixed bottom-6 right-6 ${Z_TOAST} flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-xl border text-sm font-medium bg-emerald-50 dark:bg-emerald-950/90 border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200 animate-in fade-in slide-in-from-bottom-4`}>
           <Check className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
           <span>{localToast.text}</span>
-        </div>
+        </div>,
+        document.body
       )}
     </PageBody>
   </>

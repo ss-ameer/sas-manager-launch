@@ -1,4 +1,5 @@
 import { Product, ProductAttribute, normalizeAttributes } from '../types';
+import { filterActiveCatalogProducts } from './inventoryMetrics';
 
 function getLinkedParentId(product?: Partial<Product> | null): string | undefined {
   if (!product) return undefined;
@@ -83,12 +84,50 @@ export interface ProductVariantAnalysis {
 }
 
 /**
+ * Lightweight O(N) canonical Spec Variant family counter shared by Dashboard and Products Catalog.
+ * Uses the exact same active-product filtering (`filterActiveCatalogProducts`), family-key resolution
+ * (`resolveProductFamilyKey`), and multi-variant predicate (`siblingCount > 1 || linked parent`)
+ * as `buildCatalogVariantAnalysisMap`, without computing attribute diffs.
+ */
+export function countCatalogVariantFamilies(products?: Product[] | null): number {
+  const activeProducts = filterActiveCatalogProducts(products);
+  if (activeProducts.length === 0) return 0;
+
+  const byIdMap = new Map<string, Product>();
+  for (const p of activeProducts) {
+    if (p.id) byIdMap.set(p.id, p);
+  }
+
+  const familyStats = new Map<string, { count: number; hasLinkedParent: boolean }>();
+  for (const p of activeProducts) {
+    const fKey = resolveProductFamilyKey(p, byIdMap);
+    if (!fKey) continue;
+    const entry = familyStats.get(fKey);
+    const linked = Boolean(getLinkedParentId(p));
+    if (entry) {
+      entry.count += 1;
+      if (linked) entry.hasLinkedParent = true;
+    } else {
+      familyStats.set(fKey, { count: 1, hasLinkedParent: linked });
+    }
+  }
+
+  let variantFamilies = 0;
+  for (const stat of familyStats.values()) {
+    if (stat.count > 1 || stat.hasLinkedParent) {
+      variantFamilies += 1;
+    }
+  }
+  return variantFamilies;
+}
+
+/**
  * Analyzes an entire catalog of products and returns a map of product.id -> ProductVariantAnalysis.
  * Automatically identifies which specification attributes (e.g. Height: 100mm vs Height: 120mm)
  * differentiate variants within the same product family.
  */
 export function buildCatalogVariantAnalysisMap(products: Product[]): Map<string, ProductVariantAnalysis> {
-  const activeProducts = (products || []).filter((p) => !p.is_deleted);
+  const activeProducts = filterActiveCatalogProducts(products);
   const byIdMap = new Map<string, Product>();
   for (const p of activeProducts) {
     if (p.id) byIdMap.set(p.id, p);

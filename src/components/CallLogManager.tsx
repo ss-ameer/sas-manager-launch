@@ -1,4 +1,7 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef, Suspense } from 'react';
+import { createPortal } from 'react-dom';
+import { lazyWithRetry, ModalLoadingFallback } from '../utils/lazyWithRetry';
+import { Z_BLOCKING_DIALOG } from '../constants/zIndex';
 import { CallLogEntry, Company, Contact, Enquiry, Workspace, UserProfile, LegalSuffix, Salesperson, getCompanyPhones, getContactPhones, getCompanyEmails, isSamePhoneNumber, CallStatus } from '../types';
 import { useActivityLauncher, InitiateActivityOptions } from '../context/ActivityLauncherContext';
 import { useEntityEdit } from '../context/EntityEditContext';
@@ -64,7 +67,7 @@ import {
 import { HoverScrollText } from './common/HoverScrollText';
 import PhoneDataDiagnosticModal from './PhoneDataDiagnosticModal';
 import CallLogDetailModal from './CallLogDetailModal';
-import Company360Modal from './Company360Modal';
+const Company360Modal = lazyWithRetry(() => import('./Company360Modal'));
 import CallLogReportModal from './CallLogReportModal';
 import QuickActivityDrawer from './QuickActivityDrawer';
 import LiveExecutionModal from './LiveExecutionModal';
@@ -6568,43 +6571,47 @@ export default function CallLogManager({
       />
 
       {/* 360° Company View Modal */}
-      <Company360Modal
-        companyId={selected360CompanyId}
-        companies={workspaceCompanies}
-        setCompanies={setCompanies}
-        contacts={workspaceContacts}
-        enquiries={workspaceEnquiries}
-        callLogs={callLogs}
-        user={user}
-        activeWorkspace={activeWorkspace}
-        onClose={() => setSelected360CompanyId(null)}
-        onEditCompany={(company) => {
-          if (onEditCompany) {
-            onEditCompany(company);
-          } else {
-            openEditCompany(company);
-          }
-        }}
-        onOpenActivityDrawer={onOpenActivityDrawer}
-        onLogCallForCompany={(company) => {
-          setSelectedEntry(null);
-          setLogFormDate(todayStr);
-          setLogFormStatus('Scheduled');
-          setLogFormOutcome('Follow-Up Required');
-          setLogFormPhone(company.general_phone || '');
-          setLogFormCompanyId(company.id || '');
-          setLogFormCompanyName(company.display_name);
-          setLogFormContactId('');
-          setLogFormContactName('');
-          setLogFormEnquiryId('');
-          setLogFormNotes('');
-          setLogFormFollowupDate('');
-          setLogFormGeography(resolveGeographyFromCompany(company, activeWorkspace));
-          setResolutionState({ matchedType: 'none', message: '' });
-          setShowInlineCompanyCreate(false);
-          setShowLogModal(true);
-        }}
-      />
+      {selected360CompanyId && (
+        <Suspense fallback={<ModalLoadingFallback />}>
+          <Company360Modal
+            companyId={selected360CompanyId}
+            companies={workspaceCompanies}
+            setCompanies={setCompanies}
+            contacts={workspaceContacts}
+            enquiries={workspaceEnquiries}
+            callLogs={callLogs}
+            user={user}
+            activeWorkspace={activeWorkspace}
+            onClose={() => setSelected360CompanyId(null)}
+            onEditCompany={(company) => {
+              if (onEditCompany) {
+                onEditCompany(company);
+              } else {
+                openEditCompany(company);
+              }
+            }}
+            onOpenActivityDrawer={onOpenActivityDrawer}
+            onLogCallForCompany={(company) => {
+              setSelectedEntry(null);
+              setLogFormDate(todayStr);
+              setLogFormStatus('Scheduled');
+              setLogFormOutcome('Follow-Up Required');
+              setLogFormPhone(company.general_phone || '');
+              setLogFormCompanyId(company.id || '');
+              setLogFormCompanyName(company.display_name);
+              setLogFormContactId('');
+              setLogFormContactName('');
+              setLogFormEnquiryId('');
+              setLogFormNotes('');
+              setLogFormFollowupDate('');
+              setLogFormGeography(resolveGeographyFromCompany(company, activeWorkspace));
+              setResolutionState({ matchedType: 'none', message: '' });
+              setShowInlineCompanyCreate(false);
+              setShowLogModal(true);
+            }}
+          />
+        </Suspense>
+      )}
 
       {/* Call Operations Report Modal */}
       <CallLogReportModal
@@ -6706,8 +6713,8 @@ export default function CallLogManager({
       />
 
       {/* Reusable Confirmation Dialog Overlay */}
-      {confirmDialog.isOpen && (
-        <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-150">
+      {confirmDialog.isOpen && typeof document !== 'undefined' && createPortal(
+        <div className={`fixed inset-0 ${Z_BLOCKING_DIALOG} flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-150`}>
           <div className="bg-white rounded-2xl max-w-md w-full border border-slate-200 shadow-2xl p-6 overflow-hidden animate-in zoom-in-95 duration-150">
             <h3 className="text-lg font-bold text-slate-900 font-sans mb-2">{confirmDialog.title}</h3>
             <p className="text-sm text-slate-500 font-sans mb-6 whitespace-pre-wrap">{confirmDialog.message}</p>
@@ -6740,7 +6747,8 @@ export default function CallLogManager({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </PageBody>
   </>

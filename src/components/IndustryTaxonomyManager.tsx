@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, Suspense } from 'react';
+import { lazyWithRetry, ModalLoadingFallback } from '../utils/lazyWithRetry';
 import { safeUpdateDoc, safeSetDoc } from '../firebase';
 import {
   Company,
@@ -14,7 +15,7 @@ import { normalizeSubTypeName, formatSubTypeName } from '../utils/taxonomy';
 import { useIndustryTaxonomy, notifyTaxonomySubscribers } from '../hooks/useIndustryTaxonomy';
 import GoogleSearchButton from './common/GoogleSearchButton';
 import HoverScrollText from './common/HoverScrollText';
-import Company360Modal from './Company360Modal';
+const Company360Modal = lazyWithRetry(() => import('./Company360Modal'));
 import {
   Layers,
   SkipForward,
@@ -2131,19 +2132,21 @@ export default function IndustryTaxonomyManager({
 
       {/* Company 360° Modal Integration */}
       {selected360CompanyId && (
-        <Company360Modal
-          isOpen={Boolean(selected360CompanyId)}
-          companyId={selected360CompanyId}
-          companies={companies}
-          contacts={contacts}
-          salespersons={salespersons}
-          enquiries={enquiries}
-          callLogs={callLogs}
-          user={user}
-          activeWorkspace={activeWorkspace}
-          setCompanies={setCompanies}
-          onClose={() => setSelected360CompanyId(null)}
-        />
+        <Suspense fallback={<ModalLoadingFallback />}>
+          <Company360Modal
+            isOpen={Boolean(selected360CompanyId)}
+            companyId={selected360CompanyId}
+            companies={companies}
+            contacts={contacts}
+            salespersons={salespersons}
+            enquiries={enquiries}
+            callLogs={callLogs}
+            user={user}
+            activeWorkspace={activeWorkspace}
+            setCompanies={setCompanies}
+            onClose={() => setSelected360CompanyId(null)}
+          />
+        </Suspense>
       )}
     </div>
   );

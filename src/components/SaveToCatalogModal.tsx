@@ -1889,7 +1889,7 @@ export const CatalogSyncMenu: React.FC<CatalogSyncMenuProps> = ({
       {isOpen && (
         <div
           onClick={(e) => e.stopPropagation()}
-          className="absolute left-0 top-full mt-1.5 w-84 sm:w-96 max-w-[calc(100vw-3rem)] rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-2xl z-[300] p-2.5 space-y-2 text-xs animate-in fade-in zoom-in-95 duration-100"
+          className="absolute left-0 top-full mt-1.5 w-84 sm:w-96 max-w-[calc(100vw-3rem)] rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-2xl z-50 p-2.5 space-y-2 text-xs animate-in fade-in zoom-in-95 duration-100"
         >
           <div className="px-2 py-1 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2">
             <span className="font-mono font-bold text-[10px] uppercase tracking-wider text-slate-500 truncate">

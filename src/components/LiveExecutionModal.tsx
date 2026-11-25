@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, Suspense } from 'react';
 import { createPortal } from 'react-dom';
+import { lazyWithRetry, ModalLoadingFallback } from '../utils/lazyWithRetry';
 import { Z_STUDIO, Z_BLOCKING_DIALOG } from '../constants/zIndex';
 import {
   X,
@@ -86,7 +87,7 @@ import {
   resolveBestCompanyMobile
 } from '../utils/activityLogic';
 import ContactModal from './ContactModal';
-import Company360Modal from './Company360Modal';
+const Company360Modal = lazyWithRetry(() => import('./Company360Modal'));
 import CallLogDetailModal from './CallLogDetailModal';
 import GoogleSearchButton from './common/GoogleSearchButton';
 import { CompanyActivityTimeline } from './common/CompanyActivityTimeline';
@@ -5256,18 +5257,20 @@ export default function LiveExecutionModal({
 
       {/* Full 360 Company History & Profile Modal */}
       {isCompany360Open && currentTask?.company_id && (
-        <Company360Modal
-          companyId={currentTask.company_id}
-          companies={companies}
-          contacts={contacts}
-          enquiries={enquiries}
-          callLogs={callLogs}
-          user={user || { uid: 'system_op', email: 'operator@crm.local', name: 'Operator' }}
-          setCompanies={setCompanies}
-          setContacts={setContacts}
-          setCallLogs={setCallLogs}
-          onClose={() => setIsCompany360Open(false)}
-        />
+        <Suspense fallback={<ModalLoadingFallback />}>
+          <Company360Modal
+            companyId={currentTask.company_id}
+            companies={companies}
+            contacts={contacts}
+            enquiries={enquiries}
+            callLogs={callLogs}
+            user={user || { uid: 'system_op', email: 'operator@crm.local', name: 'Operator' }}
+            setCompanies={setCompanies}
+            setContacts={setContacts}
+            setCallLogs={setCallLogs}
+            onClose={() => setIsCompany360Open(false)}
+          />
+        </Suspense>
       )}
 
       {/* Cancellation Confirmation Dialog Modal */}

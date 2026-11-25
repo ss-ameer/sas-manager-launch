@@ -75,10 +75,12 @@ import { PageHeader, PageBody } from './layout/UiContainer';
 import { getWhatsAppUrl } from '../utils/defaults';
 import HoverScrollText from './common/HoverScrollText';
 import {
+  filterActiveCatalogProducts,
   getProductStockOnHand,
   getProductReorderLevel,
   isProductLowStock
 } from '../utils/inventoryMetrics';
+import { countCatalogVariantFamilies } from '../utils/productVariantFormat';
 
 interface DashboardProps {
   key?: any;
@@ -724,19 +726,14 @@ export default function Dashboard(props: DashboardProps) {
   }, [quotations, supplierBills]);
 
   const inventoryStats = useMemo(() => {
-    const activeProducts = products.filter((p) => !p.is_deleted && !(p as any).deleted);
+    const activeProducts = filterActiveCatalogProducts(products);
     let totalStockOnHand = 0;
     const lowStockProducts: Product[] = [];
-    const familyGroups = new Set<string>();
 
     activeProducts.forEach((p) => {
       totalStockOnHand += getProductStockOnHand(p);
       if (isProductLowStock(p)) {
         lowStockProducts.push(p);
-      }
-      const groupKey = (p.variant_group_id || '').trim();
-      if (groupKey) {
-        familyGroups.add(groupKey.toLowerCase());
       }
     });
 
@@ -745,7 +742,7 @@ export default function Dashboard(props: DashboardProps) {
       totalStockOnHand,
       lowStockProducts,
       lowStockCount: lowStockProducts.length,
-      specVariantFamiliesCount: familyGroups.size
+      specVariantFamiliesCount: countCatalogVariantFamilies(activeProducts)
     };
   }, [products]);
 

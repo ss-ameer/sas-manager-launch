@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { CallLogEntry, Company, Contact, Workspace, UserProfile } from '../types';
+import { Z_BLOCKING_DIALOG } from '../constants/zIndex';
 import { ActivityLogRepository } from '../services/repositories/ActivityLogRepository';
 import {
   Building2,
@@ -114,8 +116,10 @@ export default function LeadConversionModal({
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs animate-in fade-in duration-200">
+  if (typeof document === 'undefined') return null;
+
+  return createPortal(
+    <div className={`fixed inset-0 ${Z_BLOCKING_DIALOG} flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs animate-in fade-in duration-200`}>
       <div className="bg-white border border-slate-200 rounded-2xl shadow-2xl text-slate-900 max-w-lg w-full overflow-hidden flex flex-col animate-in zoom-in-95 duration-150">
         
         {/* Header */}
@@ -275,6 +279,7 @@ export default function LeadConversionModal({
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

@@ -8,7 +8,28 @@ export type InventoryProductLike = Partial<Product> & {
   reorder_level?: number | null;
   min_stock_level?: number | null;
   is_inventoried?: boolean | null;
+  is_deleted?: boolean | null;
+  deleted?: boolean | null;
 };
+
+/**
+ * Canonical predicate determining whether a catalog product is active (not soft-deleted).
+ * Guards both primary `is_deleted` and legacy `deleted` flags so Dashboard & Products Catalog stay in exact parity.
+ */
+export function isCatalogProductActive(p?: InventoryProductLike | null): boolean {
+  if (!p) return false;
+  return !p.is_deleted && !p.deleted;
+}
+
+/**
+ * Canonical active catalog product filter shared across Dashboard, Products Catalog, and variant family analysis.
+ */
+export function filterActiveCatalogProducts<T extends InventoryProductLike>(
+  products?: T[] | null
+): T[] {
+  if (!Array.isArray(products)) return [];
+  return products.filter((p) => isCatalogProductActive(p));
+}
 
 /**
  * Canonical stock-on-hand resolution across Products Catalog & Dashboard.

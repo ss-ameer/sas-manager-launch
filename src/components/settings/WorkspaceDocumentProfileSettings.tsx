@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, Suspense } from 'react';
+import { lazyWithRetry, ModalLoadingFallback } from '../../utils/lazyWithRetry';
 import {
   Workspace,
   UserProfile,
@@ -16,7 +17,9 @@ import {
 import { QuotationRepository, DEFAULT_QUOTATION_BLOCKS } from '../../services/repositories/QuotationRepository';
 import { deleteFromStorageBucket } from '../../services/attachmentStorage';
 import { QuotationDocument } from '../quotations/QuotationDocument';
-import { QuotationStudioModal } from '../quotations/QuotationStudioModal';
+const QuotationStudioModal = lazyWithRetry(() =>
+  import('../quotations/QuotationStudioModal').then((m) => ({ default: m.QuotationStudioModal }))
+);
 import {
   Building,
   Landmark,
@@ -3022,7 +3025,8 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
 
       {/* Full 3-Pane Quotation Studio Sandbox Modal */}
       {isFullStudioSandboxOpen && (
-        <QuotationStudioModal
+        <Suspense fallback={<ModalLoadingFallback />}>
+          <QuotationStudioModal
           isOpen={isFullStudioSandboxOpen}
           onClose={() => setIsFullStudioSandboxOpen(false)}
           enquiry={sandboxEnquiry}
@@ -3104,6 +3108,7 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
             }
           }}
         />
+        </Suspense>
       )}
     </div>
   );

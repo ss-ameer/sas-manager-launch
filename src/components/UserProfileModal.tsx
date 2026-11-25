@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { UserProfile, UserRole, Salesperson, Workspace } from '../types';
+import { Z_BLOCKING_DIALOG } from '../constants/zIndex';
 import { safeUpdateDoc, safeSetDoc, safeAddDoc, db, auth } from '../firebase';
 import { writeBatch, collection, query, where, getDocs, doc, arrayRemove } from 'firebase/firestore';
 import { deleteUser, signOut } from 'firebase/auth';
@@ -267,10 +269,10 @@ export default function UserProfileModal({
     }
   };
 
-  if (!isOpen) return null;
+  if (!isOpen || typeof document === 'undefined') return null;
 
-  return (
-    <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in duration-150 font-sans">
+  return createPortal(
+    <div className={`fixed inset-0 ${Z_BLOCKING_DIALOG} flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in duration-150 font-sans`}>
       <div className="bg-white rounded-2xl max-w-lg w-full border border-slate-200 shadow-2xl p-6 overflow-hidden animate-in zoom-in-95 duration-150 flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between pb-4 border-b border-slate-100">
@@ -481,6 +483,7 @@ export default function UserProfileModal({
           await handleConfirmHandoverAndDelete(resolutions);
         }}
       />
-    </div>
+    </div>,
+    document.body
   );
 }
