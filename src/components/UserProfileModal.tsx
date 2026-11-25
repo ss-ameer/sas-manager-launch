@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { UserProfile, UserRole, Salesperson, Workspace } from '../types';
 import { Z_BLOCKING_DIALOG } from '../constants/zIndex';
+import { useEscapeLayer } from '../hooks/useEscapeLayer';
+import { ESCAPE_PRIORITY_BLOCKING_DIALOG } from '../utils/escapeStack';
 import { safeUpdateDoc, safeSetDoc, safeAddDoc, db, auth } from '../firebase';
 import { writeBatch, collection, query, where, getDocs, doc, arrayRemove } from 'firebase/firestore';
 import { deleteUser, signOut } from 'firebase/auth';
@@ -268,6 +270,21 @@ export default function UserProfileModal({
       setIsSaving(false);
     }
   };
+
+  // Blocking dialog layer: vetoes Escape while mandatory onboarding or save/delete is active so neither
+  // onboarding is bypassed nor lower drawers behind this modal are dismissed.
+  useEscapeLayer(
+    isOpen,
+    () => {
+      if (isMandatoryOnboarding || isSaving || isDeletingAccount) return false;
+      if (showDeleteConfirm) {
+        setShowDeleteConfirm(false);
+        return true;
+      }
+      onClose();
+    },
+    ESCAPE_PRIORITY_BLOCKING_DIALOG
+  );
 
   if (!isOpen || typeof document === 'undefined') return null;
 

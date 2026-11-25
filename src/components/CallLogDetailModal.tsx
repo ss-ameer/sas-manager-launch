@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { Z_NESTED_MODAL, Z_BLOCKING_DIALOG } from '../constants/zIndex';
+import { useEscapeLayer } from '../hooks/useEscapeLayer';
+import { ESCAPE_PRIORITY_NESTED_MODAL, ESCAPE_PRIORITY_BLOCKING_DIALOG } from '../utils/escapeStack';
 import { CallLogEntry, Company, Contact, Enquiry, UserProfile, Workspace, getCompanyPhones } from '../types';
 import { isContactUnassigned, resolveContactByPhoneNumber, resolveGeographyFromCompany } from '../utils/activityLogic';
 import LeadConversionModal from './LeadConversionModal';
@@ -91,25 +93,24 @@ export default function CallLogDetailModal({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const { openEditCompany, openEditContact } = useEntityEdit();
 
-  // Guarded Escape key dismissal: dismiss delete confirmation first, or close modal when no nested dialog is open
-  useEffect(() => {
-    if (!entry) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      if (isDeleting || showConvertModal) return;
-      if (showDeleteConfirm) {
-        e.preventDefault();
-        e.stopPropagation();
-        setShowDeleteConfirm(false);
-        return;
-      }
-      e.preventDefault();
-      e.stopPropagation();
+  // Layered LIFO Escape dismissal via central escapeStack (LeadConversionModal registers at ESCAPE_PRIORITY_BLOCKING_DIALOG)
+  useEscapeLayer(
+    Boolean(entry) && showDeleteConfirm,
+    () => {
+      if (isDeleting) return false;
+      setShowDeleteConfirm(false);
+    },
+    ESCAPE_PRIORITY_BLOCKING_DIALOG
+  );
+
+  useEscapeLayer(
+    Boolean(entry),
+    () => {
+      if (isDeleting) return false;
       onClose();
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [entry, isDeleting, showConvertModal, showDeleteConfirm, onClose]);
+    },
+    ESCAPE_PRIORITY_NESTED_MODAL
+  );
 
   if (!entry || typeof document === 'undefined') return null;
 

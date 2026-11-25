@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Z_STUDIO } from '../constants/zIndex';
+import { useEscapeLayer } from '../hooks/useEscapeLayer';
+import { ESCAPE_PRIORITY_STUDIO } from '../utils/escapeStack';
 import {
   X,
   Mic,
@@ -3301,24 +3303,18 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
   const [showDraftAndPurposeToggle, setShowDraftAndPurposeToggle] = useState(false);
   const [showGovernanceToggle, setShowGovernanceToggle] = useState(false);
 
-  // Guarded Escape key dismissal: dismiss topmost popover/panel before closing drawer
-  useEffect(() => {
-    if (!isOpen) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      // Guard: let nested modals handle their own Escape and avoid closing mid-submission
-      if (showGeminiKeyModal || isSubmitting) return;
+  // Layered LIFO Escape dismissal via central escapeStack (nested GeminiKeyModal registers at ESCAPE_PRIORITY_NESTED_MODAL)
+  useEscapeLayer(
+    isOpen,
+    () => {
+      if (isSubmitting) return false;
       if (isComboboxOpen) {
-        e.preventDefault();
-        e.stopPropagation();
         setIsComboboxOpen(false);
-        return;
+        return true;
       }
       if (isHistoryDrawerOpen) {
-        e.preventDefault();
-        e.stopPropagation();
         setIsHistoryDrawerOpen(false);
-        return;
+        return true;
       }
       const activeEl = document.activeElement as HTMLElement | null;
       if (
@@ -3326,15 +3322,12 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
         (activeEl.getAttribute('aria-expanded') === 'true' ||
           activeEl.closest('[role="listbox"], [role="menu"], [data-dropdown-open="true"]'))
       ) {
-        return;
+        return false;
       }
-      e.preventDefault();
-      e.stopPropagation();
       onClose();
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, showGeminiKeyModal, isSubmitting, isComboboxOpen, isHistoryDrawerOpen, onClose]);
+    },
+    ESCAPE_PRIORITY_STUDIO
+  );
 
   if (!isOpen) return null;
 

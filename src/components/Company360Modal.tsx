@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Z_DRAWER } from '../constants/zIndex';
+import { useEscapeLayer } from '../hooks/useEscapeLayer';
+import { ESCAPE_PRIORITY_DRAWER } from '../utils/escapeStack';
 import {
   Company,
   Contact,
@@ -105,6 +107,7 @@ interface Company360ModalProps {
   onInitiateActivity?: (options: InitiateActivityOptions) => void;
   onExecuteTask?: (task: CallLogEntry) => void;
   onLaunchProcurement?: (ctx: ProcurementLaunchContext) => void;
+  escapePriority?: number;
 }
 
 export default function Company360Modal({
@@ -123,6 +126,7 @@ export default function Company360Modal({
   setContacts,
   setCallLogs,
   onClose,
+  escapePriority = ESCAPE_PRIORITY_DRAWER,
   onOpenEnquiry,
   onLogCallForCompany,
   onCreateEnquiryForCompany,
@@ -754,40 +758,22 @@ export default function Company360Modal({
 
   const isModalVisible = (isOpen === undefined || isOpen) && Boolean(companyId) && Boolean(company);
 
-  // Guarded Escape key dismissal: close only when no nested modal/dialog or open dropdown is active
-  useEffect(() => {
-    if (!isModalVisible) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      if (
-        contactModalOpen ||
-        internalEditModalOpen ||
-        Boolean(activeExecutionTask) ||
-        Boolean(selectedCallLogDetail)
-      ) {
-        return;
-      }
+  // Layered LIFO Escape dismissal via central escapeStack (nested Contact/CompanyEdit/LiveExecution/CallLogDetail modals register higher-priority layers)
+  useEscapeLayer(
+    isModalVisible,
+    () => {
       const activeEl = document.activeElement as HTMLElement | null;
       if (
         activeEl &&
         (activeEl.getAttribute('aria-expanded') === 'true' ||
           activeEl.closest('[role="listbox"], [role="menu"], [data-dropdown-open="true"]'))
       ) {
-        return;
+        return false;
       }
-      e.preventDefault();
       onClose();
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [
-    isModalVisible,
-    contactModalOpen,
-    internalEditModalOpen,
-    activeExecutionTask,
-    selectedCallLogDetail,
-    onClose
-  ]);
+    },
+    escapePriority
+  );
 
   if (!isModalVisible || !company) return null;
 

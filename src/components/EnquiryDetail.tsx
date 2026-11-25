@@ -2,6 +2,13 @@ import React, { useState, useEffect, useMemo, useRef, Suspense } from 'react';
 import { createPortal } from 'react-dom';
 import { lazyWithRetry, ModalLoadingFallback } from '../utils/lazyWithRetry';
 import { Z_DRAWER, Z_NESTED_MODAL, Z_BLOCKING_DIALOG } from '../constants/zIndex';
+import { useEscapeLayer } from '../hooks/useEscapeLayer';
+import {
+  ESCAPE_PRIORITY_DRAWER,
+  ESCAPE_PRIORITY_STUDIO,
+  ESCAPE_PRIORITY_NESTED_MODAL,
+  ESCAPE_PRIORITY_BLOCKING_DIALOG
+} from '../utils/escapeStack';
 import { Enquiry, Company, Contact, AuditLog, UserProfile, Salesperson, Workspace, Attachment, Project, ProjectMilestone, Product, LineItem, QuotationLineItem, DropdownOption, ENQUIRY_STATUS_OPTIONS, normalizeEnquiryStatus, resolveSalespersonIdentifier, resolveSalespersonName, normalizeEnquirySource, PIPELINE_STATUS_GROUPS } from '../types';
 import { sanitizeAuditPayload } from '../utils/sanitizeAuditLog';
 import { safeUpdateDoc, safeAddDoc } from '../firebase';
@@ -4202,127 +4209,96 @@ export default function EnquiryDetail({
   const [isReassignRepOpen, setIsReassignRepOpen] = useState(false);
   const [isSavingRepAssignment, setIsSavingRepAssignment] = useState(false);
 
-  // Guarded layered Escape dismissal: dismiss topmost open sub-modal/popover/dropdown first,
-  // defer to self-managed child modals, and close the EnquiryDetail drawer only when clear.
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
+  // Layered LIFO Escape dismissal via central escapeStack (self-managed child modals register their own higher-priority layers)
+  useEscapeLayer(
+    confirmDialog.isOpen,
+    () => {
+      setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
+    },
+    ESCAPE_PRIORITY_BLOCKING_DIALOG
+  );
 
-      // Defer to child modals that manage their own Escape dismissal
-      if (
-        isQuotationStudioOpen ||
-        isCreateCompanyModalOpen ||
-        saveToCatalogState.isOpen ||
-        isShareModalOpen ||
-        Boolean(lightboxItemState) ||
-        (Boolean(previewAttachment) && !isDocxOrTextAttachment)
-      ) {
-        return;
-      }
+  useEscapeLayer(
+    declineModalState.isOpen,
+    () => {
+      setDeclineModalState((prev) => ({ ...prev, isOpen: false }));
+    },
+    ESCAPE_PRIORITY_BLOCKING_DIALOG
+  );
 
-      if (declineModalState.isOpen) {
-        e.preventDefault();
-        e.stopPropagation();
-        setDeclineModalState((prev) => ({ ...prev, isOpen: false }));
-        return;
-      }
-      if (confirmDialog.isOpen) {
-        e.preventDefault();
-        e.stopPropagation();
-        setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
-        return;
-      }
+  useEscapeLayer(
+    Boolean(previewAttachment && isDocxOrTextAttachment),
+    () => {
+      setPreviewAttachment(null);
+    },
+    ESCAPE_PRIORITY_BLOCKING_DIALOG
+  );
+
+  useEscapeLayer(
+    poModalState.isOpen,
+    () => {
+      setPoModalState((prev) => ({ ...prev, isOpen: false }));
+    },
+    ESCAPE_PRIORITY_NESTED_MODAL
+  );
+
+  useEscapeLayer(
+    showConvertModal,
+    () => {
+      if (isCreatingProject) return false;
+      setShowConvertModal(false);
+    },
+    ESCAPE_PRIORITY_NESTED_MODAL
+  );
+
+  useEscapeLayer(
+    showQuickCatalogPicker,
+    () => {
+      setShowQuickCatalogPicker(false);
+    },
+    ESCAPE_PRIORITY_NESTED_MODAL
+  );
+
+  useEscapeLayer(
+    Boolean(viewingQuotation),
+    () => {
+      setViewingQuotation(null);
+    },
+    ESCAPE_PRIORITY_STUDIO
+  );
+
+  useEscapeLayer(
+    true,
+    () => {
       if (isMoreActionsOpen) {
-        e.preventDefault();
-        e.stopPropagation();
         setIsMoreActionsOpen(false);
-        return;
+        return true;
       }
       if (isReassignRepOpen) {
-        e.preventDefault();
-        e.stopPropagation();
+        if (isSavingRepAssignment) return false;
         setIsReassignRepOpen(false);
-        return;
+        return true;
       }
       if (isPairCompanyDropdownOpen) {
-        e.preventDefault();
-        e.stopPropagation();
         setIsPairCompanyDropdownOpen(false);
-        return;
+        return true;
       }
       if (showBulkApplyPopover) {
-        e.preventDefault();
-        e.stopPropagation();
         setShowBulkApplyPopover(false);
-        return;
+        return true;
       }
-      if (previewAttachment && isDocxOrTextAttachment) {
-        e.preventDefault();
-        e.stopPropagation();
-        setPreviewAttachment(null);
-        return;
-      }
-      if (viewingQuotation) {
-        e.preventDefault();
-        e.stopPropagation();
-        setViewingQuotation(null);
-        return;
-      }
-      if (poModalState.isOpen) {
-        e.preventDefault();
-        e.stopPropagation();
-        setPoModalState((prev) => ({ ...prev, isOpen: false }));
-        return;
-      }
-      if (showConvertModal) {
-        if (isCreatingProject) return;
-        e.preventDefault();
-        e.stopPropagation();
-        setShowConvertModal(false);
-        return;
-      }
-      if (showQuickCatalogPicker) {
-        e.preventDefault();
-        e.stopPropagation();
-        setShowQuickCatalogPicker(false);
-        return;
-      }
-
       const activeEl = document.activeElement as HTMLElement | null;
       if (
         activeEl &&
         (activeEl.getAttribute('aria-expanded') === 'true' ||
           activeEl.closest('[role="listbox"], [role="menu"], [data-dropdown-open="true"]'))
       ) {
-        return;
+        return false;
       }
-
-      e.preventDefault();
       onClose();
-    };
-    window.addEventListener('keydown', handleKeyDown, true);
-    return () => window.removeEventListener('keydown', handleKeyDown, true);
-  }, [
-    isQuotationStudioOpen,
-    isCreateCompanyModalOpen,
-    saveToCatalogState.isOpen,
-    isShareModalOpen,
-    lightboxItemState,
-    previewAttachment,
-    isDocxOrTextAttachment,
-    declineModalState.isOpen,
-    confirmDialog.isOpen,
-    isMoreActionsOpen,
-    isReassignRepOpen,
-    isPairCompanyDropdownOpen,
-    showBulkApplyPopover,
-    viewingQuotation,
-    poModalState.isOpen,
-    showConvertModal,
-    isCreatingProject,
-    showQuickCatalogPicker,
-    onClose
-  ]);
+    },
+    ESCAPE_PRIORITY_DRAWER
+  );
 
   const resolvedAssignedRepInfo = useMemo(() => {
     const targetEq = currentEnquiry || enquiry;

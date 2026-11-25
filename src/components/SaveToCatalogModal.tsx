@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Z_NESTED_MODAL } from '../constants/zIndex';
+import { useEscapeLayer } from '../hooks/useEscapeLayer';
+import { ESCAPE_PRIORITY_NESTED_MODAL } from '../utils/escapeStack';
 import {
   Product,
   ProductAttribute,
@@ -2821,6 +2823,15 @@ export default function SaveToCatalogModal({
     });
     return familyMatch || null;
   }, [lineItem, products, name, brandMake]);
+
+  useEscapeLayer(
+    isOpen && Boolean(lineItem),
+    () => {
+      if (isSaving || isUploadingImage || isUploadingDatasheet) return false;
+      onClose();
+    },
+    ESCAPE_PRIORITY_NESTED_MODAL
+  );
 
   if (!isOpen || !lineItem) return null;
 

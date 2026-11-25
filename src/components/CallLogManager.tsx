@@ -2,6 +2,8 @@ import React, { useState, useEffect, useMemo, useCallback, useRef, Suspense } fr
 import { createPortal } from 'react-dom';
 import { lazyWithRetry, ModalLoadingFallback } from '../utils/lazyWithRetry';
 import { Z_BLOCKING_DIALOG } from '../constants/zIndex';
+import { useEscapeLayer } from '../hooks/useEscapeLayer';
+import { ESCAPE_PRIORITY_BLOCKING_DIALOG } from '../utils/escapeStack';
 import { CallLogEntry, Company, Contact, Enquiry, Workspace, UserProfile, LegalSuffix, Salesperson, getCompanyPhones, getContactPhones, getCompanyEmails, isSamePhoneNumber, CallStatus } from '../types';
 import { useActivityLauncher, InitiateActivityOptions } from '../context/ActivityLauncherContext';
 import { useEntityEdit } from '../context/EntityEditContext';
@@ -572,6 +574,16 @@ export default function CallLogManager({
       setConfirmResolver(() => resolve);
     });
   };
+
+  useEscapeLayer(
+    confirmDialog.isOpen,
+    () => {
+      confirmResolver?.(false);
+      setConfirmResolver(null);
+      setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
+    },
+    ESCAPE_PRIORITY_BLOCKING_DIALOG
+  );
 
   // Centralized log deletion handler supporting immediate UI removal, Firestore soft-delete, and hard purge
   const handleDeleteLog = async (

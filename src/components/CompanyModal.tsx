@@ -1,6 +1,8 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Z_BLOCKING_DIALOG, Z_TOAST } from '../constants/zIndex';
+import { useEscapeLayer } from '../hooks/useEscapeLayer';
+import { ESCAPE_PRIORITY_BLOCKING_DIALOG } from '../utils/escapeStack';
 import { sanitizeAuditPayload } from '../utils/sanitizeAuditLog';
 import { useActivityLauncher, InitiateActivityOptions } from '../context/ActivityLauncherContext';
 import { CustomLabelSelect, PHONE_LABEL_DEFAULT_OPTIONS, EMAIL_LABEL_DEFAULT_OPTIONS } from './CustomLabelSelect';
@@ -449,6 +451,23 @@ export default function CompanyModal({
   // Contact Detail Popup Modal State & Contact Deletion Confirmation State
   const [selectedContactDetail, setSelectedContactDetail] = useState<Contact | null>(null);
   const [contactToDeleteConfirm, setContactToDeleteConfirm] = useState<{ contact: Contact; linkedEnquiriesCount: number } | null>(null);
+
+  useEscapeLayer(
+    Boolean(contactToDeleteConfirm),
+    () => {
+      setContactToDeleteConfirm(null);
+    },
+    ESCAPE_PRIORITY_BLOCKING_DIALOG
+  );
+
+  useEscapeLayer(
+    Boolean(companyToDelete),
+    () => {
+      if (isDeletingCompany) return false;
+      setCompanyToDelete(null);
+    },
+    ESCAPE_PRIORITY_BLOCKING_DIALOG
+  );
 
   // Outreach History Side Panel & Call Detail Modal State
   const [isHistorySidePanelExpanded, setIsHistorySidePanelExpanded] = useState(true);

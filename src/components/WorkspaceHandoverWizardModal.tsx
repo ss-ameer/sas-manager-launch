@@ -3,6 +3,8 @@ import { Workspace, UserProfile } from '../types';
 import { AlertTriangle, Download, ArrowRight, Shield, Trash2, Users, Check, X, Building, Loader2 } from 'lucide-react';
 import { exportWorkspaceData } from '../services/SyncEngine';
 import { downloadJsonFile } from '../utils/download';
+import { useEscapeLayer } from '../hooks/useEscapeLayer';
+import { ESCAPE_PRIORITY_BLOCKING_DIALOG } from '../utils/escapeStack';
 
 export interface Category2WorkspaceInfo {
   workspace: Workspace;
@@ -44,6 +46,15 @@ export default function WorkspaceHandoverWizardModal({
   const [downloadingWsId, setDownloadingWsId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  useEscapeLayer(
+    isOpen,
+    () => {
+      if (isSubmitting || Boolean(downloadingWsId)) return false;
+      onClose();
+    },
+    ESCAPE_PRIORITY_BLOCKING_DIALOG
+  );
 
   if (!isOpen) return null;
 

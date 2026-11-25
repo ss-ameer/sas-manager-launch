@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Z_BLOCKING_DIALOG } from '../../constants/zIndex';
+import { useEscapeLayer } from '../../hooks/useEscapeLayer';
+import { ESCAPE_PRIORITY_BLOCKING_DIALOG } from '../../utils/escapeStack';
 import {
   X,
   RotateCw,
@@ -111,13 +113,16 @@ export const ImageLightboxModal: React.FC<ImageLightboxModalProps> = ({
     }
   }, [isOpen, imageUrl, secondaryImageUrl, effectiveAdjustments, effectiveCaption, effectiveSecondaryCaption]);
 
+  useEscapeLayer(
+    isOpen,
+    () => {
+      onClose();
+    },
+    ESCAPE_PRIORITY_BLOCKING_DIALOG
+  );
+
   useEffect(() => {
     if (!isOpen) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose();
-      }
-    };
     const handlePaste = async (e: ClipboardEvent) => {
       if (!isEditable) return;
       const items = e.clipboardData?.items;
@@ -133,10 +138,8 @@ export const ImageLightboxModal: React.FC<ImageLightboxModalProps> = ({
         }
       }
     };
-    window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('paste', handlePaste);
     return () => {
-      window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('paste', handlePaste);
     };
   }, [isOpen, activeSlot, isEditable]);

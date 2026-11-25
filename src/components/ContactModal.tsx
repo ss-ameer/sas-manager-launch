@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { Z_NESTED_MODAL } from '../constants/zIndex';
+import { useEscapeLayer } from '../hooks/useEscapeLayer';
+import { ESCAPE_PRIORITY_NESTED_MODAL } from '../utils/escapeStack';
 import { CustomLabelSelect, PHONE_LABEL_DEFAULT_OPTIONS, EMAIL_LABEL_DEFAULT_OPTIONS } from './CustomLabelSelect';
 import { X, User, Building2, Phone, Mail, Plus, Trash2, ShieldAlert, Check, ArrowRightLeft, Sparkles } from 'lucide-react';
 import { CallLogEntry, Company, Contact, ContactMethod, LabeledPhone, LabeledEmail, LabeledHandle, UserProfile, getContactPhones, getContactEmails, getContactHandles, getCompanyPhones, getCompanyEmails, isSamePhoneNumber } from '../types';
@@ -553,6 +555,15 @@ export default function ContactModal({
       setIsSaving(false);
     }
   };
+
+  useEscapeLayer(
+    isOpen,
+    () => {
+      if (isSaving) return false;
+      onClose();
+    },
+    ESCAPE_PRIORITY_NESTED_MODAL
+  );
 
   if (!isOpen || typeof document === 'undefined') return null;
 

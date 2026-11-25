@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { KeyRound, ExternalLink, Check, Trash2, Eye, EyeOff, ShieldCheck, Info, X } from 'lucide-react';
+import { useEscapeLayer } from '../hooks/useEscapeLayer';
+import { ESCAPE_PRIORITY_NESTED_MODAL } from '../utils/escapeStack';
 
 interface GeminiKeyModalProps {
   isOpen: boolean;
@@ -25,6 +27,14 @@ export default function GeminiKeyModal({
       setIsSaved(!!existingKey.trim());
     }
   }, [isOpen]);
+
+  useEscapeLayer(
+    isOpen,
+    () => {
+      onClose();
+    },
+    ESCAPE_PRIORITY_NESTED_MODAL
+  );
 
   if (!isOpen) return null;
 

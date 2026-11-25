@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { Z_NESTED_MODAL } from '../constants/zIndex';
+import { useEscapeLayer } from '../hooks/useEscapeLayer';
+import { ESCAPE_PRIORITY_NESTED_MODAL } from '../utils/escapeStack';
 import {
   Company,
   Workspace,
@@ -550,6 +552,15 @@ export default function CompanyEditModal({
       setIsSaving(false);
     }
   };
+
+  useEscapeLayer(
+    isOpen,
+    () => {
+      if (isSaving) return false;
+      onClose();
+    },
+    ESCAPE_PRIORITY_NESTED_MODAL
+  );
 
   if (!isOpen || typeof document === 'undefined') return null;
 

@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { CallLogEntry, Company, Contact, Workspace, UserProfile } from '../types';
 import { Z_BLOCKING_DIALOG } from '../constants/zIndex';
+import { useEscapeLayer } from '../hooks/useEscapeLayer';
+import { ESCAPE_PRIORITY_BLOCKING_DIALOG } from '../utils/escapeStack';
 import { ActivityLogRepository } from '../services/repositories/ActivityLogRepository';
 import {
   Building2,
@@ -61,6 +63,15 @@ export default function LeadConversionModal({
       setErrorMessage(null);
     }
   }, [isOpen, entry]);
+
+  useEscapeLayer(
+    isOpen && Boolean(entry),
+    () => {
+      if (isSubmitting) return false;
+      onClose();
+    },
+    ESCAPE_PRIORITY_BLOCKING_DIALOG
+  );
 
   if (!isOpen || !entry) return null;
 

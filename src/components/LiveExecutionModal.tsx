@@ -2,6 +2,8 @@ import React, { useState, useEffect, useMemo, useRef, Suspense } from 'react';
 import { createPortal } from 'react-dom';
 import { lazyWithRetry, ModalLoadingFallback } from '../utils/lazyWithRetry';
 import { Z_STUDIO, Z_BLOCKING_DIALOG } from '../constants/zIndex';
+import { useEscapeLayer } from '../hooks/useEscapeLayer';
+import { ESCAPE_PRIORITY_STUDIO, ESCAPE_PRIORITY_BLOCKING_DIALOG } from '../utils/escapeStack';
 import {
   X,
   Phone,
@@ -2978,6 +2980,32 @@ export default function LiveExecutionModal({
     }
   };
 
+  useEscapeLayer(
+    isOpen && isCancelModalOpen,
+    () => {
+      if (isSubmitting) return false;
+      setIsCancelModalOpen(false);
+    },
+    ESCAPE_PRIORITY_BLOCKING_DIALOG
+  );
+
+  useEscapeLayer(
+    isOpen,
+    () => {
+      if (isSubmitting) return false;
+      const activeEl = document.activeElement as HTMLElement | null;
+      if (
+        activeEl &&
+        (activeEl.getAttribute('aria-expanded') === 'true' ||
+          activeEl.closest('[role="listbox"], [role="menu"], [data-dropdown-open="true"]'))
+      ) {
+        return false;
+      }
+      onClose();
+    },
+    ESCAPE_PRIORITY_STUDIO
+  );
+
   if (!isOpen) return null;
 
   // Clean empty queue or completed queue state
@@ -5268,6 +5296,7 @@ export default function LiveExecutionModal({
             setCompanies={setCompanies}
             setContacts={setContacts}
             setCallLogs={setCallLogs}
+            escapePriority={ESCAPE_PRIORITY_STUDIO}
             onClose={() => setIsCompany360Open(false)}
           />
         </Suspense>

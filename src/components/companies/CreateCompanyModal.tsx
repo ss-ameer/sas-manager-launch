@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { Z_NESTED_MODAL } from '../../constants/zIndex';
+import { useEscapeLayer } from '../../hooks/useEscapeLayer';
+import { ESCAPE_PRIORITY_NESTED_MODAL } from '../../utils/escapeStack';
 import { Company, UserProfile, Workspace, LegalSuffix, ContactMethod, resolveCountryCode, sanitizeCompanyCode } from '../../types';
 import { safeAddDoc, safeUpdateDoc } from '../../firebase';
 import { CompanyRepository } from '../../services/repositories/CompanyRepository';
@@ -211,6 +213,15 @@ export const CreateCompanyModal: React.FC<CreateCompanyModalProps> = ({
 
     return () => clearTimeout(timer);
   }, [canonicalName, companies, ignoredDuplicateIds, isOpen]);
+
+  useEscapeLayer(
+    isOpen,
+    () => {
+      if (isSubmitting || isAddingAlias) return false;
+      onClose();
+    },
+    ESCAPE_PRIORITY_NESTED_MODAL
+  );
 
   if (!isOpen) return null;
 

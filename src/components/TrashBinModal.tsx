@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { Z_DRAWER, Z_BLOCKING_DIALOG } from '../constants/zIndex';
+import { useEscapeLayer } from '../hooks/useEscapeLayer';
+import { ESCAPE_PRIORITY_DRAWER, ESCAPE_PRIORITY_BLOCKING_DIALOG } from '../utils/escapeStack';
 import { Trash2, AlertTriangle, Search, ShieldAlert, CheckCircle2, RotateCcw, X } from 'lucide-react';
 import HoverScrollText from './common/HoverScrollText';
 import { Enquiry, Company, Contact, Product, CallLogEntry, UserProfile, Workspace, Attachment, Quotation, Project, SupplierBill } from '../types';
@@ -120,17 +122,32 @@ export const TrashBinModal: React.FC<TrashBinModalProps> = ({
     }
   }, [isOpen, activeWorkspaceId]);
 
-  useEffect(() => {
-    if (!isOpen) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !itemToPurge && !showEmptyTrashConfirm && !isProcessing) {
-        e.preventDefault();
-        onClose();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, itemToPurge, showEmptyTrashConfirm, isProcessing, onClose]);
+  useEscapeLayer(
+    isOpen && Boolean(itemToPurge),
+    () => {
+      if (isProcessing) return false;
+      setItemToPurge(null);
+    },
+    ESCAPE_PRIORITY_BLOCKING_DIALOG
+  );
+
+  useEscapeLayer(
+    isOpen && showEmptyTrashConfirm,
+    () => {
+      if (isProcessing) return false;
+      setShowEmptyTrashConfirm(false);
+    },
+    ESCAPE_PRIORITY_BLOCKING_DIALOG
+  );
+
+  useEscapeLayer(
+    isOpen,
+    () => {
+      if (isProcessing) return false;
+      onClose();
+    },
+    ESCAPE_PRIORITY_DRAWER
+  );
 
   if (!isOpen) return null;
 

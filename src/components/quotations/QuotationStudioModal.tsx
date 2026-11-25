@@ -1,6 +1,12 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { createPortal, flushSync } from 'react-dom';
 import { Z_STUDIO } from '../../constants/zIndex';
+import { useEscapeLayer } from '../../hooks/useEscapeLayer';
+import {
+  ESCAPE_PRIORITY_STUDIO,
+  ESCAPE_PRIORITY_NESTED_MODAL,
+  ESCAPE_PRIORITY_BLOCKING_DIALOG
+} from '../../utils/escapeStack';
 import {
   resolveStudioHydrationTargetKey,
   shouldRunStudioHydration,
@@ -10326,6 +10332,46 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       setIsSavingPreset(false);
     }
   };
+
+  // Layered LIFO Escape dismissal: inline Quick Edit & @mention handlers call e.preventDefault() first;
+  // SaveToCatalogModal registers at ESCAPE_PRIORITY_NESTED_MODAL (100).
+  useEscapeLayer(
+    Boolean(pendingPrintWarnings && pendingPrintWarnings.length > 0),
+    () => {
+      setPendingPrintWarnings(null);
+    },
+    ESCAPE_PRIORITY_BLOCKING_DIALOG
+  );
+
+  useEscapeLayer(
+    isSavePresetModalOpen,
+    () => {
+      if (isSavingPreset) return false;
+      setIsSavePresetModalOpen(false);
+    },
+    ESCAPE_PRIORITY_NESTED_MODAL
+  );
+
+  useEscapeLayer(
+    true,
+    () => {
+      if (isSaving || isSavingPreset || isSavingSignatoryPresetInline) return false;
+      if (showPreFlightPopover) {
+        setShowPreFlightPopover(false);
+        return true;
+      }
+      const activeEl = document.activeElement as HTMLElement | null;
+      if (
+        activeEl &&
+        (activeEl.getAttribute('aria-expanded') === 'true' ||
+          activeEl.closest('[role="listbox"], [role="menu"], [data-dropdown-open="true"]'))
+      ) {
+        return false;
+      }
+      onClose();
+    },
+    ESCAPE_PRIORITY_STUDIO
+  );
 
   return (
     <div className={`quotation-modal-container fixed inset-0 ${Z_STUDIO} bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-hidden print:hidden`}>

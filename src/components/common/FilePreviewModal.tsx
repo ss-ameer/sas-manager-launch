@@ -2,6 +2,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import mammoth from 'mammoth';
 import { Z_BLOCKING_DIALOG } from '../../constants/zIndex';
+import { useEscapeLayer } from '../../hooks/useEscapeLayer';
+import { ESCAPE_PRIORITY_BLOCKING_DIALOG } from '../../utils/escapeStack';
 import { Attachment } from '../../types';
 import { resolveAttachmentUrl } from '../../services/attachmentStorage';
 import {
@@ -240,20 +242,26 @@ export default function FilePreviewModal({
     };
   }, [isOpen, file, isDocx, effectiveUrl]);
 
-  // Keyboard shortcut: Esc to close, +/- to zoom if image
+  useEscapeLayer(
+    isOpen && Boolean(file),
+    () => {
+      onClose();
+    },
+    ESCAPE_PRIORITY_BLOCKING_DIALOG
+  );
+
+  // Keyboard shortcuts: +/-/0 to zoom if image
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen || !isImage) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose();
-      } else if ((e.key === '+' || e.key === '=') && isImage) {
+      if (e.key === '+' || e.key === '=') {
         e.preventDefault();
         setZoomLevel((prev) => Math.min(prev + 25, 300));
-      } else if (e.key === '-' && isImage) {
+      } else if (e.key === '-') {
         e.preventDefault();
         setZoomLevel((prev) => Math.max(prev - 25, 25));
-      } else if (e.key === '0' && isImage) {
+      } else if (e.key === '0') {
         e.preventDefault();
         setZoomLevel(100);
       }
@@ -261,7 +269,7 @@ export default function FilePreviewModal({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose, isImage]);
+  }, [isOpen, isImage]);
 
   // Construct iframe source for PDFs (safely avoiding appending hash to data URIs)
   const pdfIframeSrc = useMemo(() => {

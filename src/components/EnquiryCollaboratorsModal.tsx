@@ -1,6 +1,8 @@
 import React, { useState, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { Z_NESTED_MODAL } from '../constants/zIndex';
+import { useEscapeLayer } from '../hooks/useEscapeLayer';
+import { ESCAPE_PRIORITY_NESTED_MODAL } from '../utils/escapeStack';
 import { Enquiry, Salesperson } from '../types';
 import {
   X,
@@ -111,6 +113,15 @@ export default function EnquiryCollaboratorsModal({
       setLoadingMemberId(null);
     }
   };
+
+  useEscapeLayer(
+    isOpen,
+    () => {
+      if (loadingMemberId) return false;
+      onClose();
+    },
+    ESCAPE_PRIORITY_NESTED_MODAL
+  );
 
   if (!isOpen || typeof document === 'undefined') return null;
 
