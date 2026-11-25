@@ -8,6 +8,7 @@
  * Priority tiers mirror the canonical z-index scale in `src/constants/zIndex.ts`:
  *  - ESCAPE_PRIORITY_DRAWER (60)          -> Primary detail drawers & workspace modals
  *  - ESCAPE_PRIORITY_STUDIO (80)          -> Full-screen studios & cross-cutting drawers
+ *  - ESCAPE_PRIORITY_ELEVATED_DRAWER (90) -> Elevated drawers launched over a studio/activity drawer
  *  - ESCAPE_PRIORITY_NESTED_MODAL (100)   -> Child / global entity modals
  *  - ESCAPE_PRIORITY_BLOCKING_DIALOG (120)-> Blocking confirmations, mandatory locks & media viewers
  *
@@ -25,6 +26,7 @@
 
 export const ESCAPE_PRIORITY_DRAWER = 60;
 export const ESCAPE_PRIORITY_STUDIO = 80;
+export const ESCAPE_PRIORITY_ELEVATED_DRAWER = 90;
 export const ESCAPE_PRIORITY_NESTED_MODAL = 100;
 export const ESCAPE_PRIORITY_BLOCKING_DIALOG = 120;
 

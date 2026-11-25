@@ -128,6 +128,7 @@ export default function ProcurementPayablesHub({
     };
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
+        event.preventDefault();
         setIsToolsDropdownOpen(false);
       }
     };

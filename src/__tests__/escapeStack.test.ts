@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {
   ESCAPE_PRIORITY_DRAWER,
   ESCAPE_PRIORITY_STUDIO,
+  ESCAPE_PRIORITY_ELEVATED_DRAWER,
   ESCAPE_PRIORITY_NESTED_MODAL,
   ESCAPE_PRIORITY_BLOCKING_DIALOG,
   registerEscapeLayer,
@@ -30,7 +31,7 @@ function test(name: string, fn: () => void) {
 
 console.log('Running escapeStack unit tests...');
 
-test('priority ordering strictly resolves 120 > 100 > 80 > 60 regardless of registration order', () => {
+test('priority ordering strictly resolves 120 > 100 > 90 > 80 > 60 regardless of registration order', () => {
   const calls: string[] = [];
 
   // Register out of order to ensure priority beats registration order
@@ -62,9 +63,22 @@ test('priority ordering strictly resolves 120 > 100 > 80 > 60 regardless of regi
       calls.push('studio');
     }
   });
+  const unregElevated = registerEscapeLayer({
+    id: 'elevated-drawer',
+    priority: ESCAPE_PRIORITY_ELEVATED_DRAWER,
+    onEscape: () => {
+      calls.push('elevated');
+    }
+  });
 
   const snapshotIds = getEscapeStackSnapshot().map((entry) => entry.id);
-  assert.deepEqual(snapshotIds, ['blocking-dialog', 'nested-modal', 'studio', 'drawer']);
+  assert.deepEqual(snapshotIds, [
+    'blocking-dialog',
+    'nested-modal',
+    'elevated-drawer',
+    'studio',
+    'drawer'
+  ]);
 
   assert.equal(dispatchTopEscapeLayer().layerId, 'blocking-dialog');
   assert.deepEqual(calls, ['blocking']);
@@ -74,12 +88,16 @@ test('priority ordering strictly resolves 120 > 100 > 80 > 60 regardless of regi
   assert.deepEqual(calls, ['blocking', 'nested']);
   unregNested();
 
+  assert.equal(dispatchTopEscapeLayer().layerId, 'elevated-drawer');
+  assert.deepEqual(calls, ['blocking', 'nested', 'elevated']);
+  unregElevated();
+
   assert.equal(dispatchTopEscapeLayer().layerId, 'studio');
-  assert.deepEqual(calls, ['blocking', 'nested', 'studio']);
+  assert.deepEqual(calls, ['blocking', 'nested', 'elevated', 'studio']);
   unregStudio();
 
   assert.equal(dispatchTopEscapeLayer().layerId, 'drawer');
-  assert.deepEqual(calls, ['blocking', 'nested', 'studio', 'drawer']);
+  assert.deepEqual(calls, ['blocking', 'nested', 'elevated', 'studio', 'drawer']);
   unregDrawer();
 
   assert.equal(getEscapeStackSnapshot().length, 0);

@@ -1,4 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { Z_DRAWER } from '../constants/zIndex';
+import { useEscapeLayer } from '../hooks/useEscapeLayer';
+import { ESCAPE_PRIORITY_DRAWER } from '../utils/escapeStack';
 import {
   Building2,
   Users2,
@@ -173,21 +176,26 @@ export const CompanyDetailView: React.FC<CompanyDetailViewProps> = ({
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [activeExecutionTask, setActiveExecutionTask] = useState<CallLogEntry | null>(null);
 
-  // ESC key listener to dismiss drawer
-  useEffect(() => {
-    if (!isOpen) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        if (isHistoryOpen) {
-          setIsHistoryOpen(false);
-        } else {
-          onClose();
-        }
+  // Layered LIFO Escape dismissal via central escapeStack (LiveExecutionModal at 80 and CompanyEditModal at 100 sit strictly above)
+  useEscapeLayer(
+    isOpen && Boolean(company),
+    () => {
+      if (isHistoryOpen) {
+        setIsHistoryOpen(false);
+        return true;
       }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose, isHistoryOpen]);
+      const activeEl = document.activeElement as HTMLElement | null;
+      if (
+        activeEl &&
+        (activeEl.getAttribute('aria-expanded') === 'true' ||
+          activeEl.closest('[role="listbox"], [role="menu"], [data-dropdown-open="true"]'))
+      ) {
+        return false;
+      }
+      onClose();
+    },
+    ESCAPE_PRIORITY_DRAWER
+  );
 
   useEffect(() => {
     setIsHistoryOpen(false);
@@ -340,7 +348,7 @@ export const CompanyDetailView: React.FC<CompanyDetailViewProps> = ({
     <>
       {/* Backdrop */}
       <div
-        className="fixed inset-0 w-screen h-screen min-h-[100dvh] z-[95] bg-slate-900/50 backdrop-blur-xs transition-opacity"
+        className={`fixed inset-0 w-screen h-screen min-h-[100dvh] ${Z_DRAWER} bg-slate-900/50 backdrop-blur-xs transition-opacity`}
         onClick={onClose}
         aria-hidden="true"
       />
@@ -352,7 +360,7 @@ export const CompanyDetailView: React.FC<CompanyDetailViewProps> = ({
         aria-label={`Company Details for ${company.display_name}`}
         className={`fixed inset-y-0 right-0 w-full ${
           isHistoryOpen ? 'max-w-5xl' : 'max-w-xl'
-        } bg-white dark:bg-slate-900 shadow-2xl z-[95] flex flex-col border-l border-slate-200 dark:border-slate-800 transition-all duration-300 ease-in-out`}
+        } bg-white dark:bg-slate-900 shadow-2xl ${Z_DRAWER} flex flex-col border-l border-slate-200 dark:border-slate-800 transition-all duration-300 ease-in-out`}
       >
         {/* Fixed Header (shrink-0) */}
         <div className="shrink-0 p-5 sm:p-6 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-4">

@@ -105,6 +105,7 @@ export default function ProjectRegistry({
     };
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
+        event.preventDefault();
         setIsToolsDropdownOpen(false);
       }
     };

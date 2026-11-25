@@ -1,4 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { Z_STUDIO, Z_BLOCKING_DIALOG } from '../constants/zIndex';
+import { useEscapeLayer } from '../hooks/useEscapeLayer';
+import { ESCAPE_PRIORITY_STUDIO, ESCAPE_PRIORITY_BLOCKING_DIALOG } from '../utils/escapeStack';
 import { sanitizeAuditPayload } from '../utils/sanitizeAuditLog';
 import { mergeFreshSubComponentsIntoStudioSubs } from '../utils/catalogVariantUtils';
 import {
@@ -6020,10 +6023,47 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
     </div>
   );
 
+  // Layered LIFO Escape dismissal: prevent Escape from wiping dirty edits OR falling through to EnquiryDetail underneath
+  useEscapeLayer(
+    showCatalogModal,
+    () => {
+      setShowCatalogModal(false);
+    },
+    ESCAPE_PRIORITY_BLOCKING_DIALOG
+  );
+
+  useEscapeLayer(
+    true,
+    () => {
+      if (isExtracting || uploading || isSubmitting) {
+        return false;
+      }
+      const activeEl = document.activeElement as HTMLElement | null;
+      if (
+        activeEl &&
+        (activeEl.getAttribute('aria-expanded') === 'true' ||
+          activeEl.closest('[role="listbox"], [role="menu"], [data-dropdown-open="true"]'))
+      ) {
+        return false;
+      }
+      const hasDirtyContent =
+        Boolean(companySearch.trim()) ||
+        Boolean(subject.trim()) ||
+        Boolean(remarks.trim()) ||
+        attachments.length > 0 ||
+        lineItems.some((li) => Boolean(li.item_name?.trim()) || (Number(li.unit_price) || 0) > 0);
+      if (hasDirtyContent && !isReadOnly) {
+        return false;
+      }
+      onClose();
+    },
+    ESCAPE_PRIORITY_STUDIO
+  );
+
   return (
     <div 
       id="enquiry-form-drawer" 
-      className="fixed inset-0 bg-slate-950/40 backdrop-blur-xs z-50 flex justify-end"
+      className={`fixed inset-0 bg-slate-950/40 backdrop-blur-xs ${Z_STUDIO} flex justify-end`}
       onClick={(e) => {
         if (e.target === e.currentTarget) {
           if (isExtracting || uploading || isSubmitting) {
@@ -6045,7 +6085,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       <div 
         className={`fixed inset-y-0 right-0 w-full ${
           isPreviewActive ? 'max-w-[98vw] 2xl:max-w-[1600px]' : 'max-w-5xl'
-        } z-50 bg-white shadow-2xl flex flex-col md:flex-row transform-gpu transition-transform duration-200 ease-out border-l border-slate-200 overflow-hidden`}
+        } ${Z_STUDIO} bg-white shadow-2xl flex flex-col md:flex-row transform-gpu transition-transform duration-200 ease-out border-l border-slate-200 overflow-hidden`}
       >
         
         {/* Left Panel: File Preview or Smart Paste Text Preview (visible when isPreviewActive is true) */}
@@ -11670,7 +11710,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
       {/* Product Catalog Modal */}
       {showCatalogModal && (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center p-2 sm:p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-150">
+        <div className={`fixed inset-0 ${Z_BLOCKING_DIALOG} flex items-center justify-center p-2 sm:p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-150`}>
           <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-4xl w-full border border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col max-h-[96vh] sm:max-h-[90vh] overflow-hidden animate-in zoom-in-95 duration-150">
             {/* Header */}
             <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between shrink-0">

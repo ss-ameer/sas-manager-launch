@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { Z_DRAWER } from '../constants/zIndex';
 import { useEscapeLayer } from '../hooks/useEscapeLayer';
 import { ESCAPE_PRIORITY_DRAWER } from '../utils/escapeStack';
@@ -107,6 +108,7 @@ interface Company360ModalProps {
   onInitiateActivity?: (options: InitiateActivityOptions) => void;
   onExecuteTask?: (task: CallLogEntry) => void;
   onLaunchProcurement?: (ctx: ProcurementLaunchContext) => void;
+  zIndexClass?: string;
   escapePriority?: number;
 }
 
@@ -126,6 +128,7 @@ export default function Company360Modal({
   setContacts,
   setCallLogs,
   onClose,
+  zIndexClass = Z_DRAWER,
   escapePriority = ESCAPE_PRIORITY_DRAWER,
   onOpenEnquiry,
   onLogCallForCompany,
@@ -775,10 +778,10 @@ export default function Company360Modal({
     escapePriority
   );
 
-  if (!isModalVisible || !company) return null;
+  if (!isModalVisible || !company || typeof document === 'undefined') return null;
 
-  return (
-    <div className={`fixed inset-0 ${Z_DRAWER} bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 lg:p-6 overflow-hidden animate-fade-in`}>
+  return createPortal(
+    <div className={`fixed inset-0 ${zIndexClass} bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 lg:p-6 overflow-hidden animate-fade-in`}>
       <div className="w-full max-w-6xl max-h-[92vh] flex flex-col rounded-2xl bg-white dark:bg-slate-900 shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden my-auto">
         {/* Sticky Executive Dossier Header */}
         <div className="p-4 sm:p-5 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 text-slate-900 dark:text-slate-100 flex flex-col md:flex-row md:items-start justify-between gap-3 sm:gap-4 shrink-0">
@@ -2008,6 +2011,7 @@ export default function Company360Modal({
           }}
         />
       )}
-    </div>
+    </div>,
+    document.body
   );
 }

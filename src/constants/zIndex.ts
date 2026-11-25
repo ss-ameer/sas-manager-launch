@@ -15,8 +15,11 @@ export const Z_SIDEBAR = 'z-50';
 /** Primary detail drawers & top-level modals (EnquiryDetail, Company360Modal, TrashBinModal) */
 export const Z_DRAWER = 'z-[60]';
 
-/** Fullscreen studios & cross-cutting drawers (QuotationStudioModal, QuickActivityDrawer, LiveExecutionModal) */
+/** Fullscreen studios & cross-cutting drawers (QuotationStudioModal, QuickActivityDrawer, LiveExecutionModal, EnquiryForm) */
 export const Z_STUDIO = 'z-[80]';
+
+/** Elevated detail drawers opened over a Studio or QuickActivityDrawer (e.g. Company360Modal launched from QuickActivityDrawer or LiveExecutionModal) — strictly above Z_STUDIO (80) and strictly below Z_NESTED_MODAL (100) */
+export const Z_ELEVATED_DRAWER = 'z-[90]';
 
 /** Child modals launched from inside drawers or studios (CompanyEditModal, ContactModal, CallLogDetailModal, SaveToCatalogModal, CreateCompanyModal, ShareModal, PO builder, quote preview) */
 export const Z_NESTED_MODAL = 'z-[100]';

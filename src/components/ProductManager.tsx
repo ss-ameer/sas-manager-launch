@@ -194,6 +194,7 @@ export default function ProductManager({
     };
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        e.preventDefault();
         setIsToolsDropdownOpen(false);
       }
     };

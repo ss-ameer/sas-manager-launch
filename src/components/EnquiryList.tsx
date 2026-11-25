@@ -1025,7 +1025,10 @@ export default function EnquiryList({
       }
     };
     const handleEsc = (evt: KeyboardEvent) => {
-      if (evt.key === 'Escape') setShowToolsMenu(false);
+      if (evt.key === 'Escape') {
+        evt.preventDefault();
+        setShowToolsMenu(false);
+      }
     };
     document.addEventListener('mousedown', handleOutside);
     document.addEventListener('keydown', handleEsc);

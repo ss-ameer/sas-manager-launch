@@ -3,6 +3,8 @@ import { Company } from '../types';
 import { AlertTriangle, Building2, Phone, Mail, ShieldAlert, X, GitMerge, Plus } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import ResolutionManagerModal from './ResolutionManagerModal';
+import { useEscapeLayer } from '../hooks/useEscapeLayer';
+import { ESCAPE_PRIORITY_BLOCKING_DIALOG } from '../utils/escapeStack';
 
 export interface DuplicateMatchModalProps {
   isOpen: boolean;
@@ -61,9 +63,17 @@ export default function DuplicateMatchModal({
   onIgnore,
   onCancel,
 }: DuplicateMatchModalProps) {
-  if (!isOpen) return null;
-
   const handleDismiss = onClose || onCancel || (() => {});
+
+  useEscapeLayer(
+    isOpen,
+    () => {
+      handleDismiss();
+    },
+    ESCAPE_PRIORITY_BLOCKING_DIALOG
+  );
+
+  if (!isOpen) return null;
 
   // If passed directly via ResolutionManagerModal props without existingCompany, fallback to ResolutionManagerModal
   if (!existingCompany && (candidateName || matchReason || existingRecordName)) {

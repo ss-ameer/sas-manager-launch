@@ -1,4 +1,6 @@
 import React, { useState, useMemo } from 'react';
+import { useEscapeLayer } from '../hooks/useEscapeLayer';
+import { ESCAPE_PRIORITY_NESTED_MODAL } from '../utils/escapeStack';
 import { Enquiry, Company, Contact, Salesperson } from '../types';
 import { exportEnquiriesToCSV, EnquiryExportResult } from '../services/exportService';
 import { BRAND_CONFIG } from '../config';
@@ -62,16 +64,15 @@ export default function EnquiryExportModal({
     }
   }, [isOpen, isFiltered]);
 
-  // Handle escape key
-  React.useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isOpen) {
-        onClose();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
+  // Layered LIFO Escape dismissal via central escapeStack
+  useEscapeLayer(
+    isOpen,
+    () => {
+      if (isExporting) return false;
+      onClose();
+    },
+    ESCAPE_PRIORITY_NESTED_MODAL
+  );
 
   const activeEnquiriesToExport = scope === 'filtered' ? filteredEnquiries : allEnquiries;
 

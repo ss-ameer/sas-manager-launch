@@ -1,4 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { Z_BLOCKING_DIALOG } from '../constants/zIndex';
+import { useEscapeLayer } from '../hooks/useEscapeLayer';
+import { ESCAPE_PRIORITY_BLOCKING_DIALOG } from '../utils/escapeStack';
 import { Company, Contact, Workspace } from '../types';
 import { SYSTEM_INDUSTRY_TAXONOMY, isCompanyUntagged } from '../utils/defaults';
 import { useIndustryTaxonomy } from '../hooks/useIndustryTaxonomy';
@@ -220,17 +223,14 @@ export default function CompanyExportModal({
     }
   }, [taxonomySectors, activePreset]);
 
-  // Keyboard navigation: Escape closes modal
-  useEffect(() => {
-    if (!isOpen) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
+  // Layered LIFO Escape dismissal via central escapeStack
+  useEscapeLayer(
+    isOpen,
+    () => {
+      onClose();
+    },
+    ESCAPE_PRIORITY_BLOCKING_DIALOG
+  );
 
   // All available child sub-types for the currently selected parent sectors
   const availableSubtypesForSectors = useMemo(() => {
@@ -645,7 +645,7 @@ export default function CompanyExportModal({
       {/* ========================================================================= */}
       <div
         id="company-export-modal"
-        className="fixed inset-0 z-[120] flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-xs print:hidden animate-in fade-in duration-150 overflow-y-auto"
+        className={`fixed inset-0 ${Z_BLOCKING_DIALOG} flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-xs print:hidden animate-in fade-in duration-150 overflow-y-auto`}
         onClick={(e) => {
           if (e.target === e.currentTarget) onClose();
         }}

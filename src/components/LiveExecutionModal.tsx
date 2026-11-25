@@ -1,9 +1,13 @@
 import React, { useState, useEffect, useMemo, useRef, Suspense } from 'react';
 import { createPortal } from 'react-dom';
 import { lazyWithRetry, ModalLoadingFallback } from '../utils/lazyWithRetry';
-import { Z_STUDIO, Z_BLOCKING_DIALOG } from '../constants/zIndex';
+import { Z_STUDIO, Z_ELEVATED_DRAWER, Z_BLOCKING_DIALOG } from '../constants/zIndex';
 import { useEscapeLayer } from '../hooks/useEscapeLayer';
-import { ESCAPE_PRIORITY_STUDIO, ESCAPE_PRIORITY_BLOCKING_DIALOG } from '../utils/escapeStack';
+import {
+  ESCAPE_PRIORITY_STUDIO,
+  ESCAPE_PRIORITY_ELEVATED_DRAWER,
+  ESCAPE_PRIORITY_BLOCKING_DIALOG
+} from '../utils/escapeStack';
 import {
   X,
   Phone,
@@ -3006,11 +3010,11 @@ export default function LiveExecutionModal({
     ESCAPE_PRIORITY_STUDIO
   );
 
-  if (!isOpen) return null;
+  if (!isOpen || typeof document === 'undefined') return null;
 
   // Clean empty queue or completed queue state
   if (!currentTask || (activeQueue.length > 0 && currentIndex >= activeQueue.length)) {
-    return (
+    return createPortal(
       <div className={`fixed inset-0 ${Z_STUDIO} flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs animate-in fade-in duration-150`}>
         <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full border border-slate-200 dark:border-slate-800 shadow-2xl p-6 text-center space-y-4">
           <div className="w-14 h-14 bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 rounded-full flex items-center justify-center mx-auto">
@@ -3030,11 +3034,12 @@ export default function LiveExecutionModal({
             Close Command Center
           </button>
         </div>
-      </div>
+      </div>,
+      document.body
     );
   }
 
-  return (
+  return createPortal(
     <div className={`fixed inset-0 ${Z_STUDIO} bg-slate-950/50 backdrop-blur-xs flex items-center justify-center p-4`}>
       <div className={`relative w-full ${isHistoryExpanded ? 'max-w-6xl' : 'max-w-3xl'} bg-white border border-slate-200 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] transition-all duration-200`}>
         {/* Modal Header */}
@@ -5296,7 +5301,8 @@ export default function LiveExecutionModal({
             setCompanies={setCompanies}
             setContacts={setContacts}
             setCallLogs={setCallLogs}
-            escapePriority={ESCAPE_PRIORITY_STUDIO}
+            zIndexClass={Z_ELEVATED_DRAWER}
+            escapePriority={ESCAPE_PRIORITY_ELEVATED_DRAWER}
             onClose={() => setIsCompany360Open(false)}
           />
         </Suspense>
@@ -5359,6 +5365,7 @@ export default function LiveExecutionModal({
         </div>,
         document.body
       )}
-    </div>
+    </div>,
+    document.body
   );
 }

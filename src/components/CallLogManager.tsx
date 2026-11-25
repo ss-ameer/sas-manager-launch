@@ -901,7 +901,10 @@ export default function CallLogManager({
       }
     };
     const handleKeyDown = (evt: KeyboardEvent) => {
-      if (evt.key === 'Escape') setShowToolsMenu(false);
+      if (evt.key === 'Escape') {
+        evt.preventDefault();
+        setShowToolsMenu(false);
+      }
     };
     document.addEventListener('mousedown', handleOutsideClick);
     document.addEventListener('keydown', handleKeyDown);

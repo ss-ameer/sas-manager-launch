@@ -2,7 +2,8 @@ import React, { useState, useEffect, useMemo, useCallback, Suspense } from 'reac
 import { createPortal } from 'react-dom';
 import { lazyWithRetry, TabLoadingFallback, ModalLoadingFallback } from './utils/lazyWithRetry';
 import { auth, db, safeDeleteDoc, safeAddDoc, safeUpdateDoc, safeSetDoc, safeGetDoc, safeGetDocs, isQuotaCircuitBroken } from './firebase';
-import { Z_TOAST } from './constants/zIndex';
+import { Z_DRAWER, Z_ELEVATED_DRAWER, Z_TOAST } from './constants/zIndex';
+import { ESCAPE_PRIORITY_DRAWER, ESCAPE_PRIORITY_ELEVATED_DRAWER } from './utils/escapeStack';
 import { onAuthStateChanged } from 'firebase/auth';
 import { collection, onSnapshot, query, orderBy, doc, writeBatch, updateDoc, where, or, documentId, limit } from 'firebase/firestore';
 import { Company, Contact, Enquiry, Invite, AuditLog, Salesperson, UserProfile, Product, Project, DropdownOption, Workspace, CallLogEntry, CallStatus, WORKSPACE_STORAGE_KEY } from './types';
@@ -388,6 +389,7 @@ export default function App() {
   const [selectedEnquiryId, setSelectedEnquiryId] = useState<string | null>(null);
   const [autoOpenStudioForEnquiryId, setAutoOpenStudioForEnquiryId] = useState<string | null>(null);
   const [selected360CompanyId, setSelected360CompanyId] = useState<string | null>(null);
+  const [isCompany360ElevatedAboveActivity, setIsCompany360ElevatedAboveActivity] = useState(false);
   const [showEnquiryForm, setShowEnquiryForm] = useState(false);
   const [enquiryToEdit, setEnquiryToEdit] = useState<Enquiry | null>(null);
   const [showTrashBinModal, setShowTrashBinModal] = useState(false);
@@ -2644,7 +2646,12 @@ export default function App() {
             callLogs={workspaceCallLogs}
             user={user}
             activeWorkspace={activeWorkspace}
-            onClose={() => setSelected360CompanyId(null)}
+            zIndexClass={isCompany360ElevatedAboveActivity && isActivityDrawerOpen ? Z_ELEVATED_DRAWER : Z_DRAWER}
+            escapePriority={isCompany360ElevatedAboveActivity && isActivityDrawerOpen ? ESCAPE_PRIORITY_ELEVATED_DRAWER : ESCAPE_PRIORITY_DRAWER}
+            onClose={() => {
+              setSelected360CompanyId(null);
+              setIsCompany360ElevatedAboveActivity(false);
+            }}
             onOpenActivityDrawer={(context) => {
               setActivityDrawerContext(context);
               setIsActivityDrawerOpen(true);
@@ -2830,7 +2837,10 @@ export default function App() {
         <Suspense fallback={<ModalLoadingFallback />}>
           <QuickActivityDrawer
             isOpen={isActivityDrawerOpen}
-            onClose={() => setIsActivityDrawerOpen(false)}
+            onClose={() => {
+              setIsActivityDrawerOpen(false);
+              setIsCompany360ElevatedAboveActivity(false);
+            }}
             drawerMode={activityDrawerContext.drawerMode || (activityDrawerContext.existingLog || activityDrawerContext.logToEdit ? 'edit' : undefined)}
             existingLog={activityDrawerContext.existingLog || activityDrawerContext.logToEdit}
             logToEdit={activityDrawerContext.logToEdit || activityDrawerContext.existingLog}
@@ -2867,8 +2877,14 @@ export default function App() {
             callStatuses={callStatuses}
             callOutcomes={callOutcomes}
             callPurposes={callPurposes}
-            onOpen360={(companyId) => setSelected360CompanyId(companyId)}
-            onInspectCompany={(companyId) => setSelected360CompanyId(companyId)}
+            onOpen360={(companyId) => {
+              setIsCompany360ElevatedAboveActivity(true);
+              setSelected360CompanyId(companyId);
+            }}
+            onInspectCompany={(companyId) => {
+              setIsCompany360ElevatedAboveActivity(true);
+              setSelected360CompanyId(companyId);
+            }}
             onSave={(savedLog) => {
               setCallLogs((prev) => {
                 const exists = prev.some((l) => l.id === savedLog.id);
@@ -2889,6 +2905,7 @@ export default function App() {
             }}
             onSaveSuccess={() => {
               setIsActivityDrawerOpen(false);
+              setIsCompany360ElevatedAboveActivity(false);
               triggerToast('Activity logged successfully!', 'success');
             }}
           />

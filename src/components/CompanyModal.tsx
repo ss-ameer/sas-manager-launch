@@ -409,6 +409,7 @@ export default function CompanyModal({
     }
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === 'Escape') {
+        event.preventDefault();
         setIsExportDropdownOpen(false);
       }
     }
