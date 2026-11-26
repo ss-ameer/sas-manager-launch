@@ -14560,11 +14560,9 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                                               : Number(item.quantity ?? parentOrdSets)
                                           );
                                           const perSetSubQty = Math.max(0, Number(sub.quantity ?? 0));
-                                          const isFixedSubInAutoScale =
-                                            Boolean(item.scale_sub_components_with_parent) &&
-                                            sub.qty_mode === 'fixed';
+                                          const isFixedSub = sub.qty_mode === 'fixed';
                                           const isAlreadyMultiplied = Boolean((sub as any)._do_qty_multiplied);
-                                          const subOrd = isFixedSubInAutoScale
+                                          const subOrd = isFixedSub
                                             ? sub.qty_ordered !== undefined
                                               ? Number(sub.qty_ordered)
                                               : perSetSubQty
@@ -14577,7 +14575,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                                               )
                                             ? Number(sub.qty_ordered)
                                             : Math.round(perSetSubQty * parentOrdSets * 100) / 100;
-                                          const subDel = isFixedSubInAutoScale
+                                          const subDel = isFixedSub
                                             ? sub.qty_delivered !== undefined
                                               ? Number(sub.qty_delivered)
                                               : parentDelSets > 0
@@ -14592,7 +14590,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                                               )
                                             ? Number(sub.qty_delivered)
                                             : Math.round(perSetSubQty * parentDelSets * 100) / 100;
-                                          const subBal = isFixedSubInAutoScale
+                                          const subBal = isFixedSub
                                             ? sub.qty_balance !== undefined
                                               ? Number(sub.qty_balance)
                                               : Math.max(0, Math.round((subOrd - subDel) * 100) / 100)
@@ -14609,7 +14607,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                                             <>
                                               <td className={`py-1.5 px-1 text-center font-mono text-slate-600 align-top ${tableFontSize} whitespace-nowrap`}>
                                                 <div>{subOrd}</div>
-                                                {!isFixedSubInAutoScale && parentOrdSets > 1 && perSetSubQty > 0 && (
+                                                {!isFixedSub && parentOrdSets > 1 && perSetSubQty > 0 && (
                                                   <div className="text-[7.5px] text-slate-400 leading-none mt-0.5">
                                                     ({perSetSubQty}/set)
                                                   </div>
@@ -14617,7 +14615,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                                               </td>
                                               <td className={`py-1.5 px-1 text-center font-mono font-bold text-slate-800 align-top ${tableFontSize} whitespace-nowrap`}>
                                                 <div>{subDel}</div>
-                                                {!isFixedSubInAutoScale && parentDelSets > 1 && perSetSubQty > 0 && (
+                                                {!isFixedSub && parentDelSets > 1 && perSetSubQty > 0 && (
                                                   <div className="text-[7.5px] font-normal text-slate-400 leading-none mt-0.5">
                                                     ({perSetSubQty}/set)
                                                   </div>

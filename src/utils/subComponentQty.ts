@@ -81,3 +81,69 @@ export function formatSubComponentQty(qty: number): string {
     maximumFractionDigits: 4,
   });
 }
+
+export interface SubComponentDeliveryResolution {
+  qty_ordered: number;
+  qty_delivered: number;
+  qty_balance: number;
+  isFixed: boolean;
+}
+
+/**
+ * Resolves ordered, delivered, and balance quantities for a composite sub-component on a Delivery Note (DO).
+ *
+ * Backward-compatibility & Fixed-row guarantee:
+ * - When `sub.qty_mode === 'fixed'`, the row NEVER multiplies by parent ordered/delivered sets
+ *   (`qty_ordered = sub.quantity`, `qty_delivered = deliverNow > 0 ? sub.quantity : 0`).
+ * - When `sub.qty_mode !== 'fixed'`, multiplies by `orderedParentQty` / `deliverNowParentQty`
+ *   (preserving legacy per-set BOM Delivery Note behavior AND Q1 auto-scaled per-unit rows).
+ */
+export function resolveSubComponentDeliveryQuantities(
+  sub: Pick<LineItemComponent, 'quantity' | 'qty_mode'>,
+  orderedParentQty: number,
+  deliverNowParentQty: number
+): SubComponentDeliveryResolution {
+  const safeOrdParent = Math.max(1, Number(orderedParentQty) || 1);
+  const safeDelParent = Math.max(0, Number(deliverNowParentQty) || 0);
+  const isFixed = sub?.qty_mode === 'fixed';
+
+  if (isFixed) {
+    const fixedQty = resolveSubComponentDisplayQty(sub, safeOrdParent, true).effectiveQty;
+    const deliveredQty = safeDelParent > 0 ? fixedQty : 0;
+    const balanceQty = Math.max(0, roundQtyClean(fixedQty - deliveredQty));
+    return {
+      qty_ordered: fixedQty,
+      qty_delivered: deliveredQty,
+      qty_balance: balanceQty,
+      isFixed: true,
+    };
+  }
+
+  const totalSubOrd = resolveSubComponentDisplayQty(sub, safeOrdParent, true).effectiveQty;
+  const totalSubDel = resolveSubComponentDisplayQty(sub, safeDelParent, true).effectiveQty;
+  const totalSubBal = Math.max(0, roundQtyClean(totalSubOrd - totalSubDel));
+
+  return {
+    qty_ordered: totalSubOrd,
+    qty_delivered: totalSubDel,
+    qty_balance: totalSubBal,
+    isFixed: false,
+  };
+}
+
+/**
+ * Resolves the effective stock quantity required/reserved for a linked BOM sub-component.
+ *
+ * - `sub.qty_mode === 'fixed'` stays fixed at `sub.quantity` (never multiplied by `parentQty`).
+ * - `sub.qty_mode !== 'fixed'` scales by `parentQty` (preserving legacy pre-Q1 per-set BOM
+ *   stock reservations as well as Q1 auto-scaled per-unit rows).
+ */
+export function resolveSubComponentStockQty(
+  sub: Pick<LineItemComponent, 'quantity' | 'qty_mode'>,
+  parentQty: number
+): number {
+  const safeParent = Math.max(0, Number(parentQty) || 0);
+  if (safeParent <= 0) return 0;
+  return resolveSubComponentDisplayQty(sub, safeParent, true).effectiveQty;
+}
+

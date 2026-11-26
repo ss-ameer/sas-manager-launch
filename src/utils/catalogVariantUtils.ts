@@ -639,6 +639,9 @@ export function buildParentToVariantSyncPatch(
     patch.package_pricing_mode = isComposite
       ? parent.package_pricing_mode || 'itemized'
       : undefined;
+    patch.scale_sub_components_with_parent = isComposite
+      ? Boolean(parent.scale_sub_components_with_parent)
+      : undefined;
     patch.option_scope_notes =
       isComposite && (parent.option_scope_notes || '').trim()
         ? (parent.option_scope_notes || '').trim()
@@ -1451,6 +1454,7 @@ export function buildVariantSwitchLineItemFields(params: VariantSwitchCleanupPar
   is_composite_set: boolean;
   sub_components: LineItemComponent[] | undefined;
   package_pricing_mode: any;
+  scale_sub_components_with_parent: boolean | undefined;
   option_scope_notes?: string;
 } {
   const {
@@ -1508,6 +1512,18 @@ export function buildVariantSwitchLineItemFields(params: VariantSwitchCleanupPar
   const resolvedLeadTime = targetLead ?? existingLead;
 
   const hasScaledSubs = Array.isArray(scaledSubs) && scaledSubs.length > 0;
+  const targetScaleRaw =
+    (specVariant as ProductSpecVariant | Product | null | undefined)
+      ?.scale_sub_components_with_parent ?? catalogProduct.scale_sub_components_with_parent;
+  const resolvedScaleSubComponentsWithParent = hasScaledSubs
+    ? isSwitchingTarget
+      ? targetScaleRaw !== undefined
+        ? Boolean(targetScaleRaw)
+        : undefined
+      : targetScaleRaw !== undefined
+      ? Boolean(targetScaleRaw)
+      : existingItem?.scale_sub_components_with_parent
+    : undefined;
 
   return {
     lead_time_note: resolvedLeadTime,
@@ -1544,6 +1560,7 @@ export function buildVariantSwitchLineItemFields(params: VariantSwitchCleanupPar
           sub_components: scaledSubs,
           package_pricing_mode:
             specVariant?.package_pricing_mode || catalogProduct.package_pricing_mode || 'itemized',
+          scale_sub_components_with_parent: resolvedScaleSubComponentsWithParent,
           option_scope_notes:
             specVariant?.option_scope_notes ||
             catalogProduct.option_scope_notes ||
@@ -1552,7 +1569,8 @@ export function buildVariantSwitchLineItemFields(params: VariantSwitchCleanupPar
       : {
           is_composite_set: false,
           sub_components: undefined,
-          package_pricing_mode: undefined
+          package_pricing_mode: undefined,
+          scale_sub_components_with_parent: undefined
         })
   };
 }

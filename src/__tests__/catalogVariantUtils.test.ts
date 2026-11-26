@@ -959,6 +959,181 @@ describe('Fix F7: Payload Sanitization (P0-10) & Multi-Workspace Offline Cache M
 });
 
 // ==========================================
+// SUITE 7: TRACK Q1B — SUB-COMPONENT AUTO-SCALING & qty_mode VARIANT PARITY
+// ==========================================
+
+describe('Track Q1B: scale_sub_components_with_parent & qty_mode Parity', () => {
+  it('buildParentToVariantSyncPatch syncs scale_sub_components_with_parent and preserves sub-component qty_mode', () => {
+    const parentScaledComposite: Partial<Product> = {
+      id: 'parent_pkg',
+      name: 'RO Skid Package',
+      product_type: 'RO Systems',
+      is_composite_set: true,
+      package_pricing_mode: 'itemized',
+      scale_sub_components_with_parent: true,
+      sub_components: [
+        {
+          id: 'sc_1',
+          item_name: 'Membrane Vessel',
+          quantity: 2,
+          unit: 'Nos',
+          unit_price: 1200,
+          total_price: 2400,
+          qty_mode: 'per_unit'
+        },
+        {
+          id: 'sc_2',
+          item_name: 'Commissioning Lot',
+          quantity: 1,
+          unit: 'Lot',
+          unit_price: 900,
+          total_price: 900,
+          qty_mode: 'fixed'
+        }
+      ]
+    };
+
+    const childVariant: Partial<Product> = {
+      id: 'child_pkg_100',
+      sku: 'RO-100',
+      unit_price: 15000
+    };
+
+    const patchEnabled = buildParentToVariantSyncPatch(parentScaledComposite, childVariant, [
+      'sub_components'
+    ]);
+    expect(patchEnabled.is_composite_set).toBe(true);
+    expect(patchEnabled.scale_sub_components_with_parent).toBe(true);
+    expect(patchEnabled.sub_components?.[0]?.qty_mode).toBe('per_unit');
+    expect(patchEnabled.sub_components?.[1]?.qty_mode).toBe('fixed');
+
+    // Turning off auto-scale on parent explicitly pushes false to child
+    const patchDisabled = buildParentToVariantSyncPatch(
+      { ...parentScaledComposite, scale_sub_components_with_parent: false },
+      childVariant,
+      ['sub_components']
+    );
+    expect(patchDisabled.scale_sub_components_with_parent).toBe(false);
+
+    // Clearing composite status clears scale_sub_components_with_parent to undefined
+    const patchCleared = buildParentToVariantSyncPatch(
+      { ...parentScaledComposite, is_composite_set: false, sub_components: [] },
+      childVariant,
+      ['sub_components']
+    );
+    expect(patchCleared.is_composite_set).toBe(false);
+    expect(patchCleared.scale_sub_components_with_parent).toBe(undefined);
+  });
+
+  it('buildVariantSwitchLineItemFields transfers scale_sub_components_with_parent from target variant and clears stale scaling on unscaled or non-composite switches', () => {
+    const existingScaledItem = {
+      id: 'li_1',
+      product_id: 'prod_scaled_A',
+      sku: 'PKG-A',
+      item_name: 'Package A',
+      quantity: 2,
+      unit_price: 4000,
+      is_composite_set: true,
+      scale_sub_components_with_parent: true,
+      package_pricing_mode: 'lump_sum',
+      sub_components: [
+        { id: 'sc_a', item_name: 'Pump', quantity: 1, unit: 'Nos', unit_price: 0, total_price: 0, qty_mode: 'per_unit' as const }
+      ]
+    };
+
+    // 1. Switch to another scaled composite sibling -> transfers true
+    const scaledSibling = {
+      id: 'prod_scaled_B',
+      name: 'Package B',
+      sku: 'PKG-B',
+      product_type: 'Packages',
+      unit: 'SET',
+      unit_price: 5500,
+      is_composite_set: true,
+      scale_sub_components_with_parent: true,
+      package_pricing_mode: 'itemized',
+      sub_components: [
+        { id: 'sc_b', item_name: 'Pump B', quantity: 2, unit: 'Nos', unit_price: 1000, total_price: 2000, qty_mode: 'per_unit' as const }
+      ]
+    } as unknown as Product;
+
+    const toScaled = buildVariantSwitchLineItemFields({
+      existingItem: existingScaledItem,
+      catalogProduct: scaledSibling,
+      resolvedVariantProduct: scaledSibling,
+      specVariant: scaledSibling,
+      scaledSubs: scaledSibling.sub_components,
+      isVariantSwitch: true
+    });
+    expect(toScaled.is_composite_set).toBe(true);
+    expect(toScaled.scale_sub_components_with_parent).toBe(true);
+
+    // 2. Switch to an UNSCALED composite sibling -> clears stale true (does NOT leak!)
+    const unscaledCompositeSibling = {
+      id: 'prod_unscaled_C',
+      name: 'Package C',
+      sku: 'PKG-C',
+      product_type: 'Packages',
+      unit: 'SET',
+      unit_price: 3000,
+      is_composite_set: true,
+      package_pricing_mode: 'lump_sum',
+      sub_components: [
+        { id: 'sc_c', item_name: 'Legacy Sub', quantity: 1, unit: 'Nos', unit_price: 0, total_price: 0 }
+      ]
+    } as unknown as Product;
+
+    const toUnscaled = buildVariantSwitchLineItemFields({
+      existingItem: existingScaledItem,
+      catalogProduct: unscaledCompositeSibling,
+      resolvedVariantProduct: unscaledCompositeSibling,
+      specVariant: unscaledCompositeSibling,
+      scaledSubs: unscaledCompositeSibling.sub_components,
+      isVariantSwitch: true
+    });
+    expect(toUnscaled.is_composite_set).toBe(true);
+    expect(toUnscaled.scale_sub_components_with_parent).toBe(undefined);
+
+    // 3. Switch to a NON-composite sibling -> explicitly clears scale_sub_components_with_parent to undefined
+    const nonCompositeSibling = {
+      id: 'prod_single_D',
+      name: 'Standalone Unit D',
+      sku: 'UNIT-D',
+      product_type: 'Units',
+      unit: 'Nos',
+      unit_price: 1200
+    } as unknown as Product;
+
+    const toNonComposite = buildVariantSwitchLineItemFields({
+      existingItem: existingScaledItem,
+      catalogProduct: nonCompositeSibling,
+      resolvedVariantProduct: nonCompositeSibling,
+      specVariant: nonCompositeSibling,
+      scaledSubs: undefined,
+      isVariantSwitch: true
+    });
+    expect(toNonComposite.is_composite_set).toBe(false);
+    expect(toNonComposite.scale_sub_components_with_parent).toBe(undefined);
+
+    // 4. Re-syncing the SAME composite item when catalog has undefined preserves existingItem flag
+    const sameProductCatalog = {
+      ...unscaledCompositeSibling,
+      id: 'prod_scaled_A',
+      sku: 'PKG-A'
+    } as unknown as Product;
+    const sameResync = buildVariantSwitchLineItemFields({
+      existingItem: existingScaledItem,
+      catalogProduct: sameProductCatalog,
+      resolvedVariantProduct: sameProductCatalog,
+      specVariant: sameProductCatalog,
+      scaledSubs: existingScaledItem.sub_components,
+      isVariantSwitch: false
+    });
+    expect(sameResync.scale_sub_components_with_parent).toBe(true);
+  });
+});
+
+// ==========================================
 // TEST REPORT SUMMARY
 // ==========================================
 

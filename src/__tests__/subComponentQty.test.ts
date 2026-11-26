@@ -8,6 +8,8 @@
 import {
   resolveSubComponentDisplayQty,
   formatSubComponentQty,
+  resolveSubComponentDeliveryQuantities,
+  resolveSubComponentStockQty,
 } from '../utils/subComponentQty';
 import { recalculateCompositeItemTotals } from '../utils/compositeBomUtils';
 import { LineItemComponent } from '../types';
@@ -171,6 +173,85 @@ it('recalculates itemized composite totals consistently for both legacy and auto
   assertEqual(scaled.unit_price, 350, 'scaled parent unit_price (700 / 2)');
   assertEqual(scaled.normalizedComponents[0].total_price, 400, 'scaled per-unit sub total_price');
   assertEqual(scaled.normalizedComponents[1].total_price, 300, 'scaled fixed sub total_price');
+});
+
+// 8. Delivery Note (DO) quantity resolution: fixed rows stay constant, scaled/legacy per-set rows multiply
+it('resolves Delivery Note sub-component quantities without multiplying fixed rows while preserving legacy per-set BOM scaling', () => {
+  // Full delivery of 3 sets: per_unit (2/set) -> 6 ordered, 6 delivered, 0 balance
+  const perUnitFull = resolveSubComponentDeliveryQuantities(
+    { quantity: 2, qty_mode: 'per_unit' },
+    3,
+    3
+  );
+  assertEqual(perUnitFull.qty_ordered, 6, 'per_unit full ordered');
+  assertEqual(perUnitFull.qty_delivered, 6, 'per_unit full delivered');
+  assertEqual(perUnitFull.qty_balance, 0, 'per_unit full balance');
+  assertEqual(perUnitFull.isFixed, false, 'per_unit isFixed');
+
+  // Partial delivery (1 of 3 sets): per_unit (2/set) -> 6 ordered, 2 delivered, 4 balance
+  const perUnitPartial = resolveSubComponentDeliveryQuantities(
+    { quantity: 2, qty_mode: 'per_unit' },
+    3,
+    1
+  );
+  assertEqual(perUnitPartial.qty_ordered, 6, 'per_unit partial ordered');
+  assertEqual(perUnitPartial.qty_delivered, 2, 'per_unit partial delivered');
+  assertEqual(perUnitPartial.qty_balance, 4, 'per_unit partial balance');
+
+  // Legacy composite row (qty_mode undefined): preserves pre-Q1 per-set multiplication
+  const legacyPartial = resolveSubComponentDeliveryQuantities({ quantity: 2 }, 3, 2);
+  assertEqual(legacyPartial.qty_ordered, 6, 'legacy ordered');
+  assertEqual(legacyPartial.qty_delivered, 4, 'legacy delivered');
+  assertEqual(legacyPartial.qty_balance, 2, 'legacy balance');
+
+  // Fixed row (qty_mode === 'fixed'): NEVER multiplied by orderedQty or deliverNow
+  const fixedFull = resolveSubComponentDeliveryQuantities(
+    { quantity: 1, qty_mode: 'fixed' },
+    4,
+    4
+  );
+  assertEqual(fixedFull.qty_ordered, 1, 'fixed full ordered stays 1');
+  assertEqual(fixedFull.qty_delivered, 1, 'fixed full delivered stays 1');
+  assertEqual(fixedFull.qty_balance, 0, 'fixed full balance');
+  assertEqual(fixedFull.isFixed, true, 'fixed isFixed');
+
+  const fixedZeroDel = resolveSubComponentDeliveryQuantities(
+    { quantity: 2, qty_mode: 'fixed' },
+    5,
+    0
+  );
+  assertEqual(fixedZeroDel.qty_ordered, 2, 'fixed zero-delivery ordered stays 2');
+  assertEqual(fixedZeroDel.qty_delivered, 0, 'fixed zero-delivery delivered is 0');
+  assertEqual(fixedZeroDel.qty_balance, 2, 'fixed zero-delivery balance is 2');
+});
+
+// 9. Inventory stock requirement resolution: fixed rows never over-reserve; legacy/per-unit scale cleanly
+it('resolves stock reservation quantities for fixed vs per-unit vs legacy BOM sub-components', () => {
+  assertEqual(
+    resolveSubComponentStockQty({ quantity: 2, qty_mode: 'per_unit' }, 3),
+    6,
+    'per-unit scales 2x3=6'
+  );
+  assertEqual(
+    resolveSubComponentStockQty({ quantity: 2 }, 3),
+    6,
+    'legacy undefined qty_mode preserves 2x3=6'
+  );
+  assertEqual(
+    resolveSubComponentStockQty({ quantity: 1, qty_mode: 'fixed' }, 5),
+    1,
+    'fixed row stays 1 regardless of parentQty=5'
+  );
+  assertEqual(
+    resolveSubComponentStockQty({ quantity: 1, qty_mode: 'fixed' }, 0),
+    0,
+    'zero parentQty reserves 0 even for fixed rows'
+  );
+  assertEqual(
+    resolveSubComponentStockQty({ quantity: 0.1, qty_mode: 'per_unit' }, 3),
+    0.3,
+    'clean decimal rounding 0.1x3=0.3'
+  );
 });
 
 const passed = results.filter((r) => r.passed).length;

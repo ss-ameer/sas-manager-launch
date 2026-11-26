@@ -1270,6 +1270,7 @@ export function pullCatalogDefaultsToLineItem(
     is_composite_set: switchCleanedFields.is_composite_set,
     sub_components: switchCleanedFields.sub_components,
     package_pricing_mode: switchCleanedFields.package_pricing_mode,
+    scale_sub_components_with_parent: switchCleanedFields.scale_sub_components_with_parent,
     ...(switchCleanedFields.option_scope_notes !== undefined
       ? { option_scope_notes: switchCleanedFields.option_scope_notes }
       : {})
@@ -1511,6 +1512,9 @@ export async function saveLineItemAsSpecVariant(params: {
     specifications: specsMap,
     ...(scaledSubComponents ? { sub_components: scaledSubComponents, is_composite_set: true } : {}),
     ...(item.package_pricing_mode ? { package_pricing_mode: item.package_pricing_mode } : {}),
+    ...(item.scale_sub_components_with_parent !== undefined
+      ? { scale_sub_components_with_parent: Boolean(item.scale_sub_components_with_parent) }
+      : {}),
     ...(item.option_scope_notes ? { option_scope_notes: item.option_scope_notes } : {}),
     ...(item.image_url ? { image_url: item.image_url } : {}),
     createdAt:
@@ -1579,6 +1583,9 @@ export async function saveLineItemAsSpecVariant(params: {
     product_family: familyName || variantProductName,
     ...(scaledSubComponents ? { is_composite_set: true, sub_components: scaledSubComponents } : {}),
     ...(item.package_pricing_mode ? { package_pricing_mode: item.package_pricing_mode } : {}),
+    ...(item.scale_sub_components_with_parent !== undefined
+      ? { scale_sub_components_with_parent: Boolean(item.scale_sub_components_with_parent) }
+      : {}),
     ...(item.option_scope_notes ? { option_scope_notes: item.option_scope_notes } : {}),
     search_terms: searchTerms,
     is_inventoried: existingChildVariantProduct?.is_inventoried ?? false,

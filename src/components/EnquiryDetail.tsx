@@ -74,6 +74,7 @@ const QuotationDocument = lazyWithRetry(() =>
 const SaveToCatalogModal = lazyWithRetry(() => import('./SaveToCatalogModal'));
 import CompositePackageEditor from './quotations/CompositePackageEditor';
 import { cloneLineItemToNextOption, recalculateCompositeItemTotals, isOptionActiveForInventoryAndBaseline } from '../utils/compositeBomUtils';
+import { resolveSubComponentDeliveryQuantities } from '../utils/subComponentQty';
 import LineItemImageOptionsPopover from './common/LineItemImageOptionsPopover';
 import ImageLightboxModal from './common/ImageLightboxModal';
 import { recordAuditLog } from '../utils/auditLogger';
@@ -1652,14 +1653,12 @@ export default function EnquiryDetail({
       const deliverNow = remainingToDeliver > 0 ? remainingToDeliver : orderedQty;
       const nextSubComponents = Array.isArray(item.sub_components)
         ? item.sub_components.map((sub) => {
-            const perSetSubQty = Number(sub.quantity) || 0;
-            const totalSubOrd = Math.round(perSetSubQty * Math.max(1, orderedQty) * 100) / 100;
-            const totalSubDel = Math.round(perSetSubQty * Math.max(0, deliverNow) * 100) / 100;
+            const doRes = resolveSubComponentDeliveryQuantities(sub, orderedQty, deliverNow);
             return {
               ...sub,
-              qty_ordered: totalSubOrd,
-              qty_delivered: totalSubDel,
-              qty_balance: Math.max(0, Math.round((totalSubOrd - totalSubDel) * 100) / 100),
+              qty_ordered: doRes.qty_ordered,
+              qty_delivered: doRes.qty_delivered,
+              qty_balance: doRes.qty_balance,
               _do_qty_multiplied: true
             };
           })

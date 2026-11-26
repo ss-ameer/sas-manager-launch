@@ -18,6 +18,7 @@ import { MetadataRepository } from './repositories/MetadataRepository';
 import { QuotationRepository } from './repositories/QuotationRepository';
 import { getFromLocalStore } from './db';
 import { isOptionActiveForInventoryAndBaseline } from '../utils/compositeBomUtils';
+import { resolveSubComponentStockQty } from '../utils/subComponentQty';
 
 export { isOptionActiveForInventoryAndBaseline };
 
@@ -126,8 +127,7 @@ export function extractEffectiveStockRequirements(
       for (const sub of item.sub_components) {
         const resolvedSubPid = resolveCatalogProductIdSync(sub as any);
         if (!resolvedSubPid) continue;
-        const subQty = Math.max(0, Number(sub.quantity) || 0);
-        const totalSubQty = parentQty * subQty;
+        const totalSubQty = resolveSubComponentStockQty(sub, parentQty);
         if (totalSubQty <= 0) continue;
         const existing = aggregated.get(resolvedSubPid);
         aggregated.set(resolvedSubPid, {

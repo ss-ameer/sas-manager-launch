@@ -260,6 +260,7 @@ export default function ProductManager({
   const [formIsCompositeSet, setFormIsCompositeSet] = useState<boolean>(false);
   const [formSubComponents, setFormSubComponents] = useState<LineItemComponent[]>([]);
   const [formPackagePricingMode, setFormPackagePricingMode] = useState<'itemized' | 'lump_sum'>('itemized');
+  const [formScaleSubComponentsWithParent, setFormScaleSubComponentsWithParent] = useState<boolean>(false);
   const [formOptionScopeNotes, setFormOptionScopeNotes] = useState<string>('');
 
   // Tab 2: Specs, Image & Datasheet
@@ -1320,6 +1321,7 @@ export default function ProductManager({
     setFormIsCompositeSet(false);
     setFormSubComponents([]);
     setFormPackagePricingMode('itemized');
+    setFormScaleSubComponentsWithParent(false);
     setFormOptionScopeNotes('');
     setFormSku('');
     setIsSkuAutoManaged(false);
@@ -1365,6 +1367,7 @@ export default function ProductManager({
     setFormIsCompositeSet(Boolean(p.is_composite_set));
     setFormSubComponents((p.sub_components || []).map((c) => ({ ...c })));
     setFormPackagePricingMode(p.package_pricing_mode || 'itemized');
+    setFormScaleSubComponentsWithParent(Boolean(p.scale_sub_components_with_parent));
     setFormOptionScopeNotes(p.option_scope_notes || '');
     setFormSku(p.sku || '');
     setIsSkuAutoManaged(false);
@@ -1439,6 +1442,7 @@ export default function ProductManager({
     setFormIsCompositeSet(Boolean(parentProd.is_composite_set));
     setFormSubComponents((parentProd.sub_components || []).map((c, idx) => ({ ...c, id: `comp_${Date.now()}_${idx}` })));
     setFormPackagePricingMode(parentProd.package_pricing_mode || 'itemized');
+    setFormScaleSubComponentsWithParent(Boolean(parentProd.scale_sub_components_with_parent));
     setFormOptionScopeNotes(parentProd.option_scope_notes || '');
     setFormSku(nextVariantSku);
     setIsSkuAutoManaged(true);
@@ -1550,6 +1554,9 @@ export default function ProductManager({
       is_composite_set: formIsCompositeSet,
       sub_components: formIsCompositeSet ? formSubComponents : undefined,
       package_pricing_mode: formIsCompositeSet ? formPackagePricingMode : undefined,
+      scale_sub_components_with_parent: formIsCompositeSet
+        ? formScaleSubComponentsWithParent
+        : undefined,
       option_scope_notes:
         formIsCompositeSet && formOptionScopeNotes.trim()
           ? formOptionScopeNotes.trim()
@@ -1907,6 +1914,9 @@ export default function ProductManager({
           sub_components: clonedSubComponents,
           package_pricing_mode: effectiveParent.is_composite_set
             ? effectiveParent.package_pricing_mode || 'itemized'
+            : undefined,
+          scale_sub_components_with_parent: effectiveParent.is_composite_set
+            ? Boolean(effectiveParent.scale_sub_components_with_parent)
             : undefined,
           option_scope_notes: effectiveParent.is_composite_set
             ? effectiveParent.option_scope_notes || undefined
@@ -2682,6 +2692,7 @@ export default function ProductManager({
     setFormIsCompositeSet(Boolean(p.is_composite_set));
     setFormSubComponents((p.sub_components || []).map((c, idx) => ({ ...c, id: `comp_${Date.now()}_${idx}` })));
     setFormPackagePricingMode(p.package_pricing_mode || 'itemized');
+    setFormScaleSubComponentsWithParent(Boolean(p.scale_sub_components_with_parent));
     setFormOptionScopeNotes(p.option_scope_notes || '');
     setFormSku(p.sku ? `${p.sku}-COPY` : '');
     setFormBrandMake(p.brand_make || '');
@@ -2849,6 +2860,7 @@ export default function ProductManager({
       is_composite_set: formIsCompositeSet,
       sub_components: formIsCompositeSet ? formSubComponents : undefined,
       package_pricing_mode: formIsCompositeSet ? formPackagePricingMode : undefined,
+      scale_sub_components_with_parent: formIsCompositeSet ? formScaleSubComponentsWithParent : undefined,
       option_scope_notes: formIsCompositeSet && formOptionScopeNotes.trim() ? formOptionScopeNotes.trim() : undefined,
       sku: formSku.trim() || undefined,
       variant_parent_id: formVariantParentId || null,
@@ -5264,6 +5276,7 @@ export default function ProductManager({
                         onClick={() => {
                           setFormIsCompositeSet(true);
                           setFormPackagePricingMode('lump_sum');
+                          setFormScaleSubComponentsWithParent(false);
                           setFormSubComponents([
                             {
                               id: `comp_${Date.now()}_1`,
@@ -5300,8 +5313,10 @@ export default function ProductManager({
                           is_composite_set: formIsCompositeSet,
                           sub_components: formSubComponents,
                           package_pricing_mode: formPackagePricingMode,
+                          scale_sub_components_with_parent: formScaleSubComponentsWithParent,
                           option_scope_notes: formOptionScopeNotes
                         }}
+                        scaleSubComponentsWithParent={formScaleSubComponentsWithParent}
                         currency="AED"
                         products={activeCatalogProducts.filter((p) => p.id !== editingProduct?.id)}
                         setProducts={setProducts}
@@ -5315,6 +5330,9 @@ export default function ProductManager({
                           }
                           if (updates.package_pricing_mode !== undefined) {
                             setFormPackagePricingMode(updates.package_pricing_mode);
+                          }
+                          if (updates.scale_sub_components_with_parent !== undefined) {
+                            setFormScaleSubComponentsWithParent(Boolean(updates.scale_sub_components_with_parent));
                           }
                           if (updates.option_scope_notes !== undefined) {
                             setFormOptionScopeNotes(updates.option_scope_notes);

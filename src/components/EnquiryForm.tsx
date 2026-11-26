@@ -1205,6 +1205,7 @@ export default function EnquiryForm({
         is_composite_set: p.is_composite_set,
         sub_components: p.sub_components,
         package_pricing_mode: p.package_pricing_mode,
+        scale_sub_components_with_parent: p.scale_sub_components_with_parent,
         option_scope_notes: p.option_scope_notes,
         parent_product_id: (p as any).parent_product_id || p.variant_parent_id,
         variant_parent_id: p.variant_parent_id || (p as any).parent_product_id,
@@ -3207,6 +3208,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
         ...(item.is_composite_set ? { is_composite_set: true } : {}),
         ...(bomRollup ? { sub_components: bomRollup.normalizedComponents } : {}),
         ...(item.package_pricing_mode ? { package_pricing_mode: item.package_pricing_mode } : {}),
+        ...(item.scale_sub_components_with_parent ? { scale_sub_components_with_parent: true } : {}),
         ...(item.option_scope_notes ? { option_scope_notes: item.option_scope_notes } : {}),
         ...(isBaseTemplate && item.id ? ({ template_parent_id: item.id } as any) : {})
       };
@@ -5668,6 +5670,9 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   existingQuoteItem?.sub_components
                 ),
                 package_pricing_mode: li.package_pricing_mode ?? existingQuoteItem?.package_pricing_mode,
+                scale_sub_components_with_parent:
+                  li.scale_sub_components_with_parent ??
+                  existingQuoteItem?.scale_sub_components_with_parent,
                 specifications: li.specifications,
                 attributes: Array.isArray(li.attributes)
                   ? li.attributes
@@ -9365,6 +9370,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                 isCompositeSet={true}
                                 subComponents={item.sub_components || []}
                                 packagePricingMode={item.package_pricing_mode || 'itemized'}
+                                scaleSubComponentsWithParent={Boolean(item.scale_sub_components_with_parent)}
                                 optionScopeNotes={item.option_scope_notes || ''}
                                 parentQuantity={item.quantity || 1}
                                 currency={formCurrency || 'AED'}
@@ -12484,6 +12490,9 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 is_composite_set: newProduct.is_composite_set ?? current.is_composite_set,
                 sub_components: scaledSubs,
                 package_pricing_mode: newProduct.package_pricing_mode ?? current.package_pricing_mode,
+                scale_sub_components_with_parent:
+                  newProduct.scale_sub_components_with_parent ??
+                  current.scale_sub_components_with_parent,
                 option_scope_notes: newProduct.option_scope_notes ?? current.option_scope_notes,
                 attributes:
                   newProduct.attributes && newProduct.attributes.length > 0
