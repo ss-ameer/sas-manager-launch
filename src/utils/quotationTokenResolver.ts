@@ -1288,18 +1288,35 @@ export function buildQuotationTokenMap(ctx?: QuotationTokenContext | null): Reco
       ? quoteRef.split('/')[0].trim()
       : '';
 
+  const isInternalProfileLabel = (val?: string | null): boolean => {
+    const clean = nonTagValue(val);
+    if (!clean) return true;
+    return (
+      /^commercial\s+entity\s+llc$/i.test(clean) ||
+      /^standard\s+legal/i.test(clean) ||
+      /\b(?:legal|standard|default|commercial|corporate|master|primary|main|company|workspace|document)\s+profile\b/i.test(
+        clean
+      ) ||
+      /^profile(?:\s+#?\d+)?$/i.test(clean)
+    );
+  };
+
+  const validBrandCandidate = (val?: string | null): string => {
+    const clean = nonTagValue(val);
+    return clean && !isInternalProfileLabel(clean) ? clean : '';
+  };
+
   const rawBrandCandidate =
-    nonTagValue(q.companyNameOverride) ||
-    nonTagValue(q.header_config?.companyNameOverride) ||
-    nonTagValue(prof.profile_name) ||
-    nonTagValue(prof.legal_entity_name) ||
-    nonTagValue((prof as any)?.company_name) ||
-    (nonTagValue(senderSnap.entity_name) &&
-    nonTagValue(senderSnap.entity_name) !== 'Commercial Entity LLC'
-      ? nonTagValue(senderSnap.entity_name)
-      : '') ||
-    quotePrefixBrand ||
-    nonTagValue(safeCtx.workspaceName) ||
+    validBrandCandidate(q.companyNameOverride) ||
+    validBrandCandidate(q.header_config?.companyNameOverride) ||
+    validBrandCandidate((prof as any)?.brand_name) ||
+    validBrandCandidate((prof as any)?.short_brand) ||
+    validBrandCandidate(prof.legal_entity_name) ||
+    validBrandCandidate((prof as any)?.company_name) ||
+    validBrandCandidate(senderSnap.entity_name) ||
+    validBrandCandidate(quotePrefixBrand) ||
+    validBrandCandidate(safeCtx.workspaceName) ||
+    validBrandCandidate(prof.profile_name) ||
     'AVENTURA';
 
   const companyBrand =

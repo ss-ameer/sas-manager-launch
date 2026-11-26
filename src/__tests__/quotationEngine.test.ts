@@ -60,6 +60,7 @@ import {
   hasDynamicAtTag,
   sanitizePresetDynamicTemplate,
   resolveQuotationTokens,
+  resolvePdfFilename,
   buildQuotationTokenMap,
   findUnknownAtTokensInQuotation,
   QUOTATION_AT_TAGS
@@ -5377,6 +5378,56 @@ describe('27. Fix F10 — Option Badges, Filtered Optional Totals, @tag Scanner 
     expect(effectivePage1Header.canRenderPageNumber).toBe(false);
     expect(effectivePage1Header.rightMetadataText).toBe('10 May 2026 • QT-2026-010');
     expect(effectivePage1Header.rightMetadataText.includes('Page')).toBe(false);
+  });
+
+  it('U13. @company_brand never emits internal profile labels such as "Standard Legal Profile" when a workspace/company brand is present', () => {
+    const baseQuote: Partial<Quotation> = {
+      id: 'q_u13_brand',
+      formatted_quote_ref: 'AVENTURA/QT/VWS/2891-251126',
+      subject: 'Sand Filter Media',
+      status: 'Draft'
+    };
+
+    // Case 1: Profile has internal label "Standard Legal Profile" + real legal_entity_name
+    const mapWithLegalEntity = buildQuotationTokenMap({
+      quotation: baseQuote,
+      profile: {
+        profile_name: 'Standard Legal Profile',
+        legal_entity_name: 'AVENTURA COMPONENTS LLC'
+      } as Partial<WorkspaceDocumentProfile>,
+      workspaceName: 'AVENTURA'
+    });
+    expect(mapWithLegalEntity.company_brand).toBe('AVENTURA');
+    expect(mapWithLegalEntity.company_brand.includes('Standard Legal Profile')).toBe(false);
+
+    // Case 2: Profile has internal label "Standard Legal Profile" and no legal_entity_name -> falls back to workspace/prefix brand
+    const mapWithWorkspaceOnly = buildQuotationTokenMap({
+      quotation: {
+        ...baseQuote,
+        formatted_quote_ref: 'QT-2891-251126'
+      },
+      profile: {
+        profile_name: 'Standard Legal Profile'
+      } as Partial<WorkspaceDocumentProfile>,
+      workspaceName: 'AVENTURA'
+    });
+    expect(mapWithWorkspaceOnly.company_brand).toBe('AVENTURA');
+    expect(mapWithWorkspaceOnly.company_brand.includes('Standard Legal Profile')).toBe(false);
+
+    // Case 3: End-to-end PDF filename pattern never emits "Standard Legal Profile"
+    const resolvedFilename = resolvePdfFilename(
+      '@quote_short_ref_@company_brand Proposal for @subject. @client_code',
+      {
+        quotation: baseQuote,
+        profile: {
+          profile_name: 'Standard Legal Profile',
+          legal_entity_name: 'AVENTURA COMPONENTS LLC'
+        } as Partial<WorkspaceDocumentProfile>,
+        workspaceName: 'AVENTURA'
+      }
+    );
+    expect(resolvedFilename.includes('Standard Legal Profile')).toBe(false);
+    expect(resolvedFilename.includes('2891-251126_AVENTURA')).toBe(true);
   });
 });
 

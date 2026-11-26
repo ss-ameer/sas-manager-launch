@@ -113,6 +113,7 @@ export interface AtMentionInputProps
   compact?: boolean;
   inputRefProp?: (el: HTMLInputElement | HTMLTextAreaElement | null) => void;
   allowNewlines?: boolean; // default true in Studio so Enter/Shift+Enter inserts line breaks
+  rows?: number;
 }
 
 export const AtMentionInput: React.FC<AtMentionInputProps> = ({
@@ -123,6 +124,7 @@ export const AtMentionInput: React.FC<AtMentionInputProps> = ({
   compact: _compact,
   inputRefProp,
   allowNewlines = true,
+  rows,
   className = '',
   onKeyDown,
   onBlur,
@@ -252,13 +254,15 @@ export const AtMentionInput: React.FC<AtMentionInputProps> = ({
   };
 
   const lineCount = Math.max(1, String(value ?? '').split('\n').length);
+  const hasCustomResize = /\bresize-(?:none|x|y|both)\b/.test(className);
+  const hasCustomPr = /\bpr-\d/.test(className);
 
   return (
     <div className="relative w-full">
       <div className="relative flex items-center w-full">
         <textarea
           {...(rest as React.TextareaHTMLAttributes<HTMLTextAreaElement>)}
-          rows={Math.min(5, lineCount)}
+          rows={rows ?? Math.min(5, lineCount)}
           ref={(el) => {
             inputRef.current = el;
             inputRefProp?.(el);
@@ -318,7 +322,7 @@ export const AtMentionInput: React.FC<AtMentionInputProps> = ({
           onBlur={(e) => {
             onBlur?.(e as any);
           }}
-          className={`${className} resize-y min-h-[28px] leading-snug ${showQuickAtButton ? 'pr-6' : ''}`}
+          className={`${className} ${hasCustomResize ? '' : 'resize-y'} min-h-[28px] leading-snug ${showQuickAtButton && !hasCustomPr ? 'pr-6' : ''}`}
         />
         {showQuickAtButton && (
           <button
@@ -326,7 +330,7 @@ export const AtMentionInput: React.FC<AtMentionInputProps> = ({
             tabIndex={-1}
             onClick={handleOpenPickerButton}
             title="Insert @ data tag (or type @ anywhere)"
-            className="absolute right-1.5 top-2 p-0.5 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition cursor-pointer"
+            className="absolute right-2 top-2 p-0.5 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition cursor-pointer"
           >
             <AtSign className="w-3 h-3" />
           </button>

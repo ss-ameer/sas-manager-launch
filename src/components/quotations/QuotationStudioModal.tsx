@@ -2731,6 +2731,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       '@quote_short_ref_@company_brand Proposal for @subject. @client_code'
     );
   });
+  const [isDraftDateNoticeDismissed, setIsDraftDateNoticeDismissed] = useState<boolean>(false);
 
   // Sales representative / Prepared By inheritance (prioritizes Enquiry's assigned salesperson over logged-in user)
   const [preparedBy, setPreparedBy] = useState<string>(() => {
@@ -6291,7 +6292,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                 {isParentFamily && (
                   <span className="px-1.5 py-0.2 rounded bg-purple-50 text-purple-700 border border-purple-200 text-[9px] font-bold">
                     {childVariants.length > 0
-                      ? `Parent Family (${childVariants.length} Variants)`
+                      ? `Parent Family (${childVariants.length} ${childVariants.length === 1 ? 'Variant' : 'Variants'})`
                       : 'Base Template'}
                   </span>
                 )}
@@ -6312,7 +6313,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
             ) : (
               <span className="shrink-0 font-mono text-[10.5px] font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100">
                 {parentPriceNum > 0
-                  ? `${effectiveProd.currency || 'AED'} ${parentPriceNum.toLocaleString(undefined, {
+                  ? `${effectiveProd.currency || 'AED'} ${parentPriceNum.toLocaleString('en-US', {
                       minimumFractionDigits: 2,
                       maximumFractionDigits: 2
                     })}`
@@ -6362,7 +6363,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                     <span className="font-mono text-[9.5px] opacity-85">
                       —{' '}
                       {cvPriceNum > 0
-                        ? `${resolvedCv.currency || 'AED'} ${cvPriceNum.toLocaleString(undefined, {
+                        ? `${resolvedCv.currency || 'AED'} ${cvPriceNum.toLocaleString('en-US', {
                             minimumFractionDigits: 2,
                             maximumFractionDigits: 2
                           })}`
@@ -6392,7 +6393,11 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                   className="px-2 py-0.5 rounded-md bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 text-[10px] font-medium transition cursor-pointer"
                   title="Insert the Master Parent record directly"
                 >
-                  Insert Parent ({effectiveProd.currency || 'AED'} {parentPriceNum.toLocaleString()})
+                  Insert Parent ({effectiveProd.currency || 'AED'}{' '}
+                  {parentPriceNum.toLocaleString('en-US', {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2
+                  })})
                 </button>
               )}
             </div>
@@ -10890,12 +10895,13 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         </header>
 
         {/* Smart Stale Draft Date Banner */}
-        {(quotationStatus || 'Draft') === 'Draft' &&
+        {!isDraftDateNoticeDismissed &&
+          (quotationStatus || 'Draft') === 'Draft' &&
           quotationIssueDate &&
           quotationIssueDate !== new Date().toISOString().slice(0, 10) && (
             <div className="px-6 py-1.5 bg-blue-50 border-b border-blue-200 flex items-center justify-between gap-3 flex-wrap text-xs text-blue-900 shrink-0 print:hidden">
-              <div className="flex items-center gap-2">
-                <span className="px-2 py-0.5 rounded bg-blue-600 text-white font-mono font-bold text-[10px] uppercase">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="px-2 py-0.5 rounded bg-blue-600 text-white font-mono font-bold text-[10px] uppercase shrink-0">
                   Draft Date Notice
                 </span>
                 <span>
@@ -10910,17 +10916,28 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                   — would you like to update it to today before sending or printing?
                 </span>
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  const todayStr = new Date().toISOString().slice(0, 10);
-                  setQuotationIssueDate(todayStr);
-                  triggerToast?.('Issue Date updated to today and Valid Until recalculated.', 'success');
-                }}
-                className="px-2.5 py-1 rounded-md bg-blue-600 hover:bg-blue-700 text-white font-semibold text-[11px] transition cursor-pointer shadow-2xs"
-              >
-                Update Date to Today ({new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })})
-              </button>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const todayStr = new Date().toISOString().slice(0, 10);
+                    setQuotationIssueDate(todayStr);
+                    triggerToast?.('Issue Date updated to today and Valid Until recalculated.', 'success');
+                  }}
+                  className="px-2.5 py-1 rounded-md bg-blue-600 hover:bg-blue-700 text-white font-semibold text-[11px] transition cursor-pointer shadow-2xs"
+                >
+                  Update Date to Today ({new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsDraftDateNoticeDismissed(true)}
+                  title="Dismiss notice for this session"
+                  aria-label="Dismiss draft date notice"
+                  className="p-1 rounded-md text-blue-600 hover:text-blue-900 hover:bg-blue-100/80 transition cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
             </div>
           )}
 
@@ -11717,8 +11734,9 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                         value={pdfFilenamePattern}
                         onChange={setPdfFilenamePattern}
                         tokenContext={studioTokenContext}
+                        rows={3}
                         placeholder="@quote_short_ref_@company_brand Proposal for @subject. @client_code"
-                        className="w-full px-2.5 py-1.5 text-xs font-mono bg-white border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        className="w-full pl-2.5 pr-9 py-1.5 text-xs font-mono bg-white border border-slate-200 rounded-lg text-slate-800 resize-none focus:outline-none focus:ring-1 focus:ring-blue-500"
                       />
                     </div>
 
@@ -14508,7 +14526,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                               <span>+ Catalog</span>
                             </button>
                             {studioCatalogPickerLocation === 'sidebar' && (
-                              <div className="absolute right-0 top-full mt-1.5 w-80 max-w-[calc(100vw-2rem)] bg-white border border-slate-200 rounded-xl shadow-xl z-50 p-2.5 space-y-2">
+                              <div className="absolute right-0 top-full mt-1.5 w-80 max-w-[calc(100vw-2rem)] bg-white border border-slate-300/90 ring-1 ring-slate-900/5 rounded-xl shadow-2xl z-50 p-2.5 space-y-2">
                                 <div className="flex items-center justify-between gap-2 pb-1 border-b border-slate-100">
                                   <span className="text-[11px] font-bold text-slate-800 flex items-center gap-1.5">
                                     <Package className="w-3.5 h-3.5 text-indigo-600" />
@@ -14530,7 +14548,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                   placeholder="Search SKU, name, brand, model, variant..."
                                   className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-300 bg-slate-50 focus:bg-white focus:outline-none focus:border-indigo-500"
                                 />
-                                <div className="max-h-72 overflow-y-auto divide-y divide-slate-100">
+                                <div className="max-h-72 overflow-y-auto divide-y divide-slate-100 pb-2">
                                   {renderStudioCatalogPopoverItems()}
                                 </div>
                               </div>
@@ -15069,14 +15087,14 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
 
                       {companySealUrl && (
                         <div className="flex items-center justify-between gap-2 p-2 rounded-lg bg-slate-50 border border-slate-200">
-                          <div className="flex items-center gap-2 min-w-0">
+                          <div className="flex items-center gap-2 min-w-0 flex-1">
                             <img
                               src={companySealUrl}
                               alt="Stamp Preview"
-                              className="h-12 w-12 object-contain border border-slate-200 rounded bg-white p-1 shrink-0"
+                              className="h-10 w-10 object-contain border border-slate-200 rounded bg-white p-1 shrink-0"
                             />
-                            <span className="text-[10.5px] text-slate-600 font-medium truncate">
-                              Custom Stamp / Seal Active
+                            <span className="text-[11px] text-slate-700 font-medium truncate">
+                              Stamp Active
                             </span>
                           </div>
                           <button
@@ -15086,9 +15104,10 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                               setFooterConfig((prev) => ({ ...prev, companySealUrl: '' }));
                             }}
                             className="px-2 py-1 rounded-md text-[10px] font-semibold text-rose-600 hover:bg-rose-50 border border-rose-200 transition cursor-pointer shrink-0 flex items-center gap-1"
+                            title="Remove Company Stamp / Seal"
                           >
                             <Trash2 className="w-3 h-3" />
-                            <span>Remove Stamp</span>
+                            <span>Remove</span>
                           </button>
                         </div>
                       )}
@@ -15110,14 +15129,14 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
 
                         {signatureImageUrl && (
                           <div className="flex items-center justify-between gap-2 p-2 rounded-lg bg-slate-50 border border-slate-200">
-                            <div className="flex items-center gap-2 min-w-0">
+                            <div className="flex items-center gap-2 min-w-0 flex-1">
                               <img
                                 src={signatureImageUrl}
                                 alt="Signature Preview"
-                                className="h-10 w-20 object-contain border border-slate-200 rounded bg-white p-1 shrink-0"
+                                className="h-10 w-16 object-contain border border-slate-200 rounded bg-white p-1 shrink-0"
                               />
-                              <span className="text-[10.5px] text-slate-600 font-medium truncate">
-                                Digital Signature Active
+                              <span className="text-[11px] text-slate-700 font-medium truncate">
+                                Signature Active
                               </span>
                             </div>
                             <button
@@ -15127,6 +15146,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                 setFooterConfig((prev) => ({ ...prev, signatureImageUrl: '' }));
                               }}
                               className="px-2 py-1 rounded-md text-[10px] font-semibold text-rose-600 hover:bg-rose-50 border border-rose-200 transition cursor-pointer shrink-0 flex items-center gap-1"
+                              title="Remove Authorized Signature"
                             >
                               <Trash2 className="w-3 h-3" />
                               <span>Remove</span>
@@ -15157,7 +15177,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                           <select
                             value={selectedBankId}
                             onChange={(e) => handleSelectBank(e.target.value)}
-                            className="w-full rounded-lg border border-slate-300 p-2 text-slate-800 text-xs bg-white font-medium focus:ring-2 focus:ring-blue-500"
+                            className="w-full rounded-lg border border-slate-300 py-2 pl-2.5 pr-8 text-slate-800 text-xs bg-white font-medium truncate focus:ring-2 focus:ring-blue-500"
                           >
                             {bankRegistry.map((b) => {
                               const acctLabel = b.accountNumber ? b.accountNumber : (b.iban || 'No Acct');
@@ -15350,7 +15370,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                             {flyerAttachments.filter((a) => (a.page_placement || (a.render_as_annex_page === false ? 'index_only' : 'annex_after')) !== 'index_only' && a.url).length} A4 Sheet(s)
                           </span>
                         </div>
-                        <div className="space-y-2 max-h-80 overflow-y-auto pr-0.5">
+                        <div className="space-y-2">
                           {flyerAttachments.map((att, idx) => {
                             const attId = att.id || `annex_${idx}`;
                             const activePlacement: 'cover_before' | 'annex_after' | 'index_only' =
@@ -15370,24 +15390,24 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                 key={attId}
                                 className="p-2.5 rounded-xl border border-slate-200 bg-slate-50/70 space-y-2"
                               >
-                                <div className="flex items-center gap-2">
-                                  {/* 40x40px Thumbnail Preview */}
+                                <div className="flex items-center gap-1.5">
+                                  {/* 32x32px Thumbnail Preview */}
                                   {att.url ? (
-                                    <div className="w-10 h-10 rounded border border-slate-200 bg-white overflow-hidden shrink-0 flex items-center justify-center">
+                                    <div className="w-8 h-8 rounded border border-slate-200 bg-white overflow-hidden shrink-0 flex items-center justify-center">
                                       <PdfOrImageSheetRenderer
                                         url={att.url}
                                         name={att.name || `Attachment ${idx + 1}`}
                                         type={att.type}
-                                        className="w-10 h-10 object-cover block"
+                                        className="w-8 h-8 object-cover block"
                                       />
                                     </div>
                                   ) : (
-                                    <div className="w-10 h-10 rounded border border-slate-200 bg-white flex items-center justify-center text-slate-400 shrink-0">
-                                      <FileText className="w-4 h-4" />
+                                    <div className="w-8 h-8 rounded border border-slate-200 bg-white flex items-center justify-center text-slate-400 shrink-0">
+                                      <FileText className="w-3.5 h-3.5" />
                                     </div>
                                   )}
 
-                                  <span className="w-5 h-5 rounded-md bg-slate-200 text-slate-700 font-mono font-bold text-[10px] flex items-center justify-center shrink-0">
+                                  <span className="px-1 h-5 rounded bg-slate-200 text-slate-700 font-mono font-bold text-[10px] flex items-center justify-center shrink-0">
                                     #{idx + 1}
                                   </span>
                                   <input
@@ -15397,7 +15417,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                       handleUpdateAttachment(attId, { name: e.target.value })
                                     }
                                     className="flex-1 min-w-0 rounded-md border border-slate-300 px-2 py-1 text-xs bg-white text-slate-800 font-medium"
-                                    placeholder="Optional Display Title (leave blank or uncheck below to hide)"
+                                    placeholder="Display title (optional)"
                                   />
                                   <div className="flex items-center gap-0.5 shrink-0">
                                     <button
@@ -15434,15 +15454,15 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                   {[
                                     {
                                       id: 'cover_before' as const,
-                                      label: '📘 Cover Page',
-                                      sub: 'Before Page 1'
+                                      label: 'Cover',
+                                      sub: 'Before Pg 1'
                                     },
                                     {
                                       id: 'annex_after' as const,
-                                      label: '📄 Annex Sheet',
+                                      label: 'Annex',
                                       sub: `After ${
                                         documentType === 'delivery_note'
-                                          ? 'Delivery Note'
+                                          ? 'DO'
                                           : documentType === 'receipt'
                                           ? 'Receipt'
                                           : documentType === 'purchase_order'
@@ -15452,13 +15472,13 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                           : documentType === 'material_return'
                                           ? 'MRN'
                                           : documentType === 'debit_note'
-                                          ? 'Debit Note'
+                                          ? 'DN'
                                           : 'Quote'
                                       }`
                                     },
                                     {
                                       id: 'index_only' as const,
-                                      label: '📎 List Only',
+                                      label: 'List Only',
                                       sub: 'No A4 Sheet'
                                     }
                                   ].map((opt) => {
@@ -15473,14 +15493,14 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                             render_as_annex_page: opt.id !== 'index_only'
                                           })
                                         }
-                                        className={`py-1.5 px-1.5 rounded-lg border text-center transition cursor-pointer flex flex-col items-center justify-center ${
+                                        className={`py-1.5 px-1 rounded-lg border text-center transition cursor-pointer flex flex-col items-center justify-center ${
                                           active
                                             ? 'border-blue-600 bg-blue-600 text-white shadow-2xs'
                                             : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-100'
                                         }`}
                                       >
-                                        <span className="text-[10px] font-semibold leading-tight">{opt.label}</span>
-                                        <span className={`text-[8.5px] leading-tight mt-0.5 ${active ? 'text-blue-100' : 'text-slate-400'}`}>
+                                        <span className="text-[10.5px] font-semibold leading-tight whitespace-nowrap">{opt.label}</span>
+                                        <span className={`text-[9px] leading-tight mt-0.5 whitespace-nowrap ${active ? 'text-blue-100' : 'text-slate-400'}`}>
                                           {opt.sub}
                                         </span>
                                       </button>
@@ -20099,7 +20119,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                       )}
 
                       {studioCatalogPickerLocation === 'inspector' && (
-                        <div className="absolute left-3 right-3 top-full mt-1.5 bg-white border border-slate-200 rounded-xl shadow-xl z-50 p-2.5 space-y-2">
+                        <div className="absolute left-3 right-3 top-full mt-1.5 bg-white border border-slate-300/90 ring-1 ring-slate-900/5 rounded-xl shadow-2xl z-50 p-2.5 space-y-2">
                           <div className="flex items-center justify-between gap-2 pb-1 border-b border-slate-100">
                             <span className="text-[11px] font-bold text-slate-800 flex items-center gap-1.5">
                               <Package className="w-3.5 h-3.5 text-indigo-600" />
@@ -20121,7 +20141,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                             placeholder="Search SKU, name, brand, model, variant..."
                             className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-300 bg-slate-50 focus:bg-white focus:outline-none focus:border-indigo-500"
                           />
-                          <div className="max-h-72 overflow-y-auto divide-y divide-slate-100">
+                          <div className="max-h-72 overflow-y-auto divide-y divide-slate-100 pb-2">
                             {renderStudioCatalogPopoverItems()}
                           </div>
                         </div>
@@ -28073,7 +28093,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                 <select
                                   value={selectedBankId}
                                   onChange={(e) => handleSelectBank(e.target.value)}
-                                  className="w-full rounded-lg border border-slate-300 p-2 bg-white text-slate-800 text-xs font-medium"
+                                  className="w-full rounded-lg border border-slate-300 py-2 pl-2.5 pr-8 bg-white text-slate-800 text-xs font-medium truncate"
                                 >
                                   {bankRegistry.map((b) => {
                                     const acctLabel = b.accountNumber ? b.accountNumber : (b.iban || 'No Acct');

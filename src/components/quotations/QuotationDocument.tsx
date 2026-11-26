@@ -2124,11 +2124,11 @@ export function resolveTopCardsLayout(
     placement: 'left' | 'full' | 'right'
   ) => {
     if (style === 'minimal') {
-      return 'border-0 rounded-none bg-transparent print:bg-transparent shadow-none pt-1 pb-1 px-0.5 h-full flex flex-col justify-between break-inside-avoid page-break-inside-avoid';
+      return 'border-0 rounded-none bg-transparent print:bg-transparent shadow-none pt-1 pb-1 px-0.5 h-full flex flex-col justify-start break-inside-avoid page-break-inside-avoid';
     }
     const radiusClass = radius === 'sharp' ? 'rounded-none' : 'rounded-lg';
     const padClass = placement === 'full' ? 'py-2 px-3' : 'p-3';
-    return `border border-slate-200 bg-slate-50/50 print:bg-transparent print:border-slate-300 ${radiusClass} ${padClass} h-full flex flex-col justify-between break-inside-avoid page-break-inside-avoid`;
+    return `border border-slate-200 bg-slate-50/50 print:bg-transparent print:border-slate-300 ${radiusClass} ${padClass} h-full flex flex-col justify-start break-inside-avoid page-break-inside-avoid`;
   };
 
   return {
@@ -10494,15 +10494,15 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
       tokenContext
     );
 
-    // Logo Padding applied directly to the Logo wrapper container, keeping <header> bottom rhythm constant
+    // Logo Padding applied directly to the Logo wrapper container, keeping <header> bottom rhythm tight above TRN/metadata
     const logoWrapperPaddingClass =
       logoSpacing === 'none'
         ? 'p-0'
         : logoSpacing === 'tight'
-        ? 'p-1'
+        ? 'py-0.5 px-0'
         : logoSpacing === 'spacious'
-        ? 'p-3.5'
-        : 'p-2';
+        ? 'py-2 px-0.5'
+        : 'py-1 px-0';
     const logoGapClass =
       logoSpacing === 'none'
         ? 'gap-1.5'
@@ -10817,7 +10817,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                     </div>
                   )}
                   {stackedBrandFieldsWhenLogoOnly.length > 0 && (
-                    <div className={`flex flex-col gap-0.5 mt-1 ${brandHAlignClass}`}>
+                    <div className={`flex flex-col gap-0.5 mt-0.5 ${brandHAlignClass}`}>
                       {stackedBrandFieldsWhenLogoOnly.map((f) => renderFieldItemNode(f))}
                     </div>
                   )}
@@ -10868,7 +10868,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                         </div>
                       )}
                       {resolvedHeaderFieldsMap.underLogo.length > 0 && (
-                        <div className={`flex flex-col gap-0.5 mt-1 ${brandHAlignClass}`}>
+                        <div className={`flex flex-col gap-0.5 mt-0.5 ${brandHAlignClass}`}>
                           {resolvedHeaderFieldsMap.underLogo.map((f) => renderFieldItemNode(f))}
                         </div>
                       )}
@@ -13630,7 +13630,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                                     <td className={`${tdPad} px-1 text-center font-mono text-slate-400 align-top ${tableFontSize}`}>—</td>
                                     <td className={`${tdPad} px-1 text-center font-mono text-slate-400 align-top ${tableFontSize}`}>—</td>
                                     {showUom && (
-                                      <td className={`${tableFontSize} font-mono text-center py-1.5 px-1 leading-tight text-slate-500 uppercase align-top`}>
+                                      <td className={`${tdPad} px-1 text-center font-mono text-slate-500 uppercase align-top ${tableFontSize}`}>
                                         SET
                                       </td>
                                     )}
@@ -13641,7 +13641,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                                       —
                                     </td>
                                     {showUom && (
-                                      <td className={`${tableFontSize} font-mono text-center py-1.5 px-1 leading-tight text-slate-500 uppercase align-top`}>
+                                      <td className={`${tdPad} px-1 text-center font-mono text-slate-500 uppercase align-top ${tableFontSize}`}>
                                         SET
                                       </td>
                                     )}
@@ -14254,7 +14254,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                                           {isItemizedSet ? '' : balQty}
                                         </td>
                                         {showUom && (
-                                          <td className={`${tableFontSize} font-mono text-center py-1.5 px-1 leading-tight text-slate-700 break-words align-top`}>
+                                          <td className={`${tdPad} px-1 text-center font-mono text-slate-700 align-top ${tableFontSize} break-words`}>
                                             <span className="block px-1 text-center uppercase" title={item.unit || 'pcs'}>
                                               {isItemizedSet ? 'SET' : item.unit || 'pcs'}
                                             </span>
@@ -14281,7 +14281,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                                       )}
                                     </td>
                                     {showUom && (
-                                      <td className={`${tableFontSize} font-mono text-center py-1.5 px-1 leading-tight text-slate-700 break-words align-top`}>
+                                      <td className={`${tdPad} px-1 text-center font-mono text-slate-700 align-top ${tableFontSize} break-words`}>
                                         <span className="block px-1 text-center uppercase" title={item.unit || 'pcs'}>
                                           {isItemizedSet ? (
                                             'SET'
@@ -14625,7 +14625,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                                                 {subBal}
                                               </td>
                                               {showUom && (
-                                                <td className={`${tableFontSize} font-mono text-center py-1.5 px-1 leading-tight text-slate-700 uppercase align-top`}>
+                                                <td className={`py-1.5 px-1 text-center font-mono text-slate-700 uppercase align-top ${tableFontSize}`}>
                                                   {sub.unit || 'NOS'}
                                                 </td>
                                               )}
@@ -14655,7 +14655,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                                                 )}
                                               </td>
                                               {showUom && (
-                                                <td className={`${tableFontSize} font-mono text-center py-1.5 px-1 leading-tight text-slate-700 uppercase align-top`}>
+                                                <td className={`py-1.5 px-1 text-center font-mono text-slate-700 uppercase align-top ${tableFontSize}`}>
                                                   {sub.unit || 'NOS'}
                                                 </td>
                                               )}

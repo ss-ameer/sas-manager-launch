@@ -5068,17 +5068,6 @@ export default function EnquiryDetail({
           </span>
         </div>
         <div className="flex items-center gap-1.5 flex-wrap">
-          {isDedicatedTab && canEditEnquiry(user, activeWorkspace, currentEnquiry) && (
-            <button
-              type="button"
-              onClick={handleCreateRevision}
-              className="px-2.5 py-1 bg-white hover:bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-semibold rounded-lg transition cursor-pointer flex items-center gap-1 shadow-2xs"
-              title="Create next Proposal Revision (-R2, -R3)"
-            >
-              <GitFork className="w-3.5 h-3.5 text-emerald-600" />
-              <span>Create Revision</span>
-            </button>
-          )}
           <button
             type="button"
             onClick={() => handleIssueDeliveryNote()}
@@ -5106,18 +5095,6 @@ export default function EnquiryDetail({
             <DollarSign className="w-3.5 h-3.5" />
             <span>Issue Receipt</span>
           </button>
-          {isDedicatedTab && (
-            <button
-              type="button"
-              onClick={() => {
-                void openQuotationStudioWithAutoSave(resolvePrimarySavedQuotation());
-              }}
-              className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap shadow-2xs"
-            >
-              <FileText className="w-3.5 h-3.5" />
-              <span>Open Quotation Studio</span>
-            </button>
-          )}
         </div>
       </div>
 
@@ -5263,25 +5240,25 @@ export default function EnquiryDetail({
       {filteredHubDocuments.length > 0 ? (
         <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-2xs">
           <div className="w-full overflow-x-auto">
-            <table className="w-full table-fixed min-w-[780px] text-left border-collapse text-xs">
+            <table className="w-full table-fixed min-w-[620px] text-left border-collapse text-xs">
               <colgroup>
-                <col className="w-[62px]" />
+                <col className="w-[46px]" />
                 <col className="w-auto" />
-                <col className="w-[58px]" />
-                <col className="w-[104px]" />
-                <col className="w-[136px]" />
-                <col className="w-[104px]" />
-                <col className="w-[244px]" />
+                <col className="w-[46px]" />
+                <col className="w-[88px]" />
+                <col className="w-[114px]" />
+                <col className="w-[78px]" />
+                <col className="w-[186px]" />
               </colgroup>
               <thead>
                 <tr className="bg-slate-100/80 border-b border-slate-200 text-[10px] font-mono uppercase tracking-wider text-slate-500">
-                  <th className="py-2.5 pl-4 pr-2 font-bold whitespace-nowrap">Type</th>
-                  <th className="py-2.5 px-3 font-bold whitespace-nowrap">Reference Code</th>
-                  <th className="py-2.5 px-2 font-bold whitespace-nowrap">Rev #</th>
-                  <th className="py-2.5 px-2.5 font-bold whitespace-nowrap">Created Date</th>
-                  <th className="py-2.5 px-2.5 font-bold text-right whitespace-nowrap">Total Amount</th>
-                  <th className="py-2.5 px-2 font-bold whitespace-nowrap">Status</th>
-                  <th className="py-2.5 pl-2 pr-4 font-bold text-right whitespace-nowrap">Actions</th>
+                  <th className="py-2.5 pl-3 pr-1.5 font-bold whitespace-nowrap">Type</th>
+                  <th className="py-2.5 px-2 font-bold whitespace-nowrap">Reference Code</th>
+                  <th className="py-2.5 px-1.5 font-bold whitespace-nowrap">Rev #</th>
+                  <th className="py-2.5 px-2 font-bold whitespace-nowrap">Created Date</th>
+                  <th className="py-2.5 px-2 font-bold text-right whitespace-nowrap">Total Amount</th>
+                  <th className="py-2.5 px-1.5 font-bold whitespace-nowrap">Status</th>
+                  <th className="py-2.5 pl-1.5 pr-3 font-bold text-right whitespace-nowrap">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -5345,7 +5322,7 @@ export default function EnquiryDetail({
                           : ''
                       }`}
                     >
-                      <td className="py-2.5 pl-4 pr-2 whitespace-nowrap align-middle">
+                      <td className="py-2.5 pl-3 pr-1.5 whitespace-nowrap align-middle">
                         <span
                           className={`inline-flex items-center px-1.5 py-0.5 rounded border text-[10px] font-mono font-bold ${badgeClass}`}
                         >
@@ -5353,7 +5330,7 @@ export default function EnquiryDetail({
                         </span>
                       </td>
 
-                      <td className="py-2.5 px-3 align-middle overflow-hidden">
+                      <td className="py-2.5 px-2 align-middle overflow-hidden">
                         <div className="flex items-center gap-1.5 min-w-0">
                           <HoverScrollText
                             text={q.formatted_quote_ref || '—'}
@@ -5380,7 +5357,7 @@ export default function EnquiryDetail({
                         )}
                       </td>
 
-                      <td className="py-2.5 px-2 whitespace-nowrap font-mono tabular-nums align-middle">
+                      <td className="py-2.5 px-1.5 whitespace-nowrap font-mono tabular-nums align-middle">
                         {isQuoteDoc ? (
                           <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200 text-[10px] font-bold">
                             R{q.revision_number || 1}
@@ -5390,11 +5367,11 @@ export default function EnquiryDetail({
                         )}
                       </td>
 
-                      <td className="py-2.5 px-2.5 whitespace-nowrap font-mono tabular-nums text-[11px] text-slate-600 align-middle">
+                      <td className="py-2.5 px-2 whitespace-nowrap font-mono tabular-nums text-[11px] text-slate-600 align-middle">
                         {formattedDate}
                       </td>
 
-                      <td className="py-2.5 px-2.5 whitespace-nowrap text-right font-mono tabular-nums align-middle">
+                      <td className="py-2.5 px-2 whitespace-nowrap text-right font-mono tabular-nums align-middle">
                         {docType === 'delivery_note' || docType === 'material_return_note' ? (
                           <span className="text-[10.5px] font-semibold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200">
                             Unpriced • {(q.line_items || []).length} item(s)
@@ -5418,7 +5395,7 @@ export default function EnquiryDetail({
                         )}
                       </td>
 
-                      <td className="py-2.5 px-2 whitespace-nowrap">
+                      <td className="py-2.5 px-1.5 whitespace-nowrap align-middle">
                         {isApproved && isQuoteDoc ? (
                           <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border bg-emerald-100 text-emerald-800 border-emerald-300">
                             <CheckCircle2 className="w-3 h-3 text-emerald-600" />
@@ -5444,13 +5421,13 @@ export default function EnquiryDetail({
                         )}
                       </td>
 
-                      <td className="py-2.5 pl-2 pr-4 whitespace-nowrap text-right align-middle">
+                      <td className="py-2.5 pl-1.5 pr-3 whitespace-nowrap text-right align-middle">
                         <div className="inline-flex items-center justify-end gap-1">
                           {linkedEnqId && linkedEnqId !== currentEnquiry.id && onSelectEnquiry ? (
                             <button
                               type="button"
                               onClick={() => onSelectEnquiry(linkedEnqId)}
-                              className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-xs font-semibold rounded-lg transition cursor-pointer"
+                              className="px-1.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-[11px] font-semibold rounded-lg transition cursor-pointer"
                             >
                               Switch
                             </button>
@@ -5462,11 +5439,11 @@ export default function EnquiryDetail({
                                   isBaselineVirtual ? resolvePrimarySavedQuotation() : q
                                 );
                               }}
-                              className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-semibold rounded-lg transition cursor-pointer flex items-center gap-1"
+                              className="px-1.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-[11px] font-semibold rounded-lg transition cursor-pointer flex items-center gap-1"
                               title="Open in Quotation Studio"
                             >
                               <Edit2 className="w-3 h-3 shrink-0" />
-                              <span>Open in Studio</span>
+                              <span>Studio</span>
                             </button>
                           )}
 
@@ -5475,7 +5452,7 @@ export default function EnquiryDetail({
                             onClick={() => {
                               void handleOutsideQuickPrint(q);
                             }}
-                            className="px-2 py-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 text-xs font-semibold rounded-lg transition cursor-pointer flex items-center gap-1"
+                            className="px-1.5 py-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 text-[11px] font-semibold rounded-lg transition cursor-pointer flex items-center gap-1"
                             title="Print or Save as PDF"
                           >
                             <Printer className="w-3 h-3 text-slate-500 shrink-0" />
@@ -5486,7 +5463,7 @@ export default function EnquiryDetail({
                             <button
                               type="button"
                               onClick={() => handleCreateQuotationRevision(q)}
-                              className="px-2 py-1 bg-white hover:bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-semibold rounded-lg transition cursor-pointer flex items-center gap-1"
+                              className="px-1.5 py-1 bg-white hover:bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11px] font-semibold rounded-lg transition cursor-pointer flex items-center gap-1"
                               title={`Fork Revision R${(q.revision_number || 1) + 1}`}
                             >
                               <GitFork className="w-3 h-3 shrink-0" />
@@ -5499,7 +5476,7 @@ export default function EnquiryDetail({
                               <button
                                 type="button"
                                 onClick={() => promptAcceptQuotation(q)}
-                                className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg transition cursor-pointer"
+                                className="px-1.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold rounded-lg transition cursor-pointer"
                                 title="Accept Commercial Offer & Win Enquiry"
                               >
                                 Accept
@@ -5507,7 +5484,7 @@ export default function EnquiryDetail({
                               <button
                                 type="button"
                                 onClick={() => openDeclineModal(q)}
-                                className="px-2 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-semibold rounded-lg transition cursor-pointer"
+                                className="px-1.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-[11px] font-semibold rounded-lg transition cursor-pointer"
                                 title="Mark Quotation as Declined"
                               >
                                 Decline
